@@ -1,5 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
+[ext_resource path="res://14_debug/DebugConsole.gd" type="Script" id="1_2"]
 [node name="DebugConsole" type="Control"]
 script = ExtResource("1_2")
 
@@ -17,5 +18,3 @@ size = Vector2(0, 300)
 [node name="Input" type="LineEdit" parent="Container" name="Input"]
 unique_name_in_owner = true
 size = Vector2(0, 30)
-
-[ext_resource path="res://14_debug/DebugConsole.gd" type="Script" id="1_2"]

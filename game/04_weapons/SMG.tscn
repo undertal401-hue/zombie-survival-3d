@@ -1,13 +1,11 @@
 [gd_scene load_steps=3 format=3]
 
+[ext_resource path="res://04_weapons/RangedWeapon.gd" type="Script" id="1_2"]
+[sub_resource type="BoxMesh" id="res_22"]
+size = Vector3(0.1, 0.08, 0.45)
+
 [node name="SMG" type="Node3D"]
 script = ExtResource("1_2")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
 mesh = SubResource("res_22")
-
-[sub_resource type="BoxMesh" id="res_22"]
-size = Vector3(0.1, 0.08, 0.45)
-
-
-[ext_resource path="res://04_weapons/RangedWeapon.gd" type="Script" id="1_2"]
