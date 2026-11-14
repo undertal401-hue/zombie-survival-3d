@@ -9,7 +9,7 @@ extends Node3D
 
 const PITCH_MIN: float = -80.0
 const PITCH_MAX: float = 75.0
-const MOUSE_SENSITIVITY: float = 0.0025
+const MOUSE_SENSITIVITY: float = 0.0015
 const ADS_SENSITIVITY_SCALE: float = 0.6
 const NORMAL_FOV: float = 75.0
 const ADS_FOV: float = 50.0

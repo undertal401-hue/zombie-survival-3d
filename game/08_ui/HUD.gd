@@ -17,6 +17,7 @@ signal crosshair_visibility_changed(visible: bool)
 @onready var coin_label: Label = %CoinLabel
 @onready var notification_panel: VBoxContainer = %NotificationPanel
 @onready var crosshair: TextureRect = %Crosshair
+@onready var crosshair_color: Color = Color(1, 1, 1, 0.8)
 @onready var interaction_prompt: Label = %InteractionPrompt
 
 var _notifications: Array[Dictionary] = []
@@ -24,8 +25,12 @@ var _player: Player = null
 
 
 func _ready() -> void:
+	crosshair.modulate = crosshair_color
+	crosshair.self_modulate = crosshair_color
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_connect_signals()
+	# Intentar encontrar jugador inmediatamente
+	call_deferred("_try_find_player")
 
 
 func _connect_signals() -> void:
@@ -41,17 +46,11 @@ func _connect_signals() -> void:
 	EventBus.safe_zone_exited.connect(_on_safe_zone_exited)
 
 
-## Obtiene el jugador del arbol (diferido hasta que exista).
-func _on_player_ready() -> void:
+## Intenta encontrar el jugador al inicio.
+func _try_find_player() -> void:
 	var player: Player = get_tree().get_first_node_in_group("player") as Player
 	if player != null:
-		_player = player
-		health_bar.set_max(player.stats.max_hp)
-		health_bar.set_value(player.stats.hp)
-		stamina_bar.set_max(player.stats.max_stamina)
-		stamina_bar.set_value(player.stats.stamina)
-		infection_bar.set_max(player.stats.max_infection)
-		infection_bar.set_value(player.stats.infection)
+		_on_player_spawned(player)
 
 
 func _process(delta: float) -> void:
@@ -72,9 +71,12 @@ func _update_notifications(delta: float) -> void:
 
 
 func _update_crosshair_spread() -> void:
-	if _player == null or _player.weapon_manager == null:
+	if _player == null:
 		return
-	var weapon: BaseWeapon = _player.weapon_manager.active_weapon
+	var weapon_manager: Node = _player.get_node_or_null("WeaponManager")
+	if weapon_manager == null:
+		return
+	var weapon: BaseWeapon = weapon_manager.active_weapon
 	if weapon is RangedWeapon:
 		var spread: float = (weapon as RangedWeapon).recoil.current_spread((weapon as RangedWeapon).is_ads_active)
 		crosshair.scale = Vector2.ONE * (1.0 + spread * 0.1)
@@ -83,6 +85,18 @@ func _update_crosshair_spread() -> void:
 func _on_player_spawned(player: Node3D) -> void:
 	if player is Player:
 		_player = player as Player
+		_initialize_bars(_player)
+
+
+func _initialize_bars(player: Player) -> void:
+	if player.stats == null:
+		return
+	health_bar.set_max(player.stats.max_hp)
+	health_bar.set_value(player.stats.hp)
+	stamina_bar.set_max(player.stats.max_stamina)
+	stamina_bar.set_value(player.stats.stamina)
+	infection_bar.set_max(player.stats.max_infection)
+	infection_bar.set_value(player.stats.infection)
 
 
 func _on_health_changed(current: float, maximum: float) -> void:

@@ -24,6 +24,7 @@ var _combat_timer: float = 0.0
 
 
 func _ready() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	collision_layer = PLAYER_LAYER
 	collision_mask = PLAYER_MASK
 	add_to_group("player")
