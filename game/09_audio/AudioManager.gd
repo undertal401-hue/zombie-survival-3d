@@ -1,7 +1,5 @@
 extends Node
 ## Gestor de audio global: musica, SFX, voces y buses.
-##
-## Singleton autoload. Expone buses por nombre y controla volumenes.
 
 const MAX_VOICES: int = 24
 const DEFAULT_FADE: float = 1.0
@@ -25,10 +23,15 @@ func _ready() -> void:
 	EventBus.shop_phase_started.connect(_on_shop_phase)
 	EventBus.wave_started.connect(_on_wave_started)
 	EventBus.duck_music.connect(_on_duck_music)
-	# Aplicar volumenes iniciales usando indices de bus por defecto
-	AudioServer.set_bus_volume_db(0, master_volume_db)  # Master
-	AudioServer.set_bus_volume_db(1, music_volume_db)   # Music (si existe)
-	AudioServer.set_bus_volume_db(2, sfx_volume_db)     # SFX (si existe)
+	
+	# Aplicar volumenes de forma segura (solo buses que existan)
+	var bus_count = AudioServer.get_bus_count()
+	if bus_count > 0:
+		AudioServer.set_bus_volume_db(0, master_volume_db)  # Master
+	if bus_count > 1:
+		AudioServer.set_bus_volume_db(1, music_volume_db)   # Music
+	if bus_count > 2:
+		AudioServer.set_bus_volume_db(2, sfx_volume_db)     # SFX
 
 
 ## Crea el reproductor de musica.
@@ -48,13 +51,11 @@ func _on_duck_music(level: float) -> void:
 		_music_player.volume_db = level
 
 
-## Metodo estatico para que GameManager pueda llamar duck_music
-
-
-## Reproduce una pista de musica.
+## Reproduce una pista de musica (no hace nada si no existe el archivo).
 func _on_music_requested(track_id: StringName, fade: float = DEFAULT_FADE) -> void:
 	var stream: AudioStream = _get_music_stream(track_id)
 	if stream == null:
+		# No hay musica: simplemente no reproducir nada
 		return
 	if _music_player.playing:
 		_music_fade_tween = create_tween()
@@ -76,12 +77,12 @@ func _get_music_stream(track_id: StringName) -> AudioStream:
 	var table: Resource = load("res://16_data/MusicTable.tres")
 	if table != null and table.has(track_id):
 		var track_path: String = table.get_track(track_id)
-		if track_path != null and track_path != "":
+		if track_path != null and track_path != "" and ResourceLoader.exists(track_path):
 			return load(track_path) as AudioStream
 	var path: String = "res://assets/audio/music/%s.ogg" % track_id
 	if ResourceLoader.exists(path):
 		return load(path) as AudioStream
-	return null
+	return null  # No hay musica
 
 
 func _on_music_stopped() -> void:
@@ -150,13 +151,17 @@ func _get_voice_player() -> AudioStreamPlayer3D:
 ## Cambia el volumen master.
 func set_master_volume_db(db: float) -> void:
 	master_volume_db = db
-	AudioServer.set_bus_volume_db(0, db)
+	var bus_count = AudioServer.get_bus_count()
+	if bus_count > 0:
+		AudioServer.set_bus_volume_db(0, db)
 
 
 ## Cambia el volumen de musica.
 func set_music_volume_db(db: float) -> void:
 	music_volume_db = db
-	AudioServer.set_bus_volume_db(1, db)
+	var bus_count = AudioServer.get_bus_count()
+	if bus_count > 1:
+		AudioServer.set_bus_volume_db(1, db)
 	if _music_player != null:
 		_music_player.volume_db = db
 
@@ -164,7 +169,9 @@ func set_music_volume_db(db: float) -> void:
 ## Cambia el volumen de SFX.
 func set_sfx_volume_db(db: float) -> void:
 	sfx_volume_db = db
-	AudioServer.set_bus_volume_db(2, db)
+	var bus_count = AudioServer.get_bus_count()
+	if bus_count > 2:
+		AudioServer.set_bus_volume_db(2, db)
 
 
 ## Obtiene el volumen master actual.
