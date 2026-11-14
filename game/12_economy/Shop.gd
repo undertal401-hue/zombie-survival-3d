@@ -19,6 +19,7 @@ var current_wave: int = 1
 
 
 func _ready() -> void:
+	add_to_group("shop")
 	_load_price_table()
 	_load_rarity_table()
 

@@ -29,7 +29,10 @@ func build() -> void:
 		return
 	var mid: Vector3 = (from_center + to_center) * 0.5
 	global_position = mid
+	# look_at alinea -Z con la direccion, pero el pasillo se construye en X.
+	# Rotamos 90 grados para alinear el pasillo correctamente.
 	look_at(to_center)
+	rotation.y += PI * 0.5
 	_build_floor(length)
 	_build_walls(length)
 
@@ -46,6 +49,7 @@ func _build_floor(length: float) -> void:
 	floor.position = Vector3(0.0, 0.05, 0.0)
 	add_child(floor)
 	var static_body := StaticBody3D.new()
+	static_body.collision_layer = 4  # environment layer
 	var collision: CollisionShape3D = CollisionShape3D.new()
 	collision.shape = BoxShape3D.new()
 	(collision.shape as BoxShape3D).size = Vector3(length, 0.1, WIDTH)
@@ -73,6 +77,7 @@ func _build_walls(length: float) -> void:
 		add_child(wall)
 		walls.append(wall)
 		var static_body := StaticBody3D.new()
+		static_body.collision_layer = 4  # environment layer
 		var collision: CollisionShape3D = CollisionShape3D.new()
 		collision.shape = BoxShape3D.new()
 		(collision.shape as BoxShape3D).size = wall_size

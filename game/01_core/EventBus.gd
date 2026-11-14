@@ -46,6 +46,7 @@ signal damage_dealt(damage_info: Resource)
 signal damage_blocked(damage_info: Resource)
 signal hit_registered(damage_info: Resource)
 signal knockback_applied(target: Node3D, impulse: Vector3)
+signal duck_music(level: float)
 signal explosion_triggered(origin: Vector3, radius: float, damage: float)
 signal critical_hit(damage_info: Resource)
 

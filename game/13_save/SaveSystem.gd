@@ -201,20 +201,20 @@ func _restore_inventory(player, inv_data: Dictionary) -> void:
 
 func _get_settings() -> Dictionary:
 	return {
-		"master_volume": AudioManager.get_master_volume_db(),
-		"music_volume": AudioManager.get_music_volume_db(),
-		"sfx_volume": AudioManager.get_sfx_volume_db(),
+		"master_volume": get_tree().root.get_node("AudioManager").get_master_volume_db(),
+		"music_volume": get_tree().root.get_node("AudioManager").get_music_volume_db(),
+		"sfx_volume": get_tree().root.get_node("AudioManager").get_sfx_volume_db(),
 		"mouse_sensitivity": Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED,
 	}
 
 
 func _apply_settings(data: Dictionary) -> void:
 	if data.has("master_volume"):
-		AudioManager.set_master_volume_db(float(data["master_volume"]))
+		get_tree().root.get_node("AudioManager").set_master_volume_db(float(data["master_volume"]))
 	if data.has("music_volume"):
-		AudioManager.set_music_volume_db(float(data["music_volume"]))
+		get_tree().root.get_node("AudioManager").set_music_volume_db(float(data["music_volume"]))
 	if data.has("sfx_volume"):
-		AudioManager.set_sfx_volume_db(float(data["sfx_volume"]))
+		get_tree().root.get_node("AudioManager").set_sfx_volume_db(float(data["sfx_volume"]))
 
 
 ## Elimina un slot de guardado.

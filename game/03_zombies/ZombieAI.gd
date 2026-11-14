@@ -36,7 +36,6 @@ var _attack_damage_pending: bool = false
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	set_physics_process(false)
 
 func _physics_process(delta: float) -> void:
 	if zombie == null or zombie.stats == null:
@@ -67,9 +66,10 @@ func _update_target() -> void:
 	else:
 		state = State.CHASE if state == State.IDLE else state
 
-func _state_idle(_delta: float) -> void:
+func _state_idle(delta: float) -> void:
 	if zombie != null:
-		zombie.velocity = zombie.velocity.move_toward(Vector3.ZERO, 6.0 * get_physics_process_delta_time())
+		zombie.velocity = zombie.velocity.move_toward(Vector3.ZERO, 6.0 * delta)
+		zombie.velocity.y -= 9.8 * delta
 		zombie.move_and_slide()
 	if target != null:
 		state = State.CHASE
@@ -91,7 +91,7 @@ func _state_chase(delta: float) -> void:
 	var desired: Vector3 = (direction * zombie.stats.speed + separation * SEPARATION_FORCE)
 	zombie.velocity.x = move_toward(zombie.velocity.x, desired.x, 12.0 * delta)
 	zombie.velocity.z = move_toward(zombie.velocity.z, desired.z, 12.0 * delta)
-	zombie.velocity.y -= 9.8
+	zombie.velocity.y -= 9.8 * delta
 	zombie.move_and_slide()
 	_face_direction(direction, delta)
 
@@ -110,6 +110,7 @@ func _state_attack(delta: float) -> void:
 func _state_stagger(delta: float) -> void:
 	stagger_timer -= delta
 	zombie.velocity = zombie.velocity.move_toward(Vector3.ZERO, 8.0 * delta)
+	zombie.velocity.y -= 9.8 * delta
 	zombie.move_and_slide()
 	if stagger_timer <= 0.0:
 		state = State.CHASE

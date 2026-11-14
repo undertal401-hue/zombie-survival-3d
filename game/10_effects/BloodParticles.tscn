@@ -1,0 +1,24 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://05_combat/BloodParticles.gd" id="1_blood_particles"]
+
+[node name="BloodParticles" type="GPUParticles3D"]
+script = ExtResource("1_blood_particles")
+emitting = false
+amount = 20
+time_scale = 1.0
+one_shot = true
+explosiveness = 1.0
+randomness = 0.5
+lifetime = 0.8
+local_coords = false
+fixed_fps = 0
+fractional_delta = false
+collision_enabled = false
+emission_shape = 1
+emission_sphere_radius = 0.1
+gravity = Vector3(0, -9.8, 0)
+initial_velocity = Vector3(0, 5, 0)
+initial_velocity_random = 0.5
+scale = 0.1
+scale_random = 0.5

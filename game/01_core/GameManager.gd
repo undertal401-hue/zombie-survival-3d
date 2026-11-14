@@ -128,6 +128,6 @@ func state_name(state: int = current_state) -> String:
 func _on_game_state_changed(previous: int, current: int) -> void:
 	match current:
 		GameState.PAUSED:
-			AudioManager.duck_music(0.35)
+			EventBus.duck_music.emit(0.35)
 		GameState.PLAYING:
-			AudioManager.duck_music(1.0)
+			EventBus.duck_music.emit(1.0)

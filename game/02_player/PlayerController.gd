@@ -97,7 +97,7 @@ func _apply_velocity(delta: float) -> void:
 		player.velocity.x = move_toward(player.velocity.x, target.x, accel * delta)
 		player.velocity.z = move_toward(player.velocity.z, target.z, accel * delta)
 	if not player.is_on_floor():
-		player.velocity.y -= GRAVITY
+		player.velocity.y -= GRAVITY * delta
 	player.move_and_slide()
 
 

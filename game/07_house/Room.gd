@@ -33,6 +33,7 @@ func _build_floor() -> void:
 	floor.position = Vector3(0.0, 0.05, 0.0)
 	add_child(floor)
 	var static_body := StaticBody3D.new()
+	static_body.collision_layer = 4  # environment layer
 	var collision: CollisionShape3D = CollisionShape3D.new()
 	collision.shape = BoxShape3D.new()
 	(collision.shape as BoxShape3D).size = Vector3(size.x * 4.0, 0.1, size.y * 4.0)
@@ -73,6 +74,7 @@ func _build_walls() -> void:
 		add_child(wall)
 		walls.append(wall)
 		var static_body := StaticBody3D.new()
+		static_body.collision_layer = 4  # environment layer
 		var collision: CollisionShape3D = CollisionShape3D.new()
 		collision.shape = BoxShape3D.new()
 		(collision.shape as BoxShape3D).size = sizes[i]

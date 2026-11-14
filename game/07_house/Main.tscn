@@ -1,26 +1,22 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene format=3 uid="uid://c2560uur14p65"]
 
-[ext_resource type="Script" path="res://07_house/Main.gd" id="1_main"]
-[ext_resource type="Script" path="res://02_player/Player.gd" id="2_player"]
-[ext_resource type="Script" path="res://07_house/HouseGenerator.gd" id="3_house"]
-[ext_resource type="Script" path="res://03_zombies/ZombieSpawner.gd" id="4_spawner"]
-[ext_resource type="Script" path="res://05_combat/DamageSystem.gd" id="5_damage"]
-[ext_resource type="Script" path="res://05_combat/KnockbackSystem.gd" id="6_knock"]
-[ext_resource type="Script" path="res://05_combat/ExplosionSystem.gd" id="7_boom"]
+[ext_resource type="Script" uid="uid://gsrvsnisnsyy" path="res://07_house/Main.gd" id="1_main"]
+[ext_resource type="Script" uid="uid://bbxypqpthcx6o" path="res://02_player/Player.gd" id="2_player"]
+[ext_resource type="Script" uid="uid://8bvcp41u32f6" path="res://07_house/HouseGenerator.gd" id="3_house"]
+[ext_resource type="Script" uid="uid://dpypmicnalcue" path="res://03_zombies/ZombieSpawner.gd" id="4_spawner"]
+[ext_resource type="Script" uid="uid://budjanue5bp22" path="res://05_combat/DamageSystem.gd" id="5_damage"]
+[ext_resource type="Script" uid="uid://ydmywh86tc6" path="res://05_combat/KnockbackSystem.gd" id="6_knock"]
+[ext_resource type="Script" uid="uid://cs2g5v0c3pbrb" path="res://05_combat/ExplosionSystem.gd" id="7_boom"]
 [ext_resource type="PackedScene" path="res://08_ui/HUD.tscn" id="8_hud"]
 [ext_resource type="PackedScene" path="res://08_ui/Notifications.tscn" id="9_notif"]
 [ext_resource type="PackedScene" path="res://08_ui/ShopUI.tscn" id="10_shop"]
 [ext_resource type="PackedScene" path="res://08_ui/PauseMenu.tscn" id="11_pause"]
+[ext_resource type="Script" uid="uid://c3b1l117n5apm" path="res://05_combat/BloodSystem.gd" id="12_0o10o"]
+[ext_resource type="Script" uid="uid://wmipdmq2kqvu" path="res://05_combat/ImpactSystem.gd" id="13_v66pr"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_main"]
 radius = 0.4
 height = 1.8
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_floor"]
-size = Vector3(60, 0.5, 60)
-
-[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
-size = Vector2(60, 60)
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -29,55 +25,72 @@ ambient_light_source = 2
 ambient_light_color = Color(0.35, 0.4, 0.5, 1)
 ambient_light_energy = 0.6
 
-[node name="Main" type="Node3D"]
+[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
+size = Vector2(60, 60)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_floor"]
+size = Vector3(60, 0.5, 60)
+
+[node name="Main" type="Node3D" unique_id=634734857]
 script = ExtResource("1_main")
 
-[node name="HouseGenerator" type="Node3D" parent="."]
+[node name="HouseGenerator" type="Node3D" parent="." unique_id=107854916]
 script = ExtResource("3_house")
 
-[node name="ZombieSpawner" type="Node3D" parent="."]
+[node name="ZombieSpawner" type="Node3D" parent="." unique_id=745494088]
 script = ExtResource("4_spawner")
 
-[node name="DamageSystem" type="Node" parent="."]
+[node name="DamageSystem" type="Node" parent="." unique_id=45829065]
 script = ExtResource("5_damage")
 
-[node name="KnockbackSystem" type="Node" parent="."]
+[node name="KnockbackSystem" type="Node" parent="." unique_id=1466861201]
 script = ExtResource("6_knock")
 
-[node name="ExplosionSystem" type="Node" parent="."]
+[node name="ExplosionSystem" type="Node" parent="." unique_id=500028274]
 script = ExtResource("7_boom")
 
-[node name="Player" type="CharacterBody3D" parent="."]
+[node name="Player" type="CharacterBody3D" parent="." unique_id=1351243893]
 script = ExtResource("2_player")
-start_position = Vector3(0, 1.0, 0)
+start_position = Vector3(0, 1, 0)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player" unique_id=455475951]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.16491228, 0.030275822, 0)
 shape = SubResource("CapsuleShape3D_main")
 
-[node name="HUD" parent="." instance=ExtResource("8_hud")]
+[node name="HUD" parent="." unique_id=53793814 instance=ExtResource("8_hud")]
 
-[node name="Notifications" parent="." instance=ExtResource("9_notif")]
+[node name="Notifications" parent="." unique_id=542421208 instance=ExtResource("9_notif")]
 
-[node name="ShopUI" parent="." instance=ExtResource("10_shop")]
+[node name="ShopUI" parent="." unique_id=1678058798 instance=ExtResource("10_shop")]
+layout_mode = 3
+anchors_preset = 0
 
-[node name="PauseMenu" parent="." instance=ExtResource("11_pause")]
+[node name="PauseMenu" parent="." unique_id=1735605139 instance=ExtResource("11_pause")]
+layout_mode = 3
+anchors_preset = 0
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-rotation_degrees = Vector3(-52, 35, 0)
-light_color = Color(1.0, 0.95, 0.88, 1)
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=2062212832]
+transform = Transform3D(0.81915206, -0.45198438, 0.35312894, 0, 0.6156615, 0.7880107, -0.57357645, -0.6455006, 0.5043204, 0, 0, 0)
+light_color = Color(1, 0.95, 0.88, 1)
 light_energy = 1.3
 shadow_enabled = true
 directional_shadow_max_distance = 90.0
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=258419750]
 environment = SubResource("Environment_main")
 
-[node name="Floor" type="StaticBody3D" parent="."]
-position = Vector3(0, -0.25, 0)
+[node name="Floor" type="StaticBody3D" parent="." unique_id=541383628]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.25, 0)
 
-[node name="FloorMesh" type="MeshInstance3D" parent="Floor"]
+[node name="FloorMesh" type="MeshInstance3D" parent="Floor" unique_id=551185637]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0, 0)
 mesh = SubResource("PlaneMesh_floor")
-rotation_degrees = Vector3(-90, 0, 0)
 
-[node name="FloorCollision" type="CollisionShape3D" parent="Floor"]
+[node name="FloorCollision" type="CollisionShape3D" parent="Floor" unique_id=1138708184]
 shape = SubResource("BoxShape3D_floor")
+
+[node name="BloodSystem" type="Node3D" parent="." unique_id=2011434744]
+script = ExtResource("12_0o10o")
+
+[node name="ImpactSystem" type="Node3D" parent="." unique_id=1045822347]
+script = ExtResource("13_v66pr")

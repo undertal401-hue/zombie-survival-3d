@@ -25,6 +25,7 @@ var _shake_amount: float = 0.0
 var _shake_offset: Vector3 = Vector3.ZERO
 var _base_position: Vector3 = Vector3.ZERO
 var _target_fov: float = NORMAL_FOV
+var player: Player = null
 
 
 func _ready() -> void:
@@ -36,6 +37,8 @@ func _ready() -> void:
 	camera.current = true
 	_base_position = Vector3(0.0, 0.6, camera_arm_length)
 	camera.position = _base_position
+	if player == null:
+		player = get_parent() as Player
 
 
 func _process(delta: float) -> void:
@@ -46,10 +49,9 @@ func _process(delta: float) -> void:
 
 ## Aplica el yaw/pitch desde el input.
 func _apply_look() -> void:
-	var player: Player = owner as Player
-	var input: InputHandler = player.input_handler if player != null else null
-	if input == null:
+	if player == null or player.input_handler == null:
 		return
+	var input: InputHandler = player.input_handler
 	var delta_mouse: Vector2 = input.consume_aim_delta()
 	var sens: float = MOUSE_SENSITIVITY
 	if input.is_aiming:
@@ -61,9 +63,10 @@ func _apply_look() -> void:
 
 ## Interpola el FOV entre el valor normal y el de apuntado.
 func _apply_fov(delta: float) -> void:
-	var player: Player = owner as Player
-	var input: InputHandler = player.input_handler if player != null else null
-	_target_fov = ADS_FOV if (input != null and input.is_aiming) else NORMAL_FOV
+	if player == null or player.input_handler == null:
+		_target_fov = NORMAL_FOV
+	else:
+		_target_fov = ADS_FOV if player.input_handler.is_aiming else NORMAL_FOV
 	camera.fov = lerpf(camera.fov, _target_fov, FOV_LERP_SPEED * delta)
 
 

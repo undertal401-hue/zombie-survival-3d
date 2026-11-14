@@ -22,6 +22,22 @@ func _ready() -> void:
 	collision_mask = 0
 	if owner_entity == null:
 		owner_entity = owner as Node3D
+	_build_shape()
+
+func _build_shape() -> void:
+	var shape_node: CollisionShape3D = CollisionShape3D.new()
+	if is_head:
+		var sphere: SphereShape3D = SphereShape3D.new()
+		sphere.radius = 0.3
+		shape_node.shape = sphere
+		shape_node.position = Vector3(0.0, 1.0, 0.0)
+	else:
+		var capsule: CapsuleShape3D = CapsuleShape3D.new()
+		capsule.radius = 0.4
+		capsule.height = 1.2
+		shape_node.shape = capsule
+		shape_node.position = Vector3(0.0, 0.9, 0.0)
+	add_child(shape_node)
 
 
 ## Aplica un modificador de parte al dano entrante.

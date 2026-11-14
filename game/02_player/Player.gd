@@ -26,11 +26,13 @@ var _combat_timer: float = 0.0
 func _ready() -> void:
 	collision_layer = PLAYER_LAYER
 	collision_mask = PLAYER_MASK
+	add_to_group("player")
 	var PlayerStats = load("res://02_player/PlayerStats.gd")
 	stats = PlayerStats.new()
 	config = load("res://16_data/GameBalance.tres")
 	stats.configure(config)
 	_build_components()
+	_build_weapons()
 	global_position = start_position
 	event_bus = get_tree().root.get_node_or_null("EventBus")
 	event_bus.player_spawned.emit(self)
@@ -70,6 +72,31 @@ func _build_components() -> void:
 	audio.name = "PlayerAudio"
 	add_child(audio)
 
+
+func _build_weapons() -> void:
+	var WeaponManager = load("res://04_weapons/WeaponManager.gd")
+	var weapon_manager = WeaponManager.new()
+	weapon_manager.name = "WeaponManager"
+	weapon_manager.player = self
+	add_child(weapon_manager)
+
+	var RangedWeapon = load("res://04_weapons/RangedWeapon.gd")
+	var pistol_data = WeaponData.pistol()
+	var pistol = RangedWeapon.new()
+	pistol.data = pistol_data
+	pistol.name = "Pistol"
+	weapon_manager.register_weapon(pistol)
+	inventory.add_weapon(pistol)
+
+	var MeleeWeapon = load("res://04_weapons/MeleeWeapon.gd")
+	var knife_data = WeaponData.knife()
+	var knife = MeleeWeapon.new()
+	knife.data = knife_data
+	knife.name = "Knife"
+	weapon_manager.register_weapon(knife)
+	inventory.add_weapon(knife)
+
+	weapon_manager.call_deferred("switch_to", 1)
 
 func _physics_process(delta: float) -> void:
 	stats.regenerate(delta, is_in_combat)
