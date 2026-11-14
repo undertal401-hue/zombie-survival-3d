@@ -1,0 +1,45 @@
+{
+  "name": "godot-4-mcp",
+  "version": "1.0.0",
+  "description": "MCP server para Godot 4 - edicion, debug, scene tree, recursos",
+  "protocol": "2024-11-05",
+  "capabilities": {
+    "tools": {
+      "godot_run_scene": {
+        "description": "Ejecuta una escena en modo headless",
+        "params": { "scene_path": "string", "timeout_ms": "integer" }
+      },
+      "godot_inspect_node": {
+        "description": "Inspecciona un nodo del arbol en tiempo de ejecucion",
+        "params": { "node_path": "string", "properties": "string[]" }
+      },
+      "godot_get_resources": {
+        "description": "Lista recursos .tres/.res/.gdshader",
+        "params": { "folder": "string", "type": "string" }
+      },
+      "godot_validate_scene": {
+        "description": "Valida una escena: nodos requeridos, capas de colision, scripts",
+        "params": { "scene_path": "string", "strict": "boolean" }
+      },
+      "godot_apply_diff": {
+        "description": "Aplica un unified diff a archivos del proyecto",
+        "params": { "diff": "string", "dry_run": "boolean" }
+      },
+      "godot_run_tests": {
+        "description": "Ejecuta la suite 17_tests/run_all.gd",
+        "params": { "filter": "string", "verbose": "boolean" }
+      }
+    }
+  },
+  "runtime": {
+    "engine": "godot",
+    "engine_version": "4.3.stable",
+    "headless": true,
+    "project_root": "res://"
+  },
+  "notes": [
+    "Este proyecto incluye un validador equivalente en 14_debug/scene_validator.gd",
+    "CI ejecuta: godot --headless --script 17_tests/run_all.gd",
+    "Para validar una escena: godot --headless --script 17_tests/test_scene_validation.gd"
+  ]
+}

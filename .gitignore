@@ -1,0 +1,31 @@
+# Godot-specific ignores
+.import/
+export.cfg
+export_presets.cfg
+*.translation
+
+# Godot 4 specific
+.godot/
+
+# OS/Editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.log
+
+# Build artifacts
+build/
+dist/
+*.pck
+*.exe
+*.apk
+*.ipa
+*.app
+
+# Local config
+local.cfg
+user.cfg

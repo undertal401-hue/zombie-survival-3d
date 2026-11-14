@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[node name="FireAxe" type="Node3D"]
+script = ExtResource("1_2")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("res_22")
+
+[sub_resource type="BoxMesh" id="res_22"]
+size = Vector3(0.15, 0.02, 0.6)
+
+
+[ext_resource path="res://04_weapons/MeleeWeapon.gd" type="Script" id="1_2"]

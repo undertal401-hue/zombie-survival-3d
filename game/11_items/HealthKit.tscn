@@ -1,0 +1,18 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://11_items/HealthKit.gd" id="1_x"]
+
+[sub_resource type="SphereShape3D" id="res_shape"]
+radius = 0.6
+
+[sub_resource type="BoxMesh" id="res_mesh"]
+size = Vector3(0.12, 0.1, 0.08)
+
+[node name="HealthKit" type="Area3D"]
+script = ExtResource("1_x")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("res_shape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("res_mesh")

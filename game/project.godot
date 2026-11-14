@@ -1,0 +1,265 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
+[application]
+
+config/name="Zombie Survival 3D"
+config/description="PEGI 16 wave-based zombie survival built on Godot 4.3 with a data-driven ECS-lite architecture."
+run/main_scene="res://07_house/Main.tscn"
+config/features=PackedStringArray("4.7")
+config/icon="res://icon.svg"
+
+[autoload]
+
+Config="*res://01_core/ConfigAutoload.gd"
+EventBus="*res://01_core/EventBus.gd"
+GameClock="*res://01_core/GameClock.gd"
+SaveSystem="*res://13_save/SaveSystem.gd"
+AudioManager="*res://09_audio/AudioManager.gd"
+WaveManager="*res://06_waves/WaveManager.gd"
+GameManager="*res://01_core/GameManager.gd"
+DebugConsole="*res://14_debug/DebugConsole.gd"
+MCPRuntimeServer="*res://addons/godot_mcp_toolkit/runtime/mcp_runtime_server.gd"
+_mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
+
+[debug]
+
+gdscript/warnings/unused_signal=0
+gdscript/warnings/shadowed_variable=0
+gdscript/warnings/untyped_declaration=1
+gdscript/warnings/return_value_discarded=1
+gdscript/warnings/integer_division=0
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/godot_ai/plugin.cfg", "res://addons/godot_mcp_toolkit/plugin.cfg")
+
+[input]
+
+move_forward={
+"deadzone": 0.5,
+"events": [{
+"keycode": 87,
+"physical_keycode": -1,
+"type": "Key"
+}, {
+"button_index": 15,
+"type": "JoyButton"
+}]
+}
+move_back={
+"deadzone": 0.5,
+"events": [{
+"keycode": 83,
+"physical_keycode": -1,
+"type": "Key"
+}, {
+"button_index": 14,
+"type": "JoyButton"
+}]
+}
+move_left={
+"deadzone": 0.5,
+"events": [{
+"keycode": 65,
+"physical_keycode": -1,
+"type": "Key"
+}, {
+"button_index": 13,
+"type": "JoyButton"
+}]
+}
+move_right={
+"deadzone": 0.5,
+"events": [{
+"keycode": 68,
+"physical_keycode": -1,
+"type": "Key"
+}, {
+"button_index": 12,
+"type": "JoyButton"
+}]
+}
+sprint={
+"deadzone": 0.5,
+"events": [{
+"keycode": 4194325,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+jump={
+"deadzone": 0.5,
+"events": [{
+"keycode": 32,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+dodge={
+"deadzone": 0.5,
+"events": [{
+"keycode": 4194325,
+"physical_keycode": -1,
+"type": "Key"
+}, {
+"keycode": 67,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+fire={
+"deadzone": 0.5,
+"events": [{
+"button_index": 1,
+"type": "MouseButton"
+}]
+}
+aim={
+"deadzone": 0.5,
+"events": [{
+"button_index": 2,
+"type": "MouseButton"
+}]
+}
+reload={
+"deadzone": 0.5,
+"events": [{
+"keycode": 82,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+interact={
+"deadzone": 0.5,
+"events": [{
+"keycode": 69,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+melee={
+"deadzone": 0.5,
+"events": [{
+"keycode": 70,
+"physical_keycode": -1,
+"type": "Key"
+}, {
+"button_index": 3,
+"type": "MouseButton"
+}]
+}
+switch_primary={
+"deadzone": 0.5,
+"events": [{
+"keycode": 49,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+switch_secondary={
+"deadzone": 0.5,
+"events": [{
+"keycode": 50,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+switch_melee={
+"deadzone": 0.5,
+"events": [{
+"keycode": 51,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+switch_consumable={
+"deadzone": 0.5,
+"events": [{
+"keycode": 52,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+pause={
+"deadzone": 0.5,
+"events": [{
+"keycode": 4194305,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+inventory={
+"deadzone": 0.5,
+"events": [{
+"keycode": 4194306,
+"physical_keycode": -1,
+"type": "Key"
+}, {
+"keycode": 73,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+shop={
+"deadzone": 0.5,
+"events": [{
+"keycode": 66,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+debug_console={
+"deadzone": 0.5,
+"events": [{
+"keycode": 96,
+"physical_keycode": -1,
+"type": "Key"
+}, {
+"keycode": 81,
+"physical_keycode": -1,
+"type": "Key"
+}]
+}
+
+[layer_names]
+
+3d_physics/layer_1="player"
+3d_physics/layer_2="zombie"
+3d_physics/layer_3="bullet"
+3d_physics/layer_4="environment"
+3d_physics/layer_5="pickup"
+3d_physics/layer_6="hitbox"
+3d_physics/layer_7="safezone"
+3d_physics/layer_8="enemy_projectile"
+
+[physics]
+
+3d/default_linear_damp=0.05
+3d/max_sub_steps=8
+3d/default_cell_size=2.0
+
+[rendering]
+
+renderer/rendering_method="mobile"
+anti_aliasing/quality/msaa_3d=2
+quality/shadow_atlas/size=2048
+quality/shadows/filter_mode=2

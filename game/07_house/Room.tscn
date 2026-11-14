@@ -1,0 +1,16 @@
+[gd_scene load_steps=3 format=3]
+
+[node name="Room" type="Node3D"]
+script = ExtResource("1_2")
+
+[node name="Floor" type="StaticBody3D" parent="."]
+position = Vector3(0, 0.05, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+shape = SubResource("res_22")
+
+[sub_resource type="BoxShape3D" id="res_22"]
+size = Vector3(16, 0.1, 16)
+
+
+[ext_resource path="res://07_house/Room.gd" type="Script" id="1_2"]

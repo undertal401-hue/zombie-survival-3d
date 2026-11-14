@@ -1,0 +1,37 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource path="res://08_ui/ShopUI.gd" type="Script" id="1_2"]
+
+[node name="ShopUI" type="Control"]
+script = ExtResource("1_2")
+
+[node name="Container" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.2
+anchor_top = 0.15
+anchor_right = 0.8
+anchor_bottom = 0.85
+
+[node name="CoinLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.02
+anchor_top = 0.02
+anchor_right = 0.2
+anchor_bottom = 0.07
+
+[node name="TimerLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.45
+anchor_top = 0.02
+anchor_right = 0.55
+anchor_bottom = 0.07
+horizontal_alignment = 2
+
+[node name="CloseBtn" type="Button" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.85
+anchor_top = 0.9
+anchor_right = 0.98
+anchor_bottom = 0.97
+text = "Cerrar tienda"
+

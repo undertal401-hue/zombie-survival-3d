@@ -1,0 +1,24 @@
+[gd_scene load_steps=4 format=3]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_acid"]
+radius = 0.18
+
+[sub_resource type="SphereMesh" id="SphereMesh_acid"]
+radius = 0.15
+height = 0.3
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_acid"]
+albedo_color = Color(0.35, 0.9, 0.15, 1)
+emission_enabled = true
+emission = Color(0.2, 0.6, 0.05, 1)
+emission_energy_multiplier = 1.5
+roughness = 0.4
+
+[node name="AcidProjectile" type="Area3D"]
+
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_acid")
+material_override = SubResource("StandardMaterial3D_acid")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("SphereShape3D_acid")

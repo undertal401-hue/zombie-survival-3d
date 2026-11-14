@@ -1,0 +1,22 @@
+[gd_scene load_steps=4 format=3]
+
+[node name="SpitterZombie" type="CharacterBody3D"]
+script = ExtResource("1_2")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("res_22")
+
+[sub_resource type="CapsuleShape3D" id="res_22"]
+radius = 0.45
+height = 1.7
+
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("res_32")
+
+[sub_resource type="CapsuleMesh" id="res_32"]
+radius = 0.45
+height = 1.7
+
+
+[ext_resource path="res://03_zombies/SpitterZombie.gd" type="Script" id="1_2"]
