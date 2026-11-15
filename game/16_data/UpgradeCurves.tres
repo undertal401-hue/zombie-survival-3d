@@ -1,7 +1,0 @@
-[gd_resource type="Resource" load_steps=1 format=3 uid="//uid=UpgradeCurves"]
-
-[resource]
-script = null
-damage_curve = "res://16_data/curves/damage_curve.tres"
-speed_curve = "res://16_data/curves/speed_curve.tres"
-jump_curve = "res://16_data/curves/jump_curve.tres"
