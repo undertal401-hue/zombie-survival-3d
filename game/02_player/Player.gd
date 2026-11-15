@@ -1,6 +1,5 @@
 class_name Player
 extends CharacterBody3D
-## Entidad del jugador: CharacterBody3D + componentes.
 
 const PLAYER_LAYER: int = 1
 const PLAYER_MASK: int = 1 | 2 | 4 | 8
@@ -22,74 +21,82 @@ var is_in_combat: bool = false
 var is_dodging: bool = false
 var _combat_timer: float = 0.0
 
+var body_visual: MeshInstance3D
+
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	collision_layer = PLAYER_LAYER
 	collision_mask = PLAYER_MASK
 	add_to_group("player")
-	var PlayerStats = load("res://02_player/PlayerStats.gd")
-	stats = PlayerStats.new()
+
+	_setup_visual_body()
+
+	var PlayerStatsScript: Script = load("res://02_player/PlayerStats.gd")
+	stats = PlayerStatsScript.new()
 	config = load("res://16_data/GameBalance.tres")
 	stats.configure(config)
+
 	_build_components()
 	_build_weapons()
 	global_position = start_position
+
 	event_bus = get_tree().root.get_node_or_null("EventBus")
 	if event_bus != null:
 		event_bus.player_spawned.emit(self)
 		event_bus.player_health_changed.emit(stats.hp, stats.max_hp)
 		event_bus.player_stamina_changed.emit(stats.stamina, stats.max_stamina)
 		event_bus.player_infection_changed.emit(stats.infection, stats.max_infection)
-	_build_body_visual()
 
 
-func _build_body_visual() -> void:
-	var body_mesh: MeshInstance3D = MeshInstance3D.new()
-	body_mesh.name = "BodyVisual"
+func _setup_visual_body() -> void:
+	body_visual = MeshInstance3D.new()
+	body_visual.name = "BodyVisual"
 
-	var capsule: CapsuleMesh = CapsuleMesh.new()
-	capsule.radius = 0.35
+	var capsule := CapsuleMesh.new()
+	capsule.radius = 0.32
 	capsule.height = 1.7
-	body_mesh.mesh = capsule
-	body_mesh.position = Vector3(0, 0.9, 0)
 
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.albedo_color = Color(0.25, 0.45, 0.75)
-	body_mesh.material_override = material
+	body_visual.mesh = capsule
+	body_visual.position = Vector3(0.0, 0.9, 0.0)
 
-	body_mesh.visible = false
-	add_child(body_mesh)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.25, 0.45, 0.75)
+	body_visual.material_override = mat
+
+	# Primera persona: ocultar cuerpo
+	body_visual.visible = false
+	add_child(body_visual)
 
 
 func _build_components() -> void:
-	var InputHandler = load("res://02_player/InputHandler.gd")
-	input_handler = InputHandler.new()
+	var InputHandlerScript: Script = load("res://02_player/InputHandler.gd")
+	input_handler = InputHandlerScript.new()
 	input_handler.name = "InputHandler"
 	add_child(input_handler)
 
-	var PlayerController = load("res://02_player/PlayerController.gd")
-	controller = PlayerController.new()
+	var PlayerControllerScript: Script = load("res://02_player/PlayerController.gd")
+	controller = PlayerControllerScript.new()
 	controller.name = "PlayerController"
 	controller.player = self
 	add_child(controller)
 
-	var PlayerCamera = load("res://02_player/PlayerCamera.gd")
-	camera_rig = PlayerCamera.new()
+	var PlayerCameraScript: Script = load("res://02_player/PlayerCamera.gd")
+	camera_rig = PlayerCameraScript.new()
 	camera_rig.name = "PlayerCamera"
 	add_child(camera_rig)
 
-	var Inventory = load("res://02_player/Inventory.gd")
-	inventory = Inventory.new()
+	var InventoryScript: Script = load("res://02_player/Inventory.gd")
+	inventory = InventoryScript.new()
 
-	var InteractionComponent = load("res://02_player/InteractionComponent.gd")
-	interaction = InteractionComponent.new()
+	var InteractionComponentScript: Script = load("res://02_player/InteractionComponent.gd")
+	interaction = InteractionComponentScript.new()
 	interaction.name = "Interaction"
 	interaction.player = self
 	add_child(interaction)
 
-	var PlayerAudio = load("res://02_player/PlayerAudio.gd")
-	audio = PlayerAudio.new()
+	var PlayerAudioScript: Script = load("res://02_player/PlayerAudio.gd")
+	audio = PlayerAudioScript.new()
 	audio.name = "PlayerAudio"
 	add_child(audio)
 
@@ -100,21 +107,25 @@ func _build_weapons() -> void:
 	weapon_manager.player = self
 	add_child(weapon_manager)
 
+	var ranged_weapon_script: Script = load("res://04_weapons/RangedWeapon.gd")
 	var pistol_data: WeaponData = WeaponData.pistol()
-	var pistol := RangedWeapon.new()
+	var pistol: BaseWeapon = ranged_weapon_script.new()
 	pistol.data = pistol_data
 	pistol.name = "Pistol"
 	weapon_manager.register_weapon(pistol)
 	inventory.add_weapon(pistol)
 
+	var melee_weapon_script: Script = load("res://04_weapons/MeleeWeapon.gd")
 	var knife_data: WeaponData = WeaponData.knife()
-	var knife := MeleeWeapon.new()
+	var knife: BaseWeapon = melee_weapon_script.new()
 	knife.data = knife_data
 	knife.name = "Knife"
 	weapon_manager.register_weapon(knife)
 	inventory.add_weapon(knife)
 
+	# Pistola secundaria -> slot 2
 	weapon_manager.call_deferred("switch_to", 2)
+
 
 func _physics_process(delta: float) -> void:
 	stats.regenerate(delta, is_in_combat)
@@ -136,8 +147,11 @@ func receive_damage(info) -> void:
 	_combat_timer = config.player_hp_regen_delay
 	if info.infection > 0.0:
 		stats.add_infection(info.infection)
-	event_bus.player_damaged.emit(info.amount, info.source)
-	event_bus.player_health_changed.emit(stats.hp, stats.max_hp)
+
+	if event_bus != null:
+		event_bus.player_damaged.emit(info.amount, info.source)
+		event_bus.player_health_changed.emit(stats.hp, stats.max_hp)
+
 	if stats.hp <= 0.0:
 		_die("killed")
 	elif stats.infection >= config.infection_game_over_at:
@@ -146,13 +160,14 @@ func receive_damage(info) -> void:
 
 func heal(amount: float) -> void:
 	stats.heal(amount)
-	event_bus.player_healed.emit(amount, self)
-	event_bus.player_health_changed.emit(stats.hp, stats.max_hp)
+	if event_bus != null:
+		event_bus.player_healed.emit(amount, self)
+		event_bus.player_health_changed.emit(stats.hp, stats.max_hp)
 
 
 func cure_infection(amount: float) -> void:
 	var applied = stats.cure_infection(amount)
-	if applied > 0.0:
+	if applied > 0.0 and event_bus != null:
 		event_bus.infection_cured.emit(applied)
 		event_bus.player_infection_changed.emit(stats.infection, stats.max_infection)
 
@@ -160,8 +175,10 @@ func cure_infection(amount: float) -> void:
 func _die(reason) -> void:
 	if not is_inside_tree():
 		return
+
 	if event_bus != null:
 		event_bus.player_died.emit(self)
+
 	set_physics_process(false)
 	var _gm: Node = get_tree().root.get_node_or_null("GameManager")
 	if _gm != null:
@@ -173,6 +190,7 @@ func respawn(at: Vector3) -> void:
 	stats.hp = stats.max_hp
 	is_in_combat = false
 	set_physics_process(true)
+
 	if event_bus != null:
 		event_bus.player_spawned.emit(self)
 

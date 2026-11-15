@@ -1,11 +1,7 @@
 class_name PlayerCamera
 
 extends Node3D
-## Rig de camara en tercera persona con ADS, shake y FOV dinamico.
-##
-## El yaw se aplica sobre este nodo; el pitch sobre la Camera3D hija.
-## El controlador de movimiento usa `get_yaw_basis()` para orientar al jugador.
-## Accesible globalmente via `PlayerCamera` (class_name).
+## Rig de camara en primera persona con ADS, shake y FOV dinamico.
 
 const PITCH_MIN: float = -80.0
 const PITCH_MAX: float = 75.0
@@ -35,8 +31,11 @@ func _ready() -> void:
 	camera.fov = NORMAL_FOV
 	camera.far = 200.0
 	camera.current = true
+
+	# Primera persona
 	_base_position = Vector3(0.0, 0.65, 0.0)
 	camera.position = _base_position
+
 	if player == null:
 		player = get_parent() as Player
 
@@ -47,51 +46,47 @@ func _process(delta: float) -> void:
 	_apply_shake(delta)
 
 
-## Aplica el yaw/pitch desde el input.
 func _apply_look() -> void:
 	if player == null or player.input_handler == null:
 		return
+
 	var input: InputHandler = player.input_handler
 	var delta_mouse: Vector2 = input.consume_aim_delta()
 	var sens: float = MOUSE_SENSITIVITY
+
 	if input.is_aiming:
 		sens *= ADS_SENSITIVITY_SCALE
+
 	rotation.y -= delta_mouse.x * sens
 	pitch = clampf(pitch - delta_mouse.y * sens, deg_to_rad(PITCH_MIN), deg_to_rad(PITCH_MAX))
 	camera.rotation.x = pitch
 
 
-## Interpola el FOV entre el valor normal y el de apuntado.
 func _apply_fov(delta: float) -> void:
 	if player == null or player.input_handler == null:
 		_target_fov = NORMAL_FOV
 	else:
 		_target_fov = ADS_FOV if player.input_handler.is_aiming else NORMAL_FOV
+
 	camera.fov = lerpf(camera.fov, _target_fov, FOV_LERP_SPEED * delta)
 
 
-## Aplicar shake decaiente.
 func _apply_shake(delta: float) -> void:
 	if _shake_amount > 0.0:
 		_shake_amount = maxf(_shake_amount - SHAKE_DECAY * delta, 0.0)
-		_shake_offset = Vector3(
-			randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake_amount * 0.1
+		_shake_offset = Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake_amount * 0.1
 		camera.position = _base_position + _shake_offset
 	else:
 		camera.position = _base_position
 
 
-## Anade shake (disparos, explosiones, impactos).
-## @param amount: intensidad 0..1.
 func add_shake(amount: float) -> void:
 	_shake_amount = clampf(_shake_amount + amount, 0.0, 1.5)
 
 
-## Base de orientacion del yaw (sin pitch), util para movimiento y armas.
 func get_yaw_basis() -> Basis:
 	return Basis(Vector3.UP, rotation.y)
 
 
-## Direccion de mirada en world space.
 func get_aim_direction() -> Vector3:
 	return -camera.global_transform.basis.z
