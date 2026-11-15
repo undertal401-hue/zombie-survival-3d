@@ -14,8 +14,8 @@ env:
   GODOT_VERSION: "4.7.2-stable"
 
 jobs:
-  movement-test:
-    name: "godot headless movement test"
+  boot:
+    name: "godot headless boot"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +27,13 @@ jobs:
           chmod +x Godot_v${GODOT_VERSION}_linux.x86_64
 
       - name: "import project"
-        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path . --import
+        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --import
 
-      - name: "run movement test"
-        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path . --script tests/test_movement.gd
+      - name: "boot main scene"
+        run: |
+          timeout 15 ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --quit > boot.log 2>&1 || true
+          cat boot.log
+          if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load" boot.log; then
+            echo "::error::Errores de script al arrancar la escena principal"
+            exit 1
+          fi

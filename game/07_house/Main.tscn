@@ -1,0 +1,38 @@
+[gd_scene load_steps="6" format=3]
+
+[ext_resource type="Script" path="res://02_player/Player.gd" id="1_player"]
+[ext_resource type="Script" path="res://07_house/Main.gd" id="2_main"]
+
+[sub_resource type="BoxShape3D" id="1_floor_shape"]
+size = Vector3(50, 1, 50)
+
+[sub_resource type="BoxMesh" id="1_floor_mesh"]
+size = Vector3(50, 1, 50)
+
+[sub_resource type="CapsuleShape3D" id="1_player_shape"]
+radius = 0.5
+height = 1.8
+
+[node name="Main" type="Node3D"]
+script = ExtResource("2_main")
+
+[node name="Player" type="CharacterBody3D" parent="."]
+script = ExtResource("1_player")
+
+[node name="CameraPivot" type="Node3D" parent="Player"]
+
+[node name="Camera3D" type="Camera3D" parent="Player/CameraPivot"]
+position = Vector3(0, 1.6, 0)
+
+[node name="Collision" type="CollisionShape3D" parent="Player"]
+shape = SubResource("1_player_shape")
+position = Vector3(0, 0.9, 0)
+
+[node name="Floor" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+shape = SubResource("1_floor_shape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor"]
+mesh = SubResource("1_floor_mesh")
