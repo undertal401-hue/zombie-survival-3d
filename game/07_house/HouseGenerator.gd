@@ -147,3 +147,7 @@ func get_player_start() -> Vector3:
 ## Obtiene la posicion del baño (safe zone).
 func get_bathroom_position() -> Vector3:
 	return bathroom.global_position if bathroom != null else Vector3.ZERO
+
+
+func _on_animation_player_animation_finished(anim_name: StringName) -> void:
+	pass # Replace with function body.

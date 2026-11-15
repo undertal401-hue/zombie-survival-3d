@@ -97,3 +97,7 @@ func _find_player_start(generator: Node3D) -> Vector3:
 			return child.global_position + Vector3(generator.room_size.x * 0.5, 1, generator.room_size.z * 0.5)
 	
 	return Vector3(0, 1, 0)
+
+
+func _on_animation_player_animation_finished(anim_name: StringName) -> void:
+	pass # Replace with function body.

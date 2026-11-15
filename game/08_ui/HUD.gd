@@ -150,3 +150,7 @@ func _color_for_tone(tone: StringName) -> Color:
 		&"error": return Color(1.0, 0.3, 0.3)
 		&"reward": return Color(0.3, 1.0, 0.5)
 	return Color(1.0, 1.0, 1.0)
+
+
+func _on_animation_player_animation_changed(old_name: StringName, new_name: StringName) -> void:
+	pass # Replace with function body.

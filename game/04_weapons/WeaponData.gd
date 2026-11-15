@@ -213,7 +213,7 @@ static func _make_crossbow() -> WeaponData:
 	var d := _base(&"crossbow", "Ballesta", SlotType.PRIMARY, FireMode.PROJECTILE, AmmoType.BOLTS)
 	d.damage = 70.0; d.fire_rate = 0.9; d.magazine = 1; d.reserve_max = 24
 	d.reload_time = 2.4; d.range = 80.0; d.is_hitscan = false
-	d.projectile_scene = "res://04_weapons/BoltProjectile.tscn"
+	d.projectile_scene = "res://10_effects/BoltProjectile.tscn"
 	d.projectile_speed = 55.0; d.projectile_gravity = 6.0
 	d.price = 600; d.unlock_wave = 6; d.rarity_id = &"rare"
 	return d
@@ -223,7 +223,7 @@ static func _make_grenade_launcher() -> WeaponData:
 	var d := _base(&"grenade_launcher", "Lanzagranadas", SlotType.PRIMARY, FireMode.PROJECTILE, AmmoType.ROCKETS)
 	d.damage = 90.0; d.fire_rate = 1.0; d.magazine = 4; d.reserve_max = 24
 	d.reload_time = 3.0; d.range = 60.0; d.is_hitscan = false
-	d.projectile_scene = "res://04_weapons/GrenadeProjectile.tscn"
+	d.projectile_scene = "res://10_effects/GrenadeProjectile.tscn"
 	d.projectile_speed = 22.0; d.projectile_gravity = 9.0
 	d.price = 1200; d.unlock_wave = 7; d.rarity_id = &"epic"
 	return d
@@ -241,7 +241,7 @@ static func _make_experimental() -> WeaponData:
 	var d := _base(&"experimental", "Arma experimental", SlotType.PRIMARY, FireMode.CHARGE, AmmoType.EXPERIMENTAL)
 	d.damage = 200.0; d.fire_rate = 0.4; d.magazine = 3; d.reserve_max = 12
 	d.reload_time = 4.0; d.range = 120.0; d.is_hitscan = false
-	d.projectile_scene = "res://04_weapons/PlasmaProjectile.tscn"
+	d.projectile_scene = "res://10_effects/PlasmaProjectile.tscn"
 	d.projectile_speed = 40.0; d.projectile_gravity = 0.0
 	d.is_experimental = true; d.price = 5000; d.unlock_wave = 10
 	d.rarity_id = &"legendary"

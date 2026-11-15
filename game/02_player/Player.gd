@@ -97,7 +97,7 @@ func _build_weapons() -> void:
 	weapon_manager.register_weapon(knife)
 	inventory.add_weapon(knife)
 
-	weapon_manager.call_deferred("switch_to", 1)
+	weapon_manager.call_deferred("switch_to", 2)
 
 func _physics_process(delta: float) -> void:
 	stats.regenerate(delta, is_in_combat)
