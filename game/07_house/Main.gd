@@ -9,7 +9,6 @@ func _ready() -> void:
 
 	_generate_house(player)
 
-	# Solo una vez
 	var gm: GameManager = get_tree().root.get_node_or_null("GameManager") as GameManager
 	if gm != null:
 		gm.start_run()
@@ -49,11 +48,12 @@ func _generate_house(player: Node3D) -> void:
 
 	var start_pos: Vector3 = _find_player_start(generator)
 	if start_pos == Vector3.ZERO:
-		start_pos = Vector3(0.0, 1.0, 0.0)
+		start_pos = Vector3(0.0, 1.0, 4.0)
 
-	start_pos.y = 0.9
 	player.global_position = start_pos
 
+	# Refrescar spawn points tras generar la casa (el spawner los calcula
+	# en su propio _ready, antes de que exista la geometria).
 	var spawner: ZombieSpawner = get_node_or_null("ZombieSpawner") as ZombieSpawner
 	if spawner != null:
 		spawner._refresh_spawn_points()
@@ -62,10 +62,10 @@ func _generate_house(player: Node3D) -> void:
 func _find_player_start(generator: Node3D) -> Vector3:
 	for child in generator.get_children():
 		if child.name.begins_with("Room_0"):
-			return child.global_position
+			return child.global_position + Vector3(0.0, 1.0, 2.0)
 
 	for child in generator.get_children():
 		if child.name.begins_with("Room_"):
-			return child.global_position
+			return child.global_position + Vector3(0.0, 1.0, 2.0)
 
-	return Vector3.ZERO
+	return Vector3(0.0, 1.0, 4.0)
