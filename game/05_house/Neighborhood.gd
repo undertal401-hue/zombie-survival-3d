@@ -11,10 +11,10 @@ const HOUSE_SCENE: PackedScene = preload("res://05_house/House.tscn")
 @export var columns: int = 5
 @export var rows: int = 4
 @export var cell_size: Vector2 = Vector2(480, 300)
-@export var road_width: float = 60.0
+@export var road_width: float = 110.0
 @export var layout_seed: int = 1337
-@export var house_min_size: Vector2 = Vector2(260, 140)
-@export var house_max_size: Vector2 = Vector2(340, 170)
+@export var house_min_size: Vector2 = Vector2(240, 120)
+@export var house_max_size: Vector2 = Vector2(320, 150)
 @export var road_color: Color = Color(0.15, 0.15, 0.16)
 @export var sidewalk_color: Color = Color(0.3, 0.3, 0.3)
 
