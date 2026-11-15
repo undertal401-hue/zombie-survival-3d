@@ -199,9 +199,9 @@ static func _rotate_y(v: Vector3, angle: float) -> Vector3:
 	var ca: float = cos(angle)
 	var sa: float = sin(angle)
 	return Vector3(
-		v.x * ca - v.z * sin(angle),
+		v.x * ca - v.z * sa,
 		v.y,
-		v.x * sin(angle) + v.z * ca
+		v.x * sa + v.z * ca
 	)
 
 
@@ -234,8 +234,8 @@ func _build_floor_rooms(floor_y: float) -> void:
 func _build_room(pos: Vector3, data: Dictionary) -> void:
 	var room_node: Node3D = Node3D.new()
 	room_node.name = "Room_%d" % data["index"]
-	room_node.global_position = pos
 	add_child(room_node)
+	room_node.global_position = pos
 	
 	var size: Vector3 = room_size
 	var half_x: float = size.x * 0.5
@@ -243,9 +243,9 @@ func _build_room(pos: Vector3, data: Dictionary) -> void:
 	var half_y: float = size.y * 0.5
 	
 	# Suelo
-	_build_box(room_node, Vector3(size.x, 0.2, size.z), pos + Vector3(0, -half_y + 0.1, 0), floor_material, true)
+	_build_box(room_node, Vector3(size.x, 0.2, size.z), Vector3(0, -half_y + 0.1, 0), floor_material, true)
 	# Techo
-	_build_box(room_node, Vector3(size.x, 0.2, size.z), pos + Vector3(0, half_y - 0.1, 0), ceiling_material, true)
+	_build_box(room_node, Vector3(size.x, 0.2, size.z), Vector3(0, half_y - 0.1, 0), ceiling_material, true)
 	
 	# Paredes con huecos para puertas
 	var walls: Array[Dictionary] = [
@@ -277,22 +277,22 @@ func _build_room(pos: Vector3, data: Dictionary) -> void:
 			
 			if left_w > 0.1:
 				_build_box(room_node, Vector3(left_w, size.y, wall_thickness),
-					pos + wall_data["pos"] + _rotate_y(Vector3(-wall_w*0.5 + left_w*0.5, 0, 0), wall_data["rot"].y),
+					wall_data["pos"] + offset_left,
 					wall_material, true)
 			
 			# Dintel sobre la puerta
 			_build_box(room_node, Vector3(door_w, 1.2, wall_thickness),
-				pos + wall_data["pos"] + _rotate_y(Vector3(0, size.y*0.5 - 0.6, 0), wall_data["rot"].y),
+				wall_data["pos"] + offset_lintel,
 				wall_material, true)
 			
 			if left_w > 0.1:
 				_build_box(room_node, Vector3(left_w, size.y, wall_thickness),
-					pos + wall_data["pos"] + _rotate_y(Vector3(wall_w*0.5 - left_w*0.5, 0, 0), wall_data["rot"].y),
+					wall_data["pos"] + offset_right,
 					wall_material, true)
 		else:
 			# Pared completa
 			_build_box(room_node, wall_data["size"],
-				pos + wall_data["pos"],
+				wall_data["pos"],
 				wall_material, true)
 
 
@@ -354,7 +354,7 @@ func _build_stairs(start_y: float) -> void:
 	rail.mesh = rail_box
 	rail.material_override = wall_material
 	rail.position = Vector3(room_size.x * 0.4, start_y + room_size.y * 0.5, -room_size.z * 0.4)
-	add_child(rail)
+	stairs.add_child(rail)
 	
 	var rail_col: StaticBody3D = StaticBody3D.new()
 	rail_col.collision_layer = 4
@@ -365,4 +365,4 @@ func _build_stairs(start_y: float) -> void:
 	rail_shape.shape = rail_box_shape
 	rail_col.add_child(rail_shape)
 	rail_col.position = rail.position
-	add_child(rail_col)
+	stairs.add_child(rail_col)
