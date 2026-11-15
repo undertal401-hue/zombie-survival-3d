@@ -36,12 +36,29 @@ func _ready() -> void:
 	_build_weapons()
 	global_position = start_position
 	event_bus = get_tree().root.get_node_or_null("EventBus")
-	if event_bus == null:
-		return
-	event_bus.player_spawned.emit(self)
-	event_bus.player_health_changed.emit(stats.hp, stats.max_hp)
-	event_bus.player_stamina_changed.emit(stats.stamina, stats.max_stamina)
-	event_bus.player_infection_changed.emit(stats.infection, stats.max_infection)
+	if event_bus != null:
+		event_bus.player_spawned.emit(self)
+		event_bus.player_health_changed.emit(stats.hp, stats.max_hp)
+		event_bus.player_stamina_changed.emit(stats.stamina, stats.max_stamina)
+		event_bus.player_infection_changed.emit(stats.infection, stats.max_infection)
+	_build_body_visual()
+
+
+func _build_body_visual() -> void:
+	var body_mesh: MeshInstance3D = MeshInstance3D.new()
+	body_mesh.name = "BodyVisual"
+
+	var capsule: CapsuleMesh = CapsuleMesh.new()
+	capsule.radius = 0.35
+	capsule.height = 1.7
+	body_mesh.mesh = capsule
+	body_mesh.position = Vector3(0, 0.9, 0)
+
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.albedo_color = Color(0.25, 0.45, 0.75)
+	body_mesh.material_override = material
+
+	add_child(body_mesh)
 
 
 func _build_components() -> void:
@@ -77,23 +94,20 @@ func _build_components() -> void:
 
 
 func _build_weapons() -> void:
-	var WeaponManager = load("res://04_weapons/WeaponManager.gd")
-	var weapon_manager = WeaponManager.new()
+	var weapon_manager := WeaponManager.new()
 	weapon_manager.name = "WeaponManager"
 	weapon_manager.player = self
 	add_child(weapon_manager)
 
-	var RangedWeapon = load("res://04_weapons/RangedWeapon.gd")
-	var pistol_data = WeaponData.pistol()
-	var pistol = RangedWeapon.new()
+	var pistol_data: WeaponData = WeaponData.pistol()
+	var pistol := RangedWeapon.new()
 	pistol.data = pistol_data
 	pistol.name = "Pistol"
 	weapon_manager.register_weapon(pistol)
 	inventory.add_weapon(pistol)
 
-	var MeleeWeapon = load("res://04_weapons/MeleeWeapon.gd")
-	var knife_data = WeaponData.knife()
-	var knife = MeleeWeapon.new()
+	var knife_data: WeaponData = WeaponData.knife()
+	var knife := MeleeWeapon.new()
 	knife.data = knife_data
 	knife.name = "Knife"
 	weapon_manager.register_weapon(knife)
