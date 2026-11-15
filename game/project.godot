@@ -21,6 +21,7 @@ config/features=PackedStringArray("4.7")
 config/icon="res://icon.svg"
 
 [autoload]
+Bootstrap="*res://01_core/Bootstrap.gd"
 
 Config="*res://01_core/ConfigAutoload.gd"
 EventBus="*res://01_core/EventBus.gd"
