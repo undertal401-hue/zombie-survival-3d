@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.7.2-stable"
+
+jobs:
+  movement-test:
+    name: "godot headless movement test"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "download godot"
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q godot.zip
+          chmod +x Godot_v${GODOT_VERSION}_linux.x86_64
+
+      - name: "import project"
+        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path . --import
+
+      - name: "run movement test"
+        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path . --script tests/test_movement.gd
