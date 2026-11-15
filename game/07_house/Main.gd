@@ -56,12 +56,9 @@ func _generate_house(player: Node3D) -> void:
 	generator.generate()
 	
 	# Buscar punto de spawn del jugador
-	var start_pos: Vector3 = _find_player_start(generator)
-	if start_pos != Vector3.ZERO:
-		start_pos.y = maxf(start_pos.y + 0.6, 1.0)
-		player.global_position = start_pos
-	else:
-		player.global_position = Vector3(0, 1, 0)
+	var start_pos := _find_player_start(generator)
+	start_pos.y = 0.9 # El origen del CharacterBody queda a la altura del centro de la cápsula.
+	player.global_position = start_pos
 	
 	# Refrescar spawn points del spawner
 	var spawner: ZombieSpawner = get_node_or_null("ZombieSpawner") as ZombieSpawner
@@ -70,21 +67,15 @@ func _generate_house(player: Node3D) -> void:
 
 
 func _find_player_start(generator: Node3D) -> Vector3:
-	# Buscar la primera habitación (entrada, index 0)
 	for child in generator.get_children():
 		if child.name.begins_with("Room_0"):
-			# Encontrar el nodo Interior o usar el centro de la habitación
-			for interior in child.find_children("*", "Interior"):
-				return interior.global_position + Vector3(0, 1, 0)
-			# Fallback: centro de la habitación
-			return child.global_position + Vector3(generator.room_size.x * 0.5, 1, generator.room_size.z * 0.5)
-	
-	# Fallback global
+			return child.global_position
+
 	for child in generator.get_children():
 		if child.name.begins_with("Room_"):
-			return child.global_position + Vector3(generator.room_size.x * 0.5, 1, generator.room_size.z * 0.5)
-	
-	return Vector3(0, 1, 0)
+			return child.global_position
+
+	return Vector3.ZERO
 
 
 func _on_animation_player_animation_finished(anim_name: StringName) -> void:

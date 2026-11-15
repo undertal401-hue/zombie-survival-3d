@@ -35,7 +35,7 @@ func _ready() -> void:
 	camera.fov = NORMAL_FOV
 	camera.far = 200.0
 	camera.current = true
-	_base_position = Vector3(0.0, 0.6, camera_arm_length)
+	_base_position = Vector3(0.0, 0.65, 0.0)
 	camera.position = _base_position
 	if player == null:
 		player = get_parent() as Player

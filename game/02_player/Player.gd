@@ -58,6 +58,7 @@ func _build_body_visual() -> void:
 	material.albedo_color = Color(0.25, 0.45, 0.75)
 	body_mesh.material_override = material
 
+	body_mesh.visible = false
 	add_child(body_mesh)
 
 

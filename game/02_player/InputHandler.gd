@@ -26,7 +26,6 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	aim_delta = Input.get_last_mouse_velocity()
 	is_firing = Input.is_action_pressed("fire")
 	is_aiming = Input.is_action_pressed("aim")
 	move_vector = Input.get_vector("move_left", "move_right", "move_back", "move_forward")
@@ -35,6 +34,11 @@ func _process(_delta: float) -> void:
 		_just_pressed[action] = state and not _pressed[action]
 		_just_released[action] = _pressed[action] and not state
 		_pressed[action] = state
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		aim_delta += event.relative
 
 
 ## Limpia las pulsaciones "just" de este frame.
