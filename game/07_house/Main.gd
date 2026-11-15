@@ -67,18 +67,6 @@ func _generate_house(player: Node3D) -> void:
 	var spawner: ZombieSpawner = get_node_or_null("ZombieSpawner") as ZombieSpawner
 	if spawner != null:
 		spawner._refresh_spawn_points()
-	
-	# Iniciar la partida
-	var gm: GameManager = get_tree().root.get_node_or_null("GameManager") as GameManager
-	if gm != null:
-		gm.start_run()
-	
-	var wm: WaveManager = get_tree().root.get_node_or_null("WaveManager") as WaveManager
-	if wm != null:
-		wm.start_run()
-	
-	if spawner != null and wm != null:
-		spawner.set_wave_data(wm._current_data)
 
 
 func _find_player_start(generator: Node3D) -> Vector3:

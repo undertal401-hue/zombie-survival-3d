@@ -46,8 +46,8 @@ jobs:
           unzip -q godot.zip
           chmod +x Godot_v${GODOT_VERSION}_linux.x86_64
       - name: "import project"
-        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --import
+        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --import
       - name: "run suite"
-        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --script 17_tests/run_all.gd
+        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --script 17_tests/run_all.gd
       - name: "validate scenes"
-        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --script 17_tests/test_scene_validation.gd -- --all
+        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --script 17_tests/test_scene_validation.gd -- --all

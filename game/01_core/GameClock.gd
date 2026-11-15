@@ -20,7 +20,9 @@ var is_paused: bool = false:
 		if is_paused == value:
 			return
 		is_paused = value
-		get_tree().paused = value
+		var _tree := get_tree()
+		if _tree != null:
+			_tree.paused = value
 		if value:
 			clock_paused.emit()
 		else:

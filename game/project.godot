@@ -22,6 +22,8 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+Bootstrap="*res://01_core/Bootstrap.gd"
+
 Config="*res://01_core/ConfigAutoload.gd"
 EventBus="*res://01_core/EventBus.gd"
 GameClock="*res://01_core/GameClock.gd"

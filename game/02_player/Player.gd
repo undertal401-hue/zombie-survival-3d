@@ -36,6 +36,8 @@ func _ready() -> void:
 	_build_weapons()
 	global_position = start_position
 	event_bus = get_tree().root.get_node_or_null("EventBus")
+	if event_bus == null:
+		return
 	event_bus.player_spawned.emit(self)
 	event_bus.player_health_changed.emit(stats.hp, stats.max_hp)
 	event_bus.player_stamina_changed.emit(stats.stamina, stats.max_stamina)
@@ -143,7 +145,8 @@ func cure_infection(amount: float) -> void:
 func _die(reason) -> void:
 	if not is_inside_tree():
 		return
-	event_bus.player_died.emit(self)
+	if event_bus != null:
+		event_bus.player_died.emit(self)
 	set_physics_process(false)
 	var _gm: Node = get_tree().root.get_node_or_null("GameManager")
 	if _gm != null:
@@ -155,7 +158,8 @@ func respawn(at: Vector3) -> void:
 	stats.hp = stats.max_hp
 	is_in_combat = false
 	set_physics_process(true)
-	event_bus.player_spawned.emit(self)
+	if event_bus != null:
+		event_bus.player_spawned.emit(self)
 
 
 func get_stats():
