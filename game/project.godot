@@ -1,12 +1,14 @@
 config_version=5
 
 [application]
-config/name="Zombie Survival"
+config/name="Zombie Survival 2D"
 config/features=PackedStringArray("4.7")
 run/main_scene="res://07_house/Main.tscn"
 
-[rendering]
-environment/default_clear_color=Color(0.45, 0.62, 0.78, 1.0)
+[autoload]
+EventBus="*res://01_core/EventBus.gd"
+GameClock="*res://01_core/GameClock.gd"
+Inventory="*res://02_player/Inventory.gd"
 
 [input]
 
@@ -14,6 +16,10 @@ move_forward={
 "deadzone": 0.5,
 "events": [{
 "keycode": 87,
+"physical_keycode": -1,
+"type": "Key"
+}, {
+"keycode": 4194320,
 "physical_keycode": -1,
 "type": "Key"
 }]
@@ -24,6 +30,10 @@ move_back={
 "keycode": 83,
 "physical_keycode": -1,
 "type": "Key"
+}, {
+"keycode": 4194321,
+"physical_keycode": -1,
+"type": "Key"
 }]
 }
 move_left={
@@ -32,12 +42,20 @@ move_left={
 "keycode": 65,
 "physical_keycode": -1,
 "type": "Key"
+}, {
+"keycode": 4194322,
+"physical_keycode": -1,
+"type": "Key"
 }]
 }
 move_right={
 "deadzone": 0.5,
 "events": [{
 "keycode": 68,
+"physical_keycode": -1,
+"type": "Key"
+}, {
+"keycode": 4194323,
 "physical_keycode": -1,
 "type": "Key"
 }]
@@ -50,11 +68,6 @@ sprint={
 "type": "Key"
 }]
 }
-jump={
-"deadzone": 0.5,
-"events": [{
-"keycode": 32,
-"physical_keycode": -1,
-"type": "Key"
-}]
-}
+
+[rendering]
+environment/default_clear_color=Color(0.12, 0.14, 0.1, 1.0)
