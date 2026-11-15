@@ -3,14 +3,15 @@ extends CharacterBody2D
 const SPEED := 200.0
 const SPRINT_SPEED := 320.0
 const MAX_HP := 100.0
-const SPAWN := Vector2.ZERO
 
 @onready var input_handler: InputHandler = $InputHandler
 
 var hp: float = MAX_HP
+var _spawn_position: Vector2
 
 func _ready() -> void:
 	add_to_group("player")
+	_spawn_position = global_position
 
 func _physics_process(delta: float) -> void:
 	var move: Vector2 = input_handler.get_move_vector()
@@ -34,7 +35,7 @@ func receive_damage(amount: float) -> void:
 	EventBus.player_damaged.emit(amount, self)
 	if hp <= 0.0:
 		hp = MAX_HP
-		global_position = SPAWN
+		global_position = _spawn_position
 
 func heal(amount: float) -> void:
 	hp = min(hp + amount, MAX_HP)
