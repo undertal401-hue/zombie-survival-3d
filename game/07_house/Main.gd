@@ -89,11 +89,11 @@ func _find_player_start(generator: Node3D) -> Vector3:
 			for interior in child.find_children("*", "Interior"):
 				return interior.global_position + Vector3(0, 1, 0)
 			# Fallback: centro de la habitación
-			return child.global_position + Vector3(0, 1, 0)
+			return child.global_position + Vector3(generator.room_size.x * 0.5, 1, generator.room_size.z * 0.5)
 	
 	# Fallback global
 	for child in generator.get_children():
 		if child.name.begins_with("Room_"):
-			return child.global_position + Vector3(0, 1, 0)
+			return child.global_position + Vector3(generator.room_size.x * 0.5, 1, generator.room_size.z * 0.5)
 	
 	return Vector3(0, 1, 0)
