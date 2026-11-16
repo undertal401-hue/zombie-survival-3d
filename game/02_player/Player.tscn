@@ -1,10 +1,13 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://02_player/InputHandler.gd" id="1"]
 [ext_resource type="Script" path="res://02_player/Player.gd" id="2"]
 
 [sub_resource type="RectangleShape2D" id="1_rect"]
 size = Vector2(24, 24)
+
+[sub_resource type="OccluderPolygon2D" id="1_occluder"]
+polygon = PackedVector2Array(-12, -12, 12, -12, 12, 12, -12, 12)
 
 [node name="Player" type="CharacterBody2D"]
 collision_mask = 3
@@ -23,6 +26,9 @@ polygon = PackedVector2Array(8, -4, 16, 0, 8, 4)
 
 [node name="Collision" type="CollisionShape2D" parent="."]
 shape = SubResource("1_rect")
+
+[node name="LightOccluder2D" type="LightOccluder2D" parent="."]
+occluder = SubResource("1_occluder")
 
 [node name="Camera2D" type="Camera2D" parent="."]
 current = true

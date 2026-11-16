@@ -179,11 +179,12 @@ func _add_wall(rect: Rect2) -> void:
 
 	var visual := Polygon2D.new()
 	visual.color = wall_color
-	var hx: float = rect.size.x * 0.5
-	var hy: float = rect.size.y * 0.5
+	visual.position = Vector2.ZERO  # Centered on body
+	var vhx: float = rect.size.x * 0.5
+	var vhy: float = rect.size.y * 0.5
 	visual.polygon = PackedVector2Array([
-		Vector2(-hx, -hy), Vector2(hx, -hy),
-		Vector2(hx, hy), Vector2(-hx, hy),
+		Vector2(-vhx, -vhy), Vector2(vhx, -vhy),
+		Vector2(vhx, vhy), Vector2(-vhx, vhy),
 	])
 	body.add_child(visual)
 
