@@ -86,13 +86,9 @@ func _setup_canvas_modulate() -> void:
 func _setup_sun_light() -> void:
 	sun_light.color = sun_color
 	sun_light.energy = sun_energy
-	sun_light.height = sun_height
 	sun_light.shadow_enabled = sun_shadow_enabled
 	sun_light.shadow_filter = shadow_filter
 	# light_mode ya configurado en la escena (0 = ADD)
-	# Configurar máscara de sombras para capa 1 (objetos del mundo)
-	sun_light.item_cull_mask = 1
-	sun_light.item_shadow_cull_mask = 1
 
 func _get_glare_shader_code() -> String:
 	return """
@@ -148,22 +144,26 @@ func _apply_lighting() -> void:
 		mat.set_shader_parameter("glare_falloff", glare_falloff)
 
 func _update_sun_position() -> void:
-	# Posicionar Light2D lejos en la dirección del sol
-	# +X = Este, +Y = Sur
+	# DirectionalLight2D en Godot 4 usa rotación para definir la dirección
+	# La luz apunta en la dirección de su rotación (rotación 0 = hacia la derecha/Este)
 	# solar_angle: 0 = Este, PI/2 = Sur, PI = Oeste, -PI/2 = Norte
-	# Sol en ángulo -> luz en esa dirección -> sombras apuntan dirección opuesta
-	var light_pos := Vector2(cos(solar_angle), sin(solar_angle)) * sun_distance
-	sun_light.global_position = light_pos
+	# Sol en Este (0) -> luz viaja hacia Oeste -> rotación = PI (180°)
+	# Sol en Oeste (PI) -> luz viaja hacia Este -> rotación = 0
+	var light_rot := solar_angle + PI  # La luz apunta en dirección opuesta al sol
+	sun_light.rotation = light_rot
 	
 	# Actualizar posición del resplandor en pantalla (para el shader glare)
+	var light_dir := Vector2(cos(solar_angle), sin(solar_angle))
 	var viewport_size := get_viewport().get_visible_rect().size
 	var map_half := Vector2(2400.0, 1500.0)
+	var light_pos := light_dir * sun_distance
 	var screen_pos := (light_pos + map_half) / (map_half * 2.0)
 	screen_pos.y = 1.0 - screen_pos.y  # Invertir Y para UV
 	_set_sun_screen_pos(screen_pos)
 
 	# Emitir señal de cambio de dirección
 	solar_direction_changed.emit(solar_angle, solar_angle_deg)
+
 
 func _process(delta: float) -> void:
 	if not demo_transition:
@@ -186,9 +186,6 @@ func _process(delta: float) -> void:
 	_solar_rad_to_deg()
 	_update_sun_position()
 	_apply_lighting()
-
-func _solar_rad_to_deg() -> void:
-	solar_angle_deg = rad_to_deg(solar_angle)
 
 ## API pública para control externo
 

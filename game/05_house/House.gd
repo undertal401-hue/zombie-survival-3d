@@ -177,9 +177,21 @@ func _add_wall(rect: Rect2) -> void:
 	shape.shape = rect_shape
 	body.add_child(shape)
 
+	# LightOccluder2D for shadow casting (matches wall rectangle)
+	var occluder := LightOccluder2D.new()
+	var occ_poly := OccluderPolygon2D.new()
+	var hx: float = rect.size.x * 0.5
+	var hy: float = rect.size.y * 0.5
+	occ_poly.polygon = PackedVector2Array([
+		Vector2(-hx, -hy), Vector2(hx, -hy),
+		Vector2(hx, hy), Vector2(-hx, hy),
+	])
+	occluder.occluder = occ_poly
+	body.add_child(occluder)
+
 	var visual := Polygon2D.new()
 	visual.color = wall_color
-	visual.position = Vector2.ZERO  # Centered on body
+	visual.position = Vector2.ZERO
 	var vhx: float = rect.size.x * 0.5
 	var vhy: float = rect.size.y * 0.5
 	visual.polygon = PackedVector2Array([
