@@ -16,23 +16,46 @@ const STAMINA_REGEN := 16.0
 const REGEN_DELAY := 0.7
 const MEDKIT_HEAL := 45.0
 
+const FOOD_ITEM_ID := "comida"
+const FOOD_RESTORE := 35.0
+const FOOD_FULL_MARGIN := 5.0
+const STARVATION_TICK := 2.0
+const STARVATION_DAMAGE := 2.0
+
+## Ajustables desde el inspector o por código. Con 0.2/s una barra llena
+## dura unos 8 minutos; la comida recupera 35 puntos.
+@export var max_hunger: float = 100.0
+@export var hunger_drain_per_second: float = 0.2
+@export var hunger_warning_threshold: float = 30.0
+
 @onready var input_handler: InputHandler = $InputHandler
 
 var hp: float = MAX_HP
 var stamina: float = MAX_STAMINA
+var hunger: float = 0.0
 var is_dead: bool = false
 
 var _attack_cooldown: float = 0.0
 var _swing_time: float = 0.0
 var _regen_delay: float = 0.0
 var _last_stamina_int: int = int(MAX_STAMINA)
+var _last_hunger_int: int = -1
+var _starvation_timer: float = 0.0
+var _hunger_warning_shown: bool = false
+var _starvation_warned: bool = false
 
 func _ready() -> void:
 	add_to_group("player")
+	hunger = max_hunger
 	EventBus.player_health_changed.emit(hp, MAX_HP)
 	EventBus.player_stamina_changed.emit(stamina, MAX_STAMINA)
+	_emit_hunger_if_changed(true)
 
 func _physics_process(delta: float) -> void:
+	if is_dead:
+		return
+
+	_update_hunger(delta)
 	if is_dead:
 		return
 
@@ -69,6 +92,8 @@ func _physics_process(delta: float) -> void:
 		attack()
 	if Input.is_action_just_pressed("use_medkit"):
 		use_medkit()
+	if Input.is_action_just_pressed("use_food"):
+		use_food()
 
 ## Golpe en cono corto. Cuesta aguante y respeta paredes (raycast de linea de vista).
 func attack() -> bool:
@@ -109,6 +134,57 @@ func use_medkit() -> bool:
 	heal(MEDKIT_HEAL)
 	EventBus.notification.emit("Botiquín usado: +%d vida" % int(MEDKIT_HEAL))
 	return true
+
+func use_food() -> bool:
+	if is_dead:
+		return false
+	if hunger >= max_hunger - FOOD_FULL_MARGIN:
+		EventBus.notification.emit("No tienes hambre")
+		return false
+	if not Inventory.remove_item(FOOD_ITEM_ID, 1):
+		EventBus.notification.emit("No tienes comida")
+		return false
+	var before: float = hunger
+	hunger = minf(hunger + FOOD_RESTORE, max_hunger)
+	_emit_hunger_if_changed(true)
+	EventBus.notification.emit("Comida consumida: +%d hambre" % int(round(hunger - before)))
+	return true
+
+func _update_hunger(delta: float) -> void:
+	if hunger > 0.0:
+		hunger = maxf(hunger - hunger_drain_per_second * delta, 0.0)
+	_emit_hunger_if_changed()
+
+	if hunger <= 0.0:
+		if not _starvation_warned:
+			_starvation_warned = true
+			EventBus.notification.emit("¡Inanición! Pierdes vida. Busca comida.")
+		_starvation_timer += delta
+		while _starvation_timer >= STARVATION_TICK:
+			_starvation_timer -= STARVATION_TICK
+			receive_damage(STARVATION_DAMAGE)
+			if is_dead:
+				return
+	else:
+		_starvation_timer = 0.0
+		_starvation_warned = false
+
+	_update_hunger_warning()
+
+func _update_hunger_warning() -> void:
+	var hungry: bool = hunger <= hunger_warning_threshold
+	if hungry and not _hunger_warning_shown:
+		_hunger_warning_shown = true
+		EventBus.notification.emit("Tienes hambre. Busca comida.")
+	elif not hungry:
+		_hunger_warning_shown = false
+
+func _emit_hunger_if_changed(force: bool = false) -> void:
+	var current: int = int(round(hunger))
+	if not force and current == _last_hunger_int:
+		return
+	_last_hunger_int = current
+	EventBus.player_hunger_changed.emit(hunger, max_hunger, hunger_warning_threshold)
 
 func receive_damage(amount: float) -> void:
 	if is_dead:

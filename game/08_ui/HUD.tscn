@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://08_ui/HUD.gd" id="1"]
 
@@ -34,6 +34,13 @@ corner_radius_bottom_left = 2
 
 [sub_resource type="StyleBoxFlat" id="stamina_fill"]
 bg_color = Color(0.32, 0.72, 0.4, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="hunger_fill"]
+bg_color = Color(0.82, 0.55, 0.18, 1)
 corner_radius_top_left = 2
 corner_radius_top_right = 2
 corner_radius_bottom_right = 2
@@ -108,11 +115,26 @@ show_percentage = false
 theme_override_styles/background = SubResource("bar_bg")
 theme_override_styles/fill = SubResource("stamina_fill")
 
+[node name="HungerLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.82, 0.55, 1)
+theme_override_font_sizes/font_size = 14
+text = "HAMBRE 100 / 100"
+
+[node name="HungerBar" type="ProgressBar" parent="Status/Margin/VBox"]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+max_value = 100.0
+value = 100.0
+show_percentage = false
+theme_override_styles/background = SubResource("bar_bg")
+theme_override_styles/fill = SubResource("hunger_fill")
+
 [node name="ResourcesLabel" type="Label" parent="Status/Margin/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.9, 0.55, 1)
-theme_override_font_sizes/font_size = 14
-text = "Bidones: 0/3    Botiquines: 1"
+theme_override_font_sizes/font_size = 13
+text = "Bidones: 0/3   Botiquines: 1   Comida: 0"
 
 [node name="Objective" type="Panel" parent="."]
 anchors_preset = 1
@@ -205,7 +227,7 @@ offset_bottom = -8.0
 grow_vertical = 0
 theme_override_colors/font_color = Color(0.75, 0.78, 0.7, 0.85)
 theme_override_font_sizes/font_size = 12
-text = "WASD mover · Shift correr · Click/Space atacar · E saquear · Q botiquín"
+text = "WASD mover · Shift correr · Click/Space atacar · E saquear · Q botiquín · F comer"
 
 [node name="DamageFlash" type="ColorRect" parent="."]
 anchors_preset = 15

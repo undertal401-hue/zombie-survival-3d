@@ -5,6 +5,7 @@ signal inventory_changed
 const DISPLAY_NAMES := {
 	"combustible": "Bidón de combustible",
 	"medkit": "Botiquín",
+	"comida": "Comida enlatada",
 }
 
 var _items: Dictionary = {}

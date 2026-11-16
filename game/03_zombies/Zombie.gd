@@ -32,6 +32,10 @@ var _alert_timer: float = 0.0
 var _flash_timer: float = 0.0
 var _knockback: Vector2 = Vector2.ZERO
 var _dead: bool = false
+var _repath_timer: float = 0.0
+var _last_destination: Vector2 = Vector2.INF
+var _separation_cache: Array = []
+var _separation_refresh: float = 0.0
 
 func _ready() -> void:
 	add_to_group("zombies")
@@ -48,6 +52,11 @@ func _physics_process(delta: float) -> void:
 		return
 
 	attack_cooldown = maxf(attack_cooldown - delta, 0.0)
+	_repath_timer = maxf(_repath_timer - delta, 0.0)
+	_separation_refresh -= delta
+	if _separation_refresh <= 0.0:
+		_separation_cache = get_tree().get_nodes_in_group("zombies")
+		_separation_refresh = 0.2
 	_update_flash(delta)
 
 	if target == null or not is_instance_valid(target) or not target.is_in_group("player"):
@@ -116,7 +125,10 @@ func _attack() -> void:
 		target.call("receive_damage", attack_damage)
 
 func _navigate_to(destination: Vector2, move_speed: float) -> void:
-	agent.target_position = destination
+	if _repath_timer <= 0.0 or _last_destination == Vector2.INF or destination.distance_squared_to(_last_destination) > 784.0:
+		agent.target_position = destination
+		_last_destination = destination
+		_repath_timer = 0.25
 	var next_point: Vector2 = agent.get_next_path_position()
 	var direction: Vector2 = next_point - global_position
 	if direction.length() > 0.001:
@@ -138,12 +150,16 @@ func _pick_wander_target() -> void:
 
 func _apply_separation() -> void:
 	var separation: Vector2 = Vector2.ZERO
-	for other in get_tree().get_nodes_in_group("zombies"):
-		if other == self:
+	for other in _separation_cache:
+		if other == self or not is_instance_valid(other):
 			continue
-		var away: Vector2 = global_position - other.global_position
-		var gap: float = away.length()
-		if gap > 0.001 and gap < SEPARATION_RADIUS:
+		var other_2d := other as Node2D
+		if other_2d == null:
+			continue
+		var away: Vector2 = global_position - other_2d.global_position
+		var gap_sq: float = away.length_squared()
+		if gap_sq > 0.0001 and gap_sq < SEPARATION_RADIUS * SEPARATION_RADIUS:
+			var gap: float = sqrt(gap_sq)
 			separation += (away / gap) * (1.0 - gap / SEPARATION_RADIUS)
 	velocity += separation * SEPARATION_FORCE
 

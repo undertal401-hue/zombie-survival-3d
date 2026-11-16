@@ -62,6 +62,10 @@ func _update_marker() -> void:
 		marker.text = "+"
 		marker.modulate = Color(0.5, 1.0, 0.6)
 		lid.color = Color(0.35, 0.65, 0.4)
+	elif item_id == "comida":
+		marker.text = "C"
+		marker.modulate = Color(1.0, 0.75, 0.35)
+		lid.color = Color(0.7, 0.48, 0.18)
 	else:
 		marker.text = "?"
 		marker.modulate = Color(0.7, 0.7, 0.7)

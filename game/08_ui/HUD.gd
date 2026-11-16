@@ -6,6 +6,8 @@ const REQUIRED_FUEL := 3
 @onready var hp_bar: ProgressBar = $Status/Margin/VBox/HPBar
 @onready var stamina_label: Label = $Status/Margin/VBox/StaminaLabel
 @onready var stamina_bar: ProgressBar = $Status/Margin/VBox/StaminaBar
+@onready var hunger_label: Label = $Status/Margin/VBox/HungerLabel
+@onready var hunger_bar: ProgressBar = $Status/Margin/VBox/HungerBar
 @onready var resources_label: Label = $Status/Margin/VBox/ResourcesLabel
 @onready var objective_label: Label = $Objective/Margin/VBox/ObjectiveLabel
 @onready var compass_label: Label = $Objective/Margin/VBox/CompassLabel
@@ -31,6 +33,7 @@ func _ready() -> void:
 
 	EventBus.player_health_changed.connect(_on_health_changed)
 	EventBus.player_stamina_changed.connect(_on_stamina_changed)
+	EventBus.player_hunger_changed.connect(_on_hunger_changed)
 	EventBus.player_damaged.connect(_on_player_damaged)
 	EventBus.interaction_prompt.connect(_on_prompt)
 	EventBus.interaction_cleared.connect(_on_prompt_cleared)
@@ -47,6 +50,11 @@ func _ready() -> void:
 	if player != null:
 		_on_health_changed(float(player.get("hp")), 100.0)
 		_on_stamina_changed(float(player.get("stamina")), 100.0)
+		_on_hunger_changed(
+			float(player.get("hunger")),
+			float(player.get("max_hunger")),
+			float(player.get("hunger_warning_threshold"))
+		)
 
 func _process(delta: float) -> void:
 	if _toast_timer > 0.0:
@@ -84,6 +92,19 @@ func _on_stamina_changed(stamina: float, max_stamina: float) -> void:
 	stamina_bar.max_value = max_stamina
 	stamina_bar.value = stamina
 
+func _on_hunger_changed(hunger: float, max_hunger: float, warning_threshold: float) -> void:
+	hunger_bar.max_value = max_hunger
+	hunger_bar.value = hunger
+	if hunger <= 0.0:
+		hunger_label.text = "HAMBRE 0 / %d  ¡INANICIÓN!" % int(max_hunger)
+		hunger_label.add_theme_color_override("font_color", Color(1.0, 0.38, 0.28, 1.0))
+	elif hunger <= warning_threshold:
+		hunger_label.text = "HAMBRE %d / %d  ¡TENGO HAMBRE!" % [int(hunger), int(max_hunger)]
+		hunger_label.add_theme_color_override("font_color", Color(1.0, 0.65, 0.3, 1.0))
+	else:
+		hunger_label.text = "HAMBRE %d / %d" % [int(hunger), int(max_hunger)]
+		hunger_label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.55, 1.0))
+
 func _on_player_damaged(_amount: float, _source: Node) -> void:
 	_flash_timer = 0.3
 
@@ -104,7 +125,8 @@ func _on_notification(text: String) -> void:
 func _refresh_resources() -> void:
 	var fuel: int = Inventory.count("combustible")
 	var medkits: int = Inventory.count("medkit")
-	resources_label.text = "Bidones: %d/%d    Botiquines: %d" % [fuel, REQUIRED_FUEL, medkits]
+	var food: int = Inventory.count("comida")
+	resources_label.text = "Bidones: %d/%d   Botiquines: %d   Comida: %d" % [fuel, REQUIRED_FUEL, medkits, food]
 
 	if fuel >= REQUIRED_FUEL:
 		objective_label.text = "¡Combustible completo! Llega a la extracción verde."
@@ -122,6 +144,9 @@ func _refresh_compass() -> void:
 		compass_label.text = ""
 		return
 	var offset: Vector2 = extraction.global_position - player.global_position
+	if offset.length() < 1.0:
+		compass_label.text = "Extracción: aquí"
+		return
 	compass_label.text = "Extracción: %d px al %s" % [int(offset.length()), _cardinal(offset)]
 
 func _cardinal(offset: Vector2) -> String:
@@ -133,7 +158,7 @@ func _on_victory() -> void:
 	_end_game("EXTRACCIÓN LOGRADA", "Sobreviviste con %d bidones de combustible." % Inventory.count("combustible"), Color(0.55, 1.0, 0.55))
 
 func _on_game_over() -> void:
-	_end_game("HAS CAÍDO", "Los zombis te alcanzaron antes de llegar a la extracción.", Color(1.0, 0.4, 0.4))
+	_end_game("HAS CAÍDO", "No sobreviviste. Reintenta y prepara mejor tu próxima salida.", Color(1.0, 0.4, 0.4))
 
 func _end_game(title: String, text: String, color: Color) -> void:
 	if _ended:

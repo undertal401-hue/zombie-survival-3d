@@ -19,6 +19,7 @@ config/features=PackedStringArray("4.7")
 EventBus="*res://01_core/EventBus.gd"
 GameClock="*res://01_core/GameClock.gd"
 Inventory="*res://02_player/Inventory.gd"
+QA="*res://09_tests/QA.gd"
 
 [input]
 
@@ -65,6 +66,11 @@ interact={
 use_medkit={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":16,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":81,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+use_food={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":16,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":70,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
 ]
 }
 restart={

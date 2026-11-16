@@ -27,13 +27,37 @@ jobs:
           chmod +x Godot_v${GODOT_VERSION}_linux.x86_64
 
       - name: "import project"
-        run: ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --import
+        run: |
+          set +e
+          ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --import > import.log 2>&1
+          status=$?
+          set -e
+          cat import.log
+          if [ $status -ne 0 ]; then
+            echo "::error::La importacion termino con codigo $status"
+            exit $status
+          fi
+          if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load|ERROR:" import.log; then
+            echo "::error::Errores de script o carga durante la importacion"
+            exit 1
+          fi
 
       - name: "boot main scene"
         run: |
-          timeout 15 ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --quit > boot.log 2>&1 || true
+          set +e
+          timeout 20 ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --quit > boot.log 2>&1
+          status=$?
+          set -e
           cat boot.log
-          if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load" boot.log; then
-            echo "::error::Errores de script al arrancar la escena principal"
+          if [ $status -eq 124 ]; then
+            echo "::error::Timeout al arrancar la escena principal"
+            exit 1
+          fi
+          if [ $status -ne 0 ]; then
+            echo "::error::La escena principal termino con codigo $status"
+            exit $status
+          fi
+          if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load|ERROR:" boot.log; then
+            echo "::error::Errores de script o carga al arrancar la escena principal"
             exit 1
           fi
