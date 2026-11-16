@@ -88,6 +88,36 @@ func build() -> void:
 		_add_wall(Rect2(-half.x, half.y - t, size.x, t))
 		_add_door_frame(gap)
 
+	_add_windows()
+
+## Punto interior en la pared opuesta a la puerta, util para colocar botin.
+func back_interior_point() -> Vector2:
+	match door_side:
+		DoorSide.TOP:
+			return Vector2(0.0, size.y * 0.5 - 28.0)
+		DoorSide.BOTTOM:
+			return Vector2(0.0, -size.y * 0.5 + 28.0)
+		DoorSide.LEFT:
+			return Vector2(size.x * 0.5 - 30.0, 0.0)
+		_:
+			return Vector2(-size.x * 0.5 + 30.0, 0.0)
+
+func _add_windows() -> void:
+	var half: Vector2 = size * 0.5
+	var t: float = wall_thickness
+	var glass: Color = Color(0.55, 0.72, 0.78)
+	var window_length: float = 30.0
+	var window_depth: float = 6.0
+
+	for side in [-1.0, 1.0]:
+		var x: float = half.x * 0.5 * side
+		_add_visual_rect(Rect2(x - window_length * 0.5, -half.y + t * 0.5 - window_depth * 0.5, window_length, window_depth), glass, 1)
+		_add_visual_rect(Rect2(x - window_length * 0.5, half.y - t * 0.5 - window_depth * 0.5, window_length, window_depth), glass, 1)
+
+		var y: float = half.y * 0.5 * side
+		_add_visual_rect(Rect2(-half.x + t * 0.5 - window_depth * 0.5, y - window_length * 0.5, window_depth, window_length), glass, 1)
+		_add_visual_rect(Rect2(half.x - t * 0.5 - window_depth * 0.5, y - window_length * 0.5, window_depth, window_length), glass, 1)
+
 ## Marco y umbral de la unica puerta (solo visual, no bloquea el paso).
 func _add_door_frame(gap: float) -> void:
 	var half: Vector2 = size * 0.5

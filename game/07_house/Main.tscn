@@ -1,11 +1,11 @@
 [gd_scene load_steps=10 format=3]
 
 [ext_resource type="PackedScene" path="res://02_player/Player.tscn" id="1_player"]
-[ext_resource type="PackedScene" path="res://03_zombies/Zombie.tscn" id="2_zombie"]
 [ext_resource type="PackedScene" path="res://04_items/Pickup.tscn" id="3_pickup"]
 [ext_resource type="PackedScene" path="res://08_ui/HUD.tscn" id="4_hud"]
 [ext_resource type="Script" path="res://07_house/Main.gd" id="5_main"]
 [ext_resource type="PackedScene" path="res://05_house/Neighborhood.tscn" id="6_neighborhood"]
+[ext_resource type="PackedScene" path="res://04_items/ExtractionZone.tscn" id="7_extraction"]
 
 [sub_resource type="RectangleShape2D" id="1_hwall"]
 size = Vector2(2400, 40)
@@ -79,30 +79,19 @@ polygon = PackedVector2Array(-20, -600, 20, -600, 20, 600, -20, 600)
 navigation_polygon = SubResource("3_navpoly")
 
 [node name="Player" parent="." instance=ExtResource("1_player")]
-position = Vector2(240, 0)
+position = Vector2(-960, -300)
 
-[node name="Zombie1" parent="." instance=ExtResource("2_zombie")]
-position = Vector2(-720, 0)
-
-[node name="Zombie2" parent="." instance=ExtResource("2_zombie")]
-position = Vector2(720, -300)
-
-[node name="Zombie3" parent="." instance=ExtResource("2_zombie")]
-position = Vector2(-240, 300)
+[node name="Extraction" parent="." instance=ExtResource("7_extraction")]
+position = Vector2(720, 300)
 
 [node name="Pickup1" parent="." instance=ExtResource("3_pickup")]
-position = Vector2(0, -300)
-item_id = "llave"
-amount = 1
-
-[node name="Pickup2" parent="." instance=ExtResource("3_pickup")]
-position = Vector2(-480, -300)
+position = Vector2(-840, -300)
 item_id = "medkit"
 amount = 1
 
-[node name="Pickup3" parent="." instance=ExtResource("3_pickup")]
+[node name="Pickup2" parent="." instance=ExtResource("3_pickup")]
 position = Vector2(480, 300)
-item_id = "llave"
+item_id = "medkit"
 amount = 1
 
 [node name="HUD" parent="." instance=ExtResource("4_hud")]

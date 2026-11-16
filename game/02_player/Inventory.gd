@@ -2,6 +2,11 @@ extends Node
 
 signal inventory_changed
 
+const DISPLAY_NAMES := {
+	"combustible": "Bidón de combustible",
+	"medkit": "Botiquín",
+}
+
 var _items: Dictionary = {}
 
 func add_item(id: String, amount: int = 1) -> void:
@@ -27,3 +32,10 @@ func total() -> int:
 	for n in _items.values():
 		sum += n
 	return sum
+
+func clear() -> void:
+	_items.clear()
+	inventory_changed.emit()
+
+func display_name(id: String) -> String:
+	return DISPLAY_NAMES.get(id, id)
