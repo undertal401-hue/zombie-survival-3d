@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://08_ui/HUD.gd" id="1"]
 
@@ -174,14 +174,8 @@ custom_minimum_size = Vector2(0, 42)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.95, 0.95, 0.9, 1)
 theme_override_font_sizes/font_size = 13
-text = "Reúne 3 bidones de combustible en las casas y llega a la extracción."
+text = "Explora, saquea y sobrevive."
 autowrap_mode = 2
-
-[node name="CompassLabel" type="Label" parent="Objective/Margin/VBox"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.7, 0.9, 0.7, 1)
-theme_override_font_sizes/font_size = 12
-text = "Extracción: -- px"
 
 [node name="Prompt" type="Label" parent="."]
 anchors_preset = 7

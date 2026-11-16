@@ -1,7 +1,5 @@
 extends CanvasLayer
 
-const REQUIRED_FUEL := 3
-
 @onready var hp_label: Label = $Status/Margin/VBox/HPLabel
 @onready var hp_bar: ProgressBar = $Status/Margin/VBox/HPBar
 @onready var stamina_label: Label = $Status/Margin/VBox/StaminaLabel
@@ -10,7 +8,6 @@ const REQUIRED_FUEL := 3
 @onready var hunger_bar: ProgressBar = $Status/Margin/VBox/HungerBar
 @onready var resources_label: Label = $Status/Margin/VBox/ResourcesLabel
 @onready var objective_label: Label = $Objective/Margin/VBox/ObjectiveLabel
-@onready var compass_label: Label = $Objective/Margin/VBox/CompassLabel
 @onready var prompt: Label = $Prompt
 @onready var toast: Label = $Toast
 @onready var damage_flash: ColorRect = $DamageFlash
@@ -20,16 +17,13 @@ const REQUIRED_FUEL := 3
 @onready var end_hint: Label = $EndOverlay/EndPanel/EndHint
 
 var player: Node2D
-var extraction: Node2D
 
 var _ended: bool = false
 var _toast_timer: float = 0.0
 var _flash_timer: float = 0.0
-var _objective_timer: float = 0.0
 
 func _ready() -> void:
 	player = get_tree().get_first_node_in_group("player") as Node2D
-	extraction = get_tree().get_first_node_in_group("extraction") as Node2D
 
 	EventBus.player_health_changed.connect(_on_health_changed)
 	EventBus.player_stamina_changed.connect(_on_stamina_changed)
@@ -38,7 +32,6 @@ func _ready() -> void:
 	EventBus.interaction_prompt.connect(_on_prompt)
 	EventBus.interaction_cleared.connect(_on_prompt_cleared)
 	EventBus.notification.connect(_on_notification)
-	EventBus.victory.connect(_on_victory)
 	EventBus.game_over.connect(_on_game_over)
 	Inventory.inventory_changed.connect(_refresh_resources)
 
@@ -68,11 +61,6 @@ func _process(delta: float) -> void:
 
 	if _ended:
 		return
-
-	_objective_timer -= delta
-	if _objective_timer <= 0.0:
-		_objective_timer = 0.25
-		_refresh_compass()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _ended or not event.is_action_pressed("restart"):
@@ -126,36 +114,9 @@ func _refresh_resources() -> void:
 	var fuel: int = Inventory.count("combustible")
 	var medkits: int = Inventory.count("medkit")
 	var food: int = Inventory.count("comida")
-	resources_label.text = "Bidones: %d/%d   Botiquines: %d   Comida: %d" % [fuel, REQUIRED_FUEL, medkits, food]
-
-	if fuel >= REQUIRED_FUEL:
-		objective_label.text = "¡Combustible completo! Llega a la extracción verde."
-		objective_label.modulate = Color(0.6, 1.0, 0.6)
-	else:
-		objective_label.text = "Reúne 3 bidones de combustible en las casas y llega a la extracción."
-		objective_label.modulate = Color(1.0, 1.0, 1.0)
-	_refresh_compass()
-
-func _refresh_compass() -> void:
-	if player == null or extraction == null or not is_instance_valid(player) or not is_instance_valid(extraction):
-		compass_label.text = ""
-		return
-	if player.get("is_dead") == true:
-		compass_label.text = ""
-		return
-	var offset: Vector2 = extraction.global_position - player.global_position
-	if offset.length() < 1.0:
-		compass_label.text = "Extracción: aquí"
-		return
-	compass_label.text = "Extracción: %d px al %s" % [int(offset.length()), _cardinal(offset)]
-
-func _cardinal(offset: Vector2) -> String:
-	var directions := ["E", "SE", "S", "SO", "O", "NO", "N", "NE"]
-	var index: int = posmod(int(round(offset.angle() / (PI / 4.0))), 8)
-	return directions[index]
-
-func _on_victory() -> void:
-	_end_game("EXTRACCIÓN LOGRADA", "Sobreviviste con %d bidones de combustible." % Inventory.count("combustible"), Color(0.55, 1.0, 0.55))
+	resources_label.text = "Bidones: %d   Botiquines: %d   Comida: %d" % [fuel, medkits, food]
+	objective_label.text = "Explora, saquea y sobrevive."
+	objective_label.modulate = Color(0.8, 0.9, 1.0)
 
 func _on_game_over() -> void:
 	_end_game("HAS CAÍDO", "No sobreviviste. Reintenta y prepara mejor tu próxima salida.", Color(1.0, 0.4, 0.4))

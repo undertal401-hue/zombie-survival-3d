@@ -11,10 +11,14 @@ const DISPLAY_NAMES := {
 var _items: Dictionary = {}
 
 func add_item(id: String, amount: int = 1) -> void:
+	if amount <= 0:
+		return
 	_items[id] = _items.get(id, 0) + amount
 	inventory_changed.emit()
 
 func remove_item(id: String, amount: int = 1) -> bool:
+	if amount <= 0:
+		return false
 	var have: int = _items.get(id, 0)
 	if have < amount:
 		return false

@@ -862,7 +862,12 @@ func _capture_mode() -> void:
 		var image := get_viewport().get_texture().get_image()
 		image.save_png("/tmp/opencode/qa_shots/%s.png" % shot[0])
 		var camera := player.get_node("Camera2D") as Camera2D
-		var compass := (main.get_node("HUD/Objective/Margin/VBox/CompassLabel") as Label).text
+		var compass_node = main.get_node_or_null("HUD/Objective/Margin/VBox/CompassLabel")
+		var compass: String
+		if compass_node:
+			compass = compass_node.text
+		else:
+			compass = "N/A"
 		print("SHOT %s pos=%s camera=%s compass='%s'" % [
 			shot[0], str(player.global_position), str(camera.get_screen_center_position()), compass
 		])
