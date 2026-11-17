@@ -90,6 +90,21 @@ func build() -> void:
 
 	_add_windows()
 
+	# LightOccluder2D único para toda la casa (bounding box)
+	var occluder_node := Node2D.new()
+	occluder_node.name = "HouseOccluder"
+	var occluder := LightOccluder2D.new()
+	var occ_poly := OccluderPolygon2D.new()
+	var hx: float = size.x * 0.5
+	var hy: float = size.y * 0.5
+	occ_poly.polygon = PackedVector2Array([
+		Vector2(-hx, -hy), Vector2(hx, -hy),
+		Vector2(hx, hy), Vector2(-hx, hy),
+	])
+	occluder.occluder = occ_poly
+	occluder_node.add_child(occluder)
+	add_child(occluder_node)
+
 ## Punto interior en la pared opuesta a la puerta, util para colocar botin.
 func back_interior_point() -> Vector2:
 	match door_side:
@@ -176,18 +191,6 @@ func _add_wall(rect: Rect2) -> void:
 	rect_shape.size = rect.size
 	shape.shape = rect_shape
 	body.add_child(shape)
-
-	# LightOccluder2D for shadow casting (matches wall rectangle)
-	var occluder := LightOccluder2D.new()
-	var occ_poly := OccluderPolygon2D.new()
-	var hx: float = rect.size.x * 0.5
-	var hy: float = rect.size.y * 0.5
-	occ_poly.polygon = PackedVector2Array([
-		Vector2(-hx, -hy), Vector2(hx, -hy),
-		Vector2(hx, hy), Vector2(-hx, hy),
-	])
-	occluder.occluder = occ_poly
-	body.add_child(occluder)
 
 	var visual := Polygon2D.new()
 	visual.color = wall_color

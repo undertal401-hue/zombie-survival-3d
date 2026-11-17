@@ -16,9 +16,13 @@ var bake_ms: int = 0
 func _ready() -> void:
 	Inventory.clear()
 	Inventory.add_item("medkit", 1)
+	Inventory.add_item("pistol_ammo", 20)
 	_configure_world()
 	_bake_navigation()
 	_spawn_zombies()
+	
+	# Dar pistola al jugador
+	player.has_pistol = true
 
 ## Ajusta suelo, muros, camara, inicio y extraccion al tamano del barrio.
 func _configure_world() -> void:

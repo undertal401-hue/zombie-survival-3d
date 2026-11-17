@@ -6,6 +6,7 @@
 [ext_resource type="Script" uid="uid://c2ojep17tsi0f" path="res://07_house/Main.gd" id="5_main"]
 [ext_resource type="PackedScene" path="res://05_house/Neighborhood.tscn" id="6_neighborhood"]
 [ext_resource type="PackedScene" path="res://04_items/ExtractionZone.tscn" id="7_extraction"]
+[ext_resource type="PackedScene" path="res://08_ui/InventoryMenu.tscn" id="8_inventory"]
 
 [sub_resource type="RectangleShape2D" id="1_hwall"]
 size = Vector2(4800, 40)
@@ -93,3 +94,5 @@ position = Vector2(240, -30)
 item_id = "medkit"
 
 [node name="HUD" parent="." unique_id=390881930 instance=ExtResource("4_hud")]
+
+[node name="InventoryMenu" parent="." unique_id=524118371 instance=ExtResource("8_inventory")]

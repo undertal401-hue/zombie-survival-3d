@@ -21,6 +21,7 @@ var player: Node2D
 var _ended: bool = false
 var _toast_timer: float = 0.0
 var _flash_timer: float = 0.0
+var _last_ammo: int = -1
 
 func _ready() -> void:
 	player = get_tree().get_first_node_in_group("player") as Node2D
@@ -114,7 +115,18 @@ func _refresh_resources() -> void:
 	var fuel: int = Inventory.count("combustible")
 	var medkits: int = Inventory.count("medkit")
 	var food: int = Inventory.count("comida")
-	resources_label.text = "Bidones: %d   Botiquines: %d   Comida: %d" % [fuel, medkits, food]
+	var ammo: int = Inventory.count("pistol_ammo")
+	
+	var player := get_tree().get_first_node_in_group("player")
+	var has_pistol: bool = false
+	if player != null:
+		has_pistol = player.get("has_pistol")
+	
+	if has_pistol:
+		resources_label.text = "Bidones: %d   Botiquines: %d   Comida: %d   Munición: %d" % [fuel, medkits, food, ammo]
+	else:
+		resources_label.text = "Bidones: %d   Botiquines: %d   Comida: %d" % [fuel, medkits, food]
+	
 	objective_label.text = "Explora, saquea y sobrevive."
 	objective_label.modulate = Color(0.8, 0.9, 1.0)
 

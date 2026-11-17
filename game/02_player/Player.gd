@@ -22,6 +22,12 @@ const FOOD_FULL_MARGIN := 5.0
 const STARVATION_TICK := 2.0
 const STARVATION_DAMAGE := 2.0
 
+## Pistola
+const PISTOL_RANGE := 500.0
+const PISTOL_DAMAGE := 25.0
+const PISTOL_COOLDOWN := 0.3
+const PISTOL_SPREAD := 0.05
+
 ## Ajustables desde el inspector o por código. Con 0.2/s una barra llena
 ## dura unos 8 minutos; la comida recupera 35 puntos.
 @export var max_hunger: float = 100.0
@@ -44,6 +50,11 @@ var _starvation_timer: float = 0.0
 var _hunger_warning_shown: bool = false
 var _starvation_warned: bool = false
 
+## Pistola
+var has_pistol: bool = false
+var _pistol_cooldown: float = 0.0
+var _pistol_flash_time: float = 0.0
+
 func _ready() -> void:
 	add_to_group("player")
 	hunger = max_hunger
@@ -60,14 +71,25 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
+	_pistol_cooldown = maxf(_pistol_cooldown - delta, 0.0)
 	if _swing_time > 0.0:
 		_swing_time = maxf(_swing_time - delta, 0.0)
 		queue_redraw()
+	if _pistol_flash_time > 0.0:
+		_pistol_flash_time = maxf(_pistol_flash_time - delta, 0.0)
+		queue_redraw()
 
 	var move: Vector2 = input_handler.get_move_vector()
-	var direction: Vector2 = Vector2(move.x, -move.y)
-	if direction.length() > 0.0:
-		direction = direction.normalized()
+	var inventory_open: bool = get("inventory_open") or false
+	var direction: Vector2 = Vector2.ZERO
+	
+	if not inventory_open:
+		move = input_handler.get_move_vector()
+		direction = Vector2(move.x, -move.y)
+		if direction.length() > 0.0:
+			direction = direction.normalized()
+	else:
+		direction = Vector2.ZERO
 
 	var sprinting: bool = Input.is_action_pressed("sprint") and stamina > 0.0 and direction.length() > 0.0
 	var speed: float = SPRINT_SPEED if sprinting else SPEED
@@ -88,12 +110,16 @@ func _physics_process(delta: float) -> void:
 	if global_position.distance_to(mouse) > 0.5:
 		look_at(mouse)
 
-	if Input.is_action_just_pressed("attack"):
-		attack()
-	if Input.is_action_just_pressed("use_medkit"):
-		use_medkit()
-	if Input.is_action_just_pressed("use_food"):
-		use_food()
+	if not inventory_open:
+		if Input.is_action_just_pressed("attack"):
+			attack()
+		if Input.is_action_just_pressed("use_medkit"):
+			use_medkit()
+		if Input.is_action_just_pressed("shoot"):
+			shoot()
+	
+	if Input.is_action_just_pressed("inventory"):
+		pass
 
 ## Golpe en cono corto. Cuesta aguante y respeta paredes (raycast de linea de vista).
 func attack() -> bool:
@@ -124,6 +150,50 @@ func attack() -> bool:
 		hit_any = true
 
 	return hit_any
+
+## Disparo con pistola - raycast hacia el ratón
+func shoot() -> bool:
+	if is_dead:
+		return false
+	if not has_pistol:
+		EventBus.notification.emit("No tienes pistola")
+		return false
+	if _pistol_cooldown > 0.0:
+		return false
+	var ammo: int = Inventory.count("pistol_ammo")
+	if ammo <= 0:
+		EventBus.notification.emit("Sin munición")
+		return false
+	
+	_pistol_cooldown = PISTOL_COOLDOWN
+	Inventory.remove_item("pistol_ammo", 1)
+	
+	var mouse_pos: Vector2 = get_global_mouse_position()
+	var direction: Vector2 = (mouse_pos - global_position).normalized()
+	
+	# Añadir dispersión
+	var spread: float = randf_range(-PISTOL_SPREAD, PISTOL_SPREAD)
+	direction = direction.rotated(spread)
+	
+	var end_pos: Vector2 = global_position + direction * PISTOL_RANGE
+	
+	var query := PhysicsRayQueryParameters2D.create(global_position, global_position + direction * PISTOL_RANGE, 1, [get_rid()])
+	var result := get_world_2d().direct_space_state.intersect_ray(query)
+	
+	if not result.is_empty():
+		var hit_pos: Vector2 = result.position
+		var collider: Object = result.collider
+		if collider != null and collider.has_method("take_damage") and collider.is_in_group("zombies"):
+			collider.call("take_damage", PISTOL_DAMAGE, self)
+			EventBus.notification.emit("Impacto!")
+		else:
+			EventBus.notification.emit("Impacto en obstáculo")
+	else:
+		EventBus.notification.emit("Sin objetivo")
+	
+	_pistol_flash_time = 0.1
+	queue_redraw()
+	return true
 
 func use_medkit() -> bool:
 	if is_dead or hp >= MAX_HP:

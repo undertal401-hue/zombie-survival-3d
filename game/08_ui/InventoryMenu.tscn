@@ -1,0 +1,240 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://08_ui/InventoryMenu.gd" id="1"]
+
+[sub_resource type="StyleBoxFlat" id="panel_dark"]
+content_margin_left = 12.0
+content_margin_top = 12.0
+content_margin_right = 12.0
+content_margin_bottom = 12.0
+bg_color = Color(0.07, 0.08, 0.07, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.35, 0.42, 0.32, 0.8)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="item_bg"]
+bg_color = Color(0.12, 0.13, 0.11, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.25, 0.3, 0.25, 0.6)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="button_normal"]
+bg_color = Color(0.2, 0.22, 0.18, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.35, 0.4, 0.3, 0.8)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="button_hover"]
+bg_color = Color(0.3, 0.35, 0.28, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.5, 0.6, 0.45, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="button_disabled"]
+bg_color = Color(0.12, 0.12, 0.1, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.2, 0.18, 0.5)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="weapon_bg"]
+bg_color = Color(0.1, 0.1, 0.08, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.4, 0.35, 0.2, 0.8)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[node name="InventoryMenu" type="CanvasLayer"]
+process_mode = 3
+script = ExtResource("1")
+z_index = 100
+
+[node name="Background" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.5)
+mouse_filter = 1
+
+[node name="Panel" type="Panel" parent="."]
+layout_mode = 3
+anchors_preset = 9
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -250.0
+offset_right = 300.0
+offset_bottom = 250.0
+theme_override_styles/panel = SubResource("panel_dark")
+
+[node name="Title" type="Label" parent="Panel"]
+layout_mode = 2
+anchors_preset = 0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = 56.0
+theme_override_colors/font_color = Color(1, 0.9, 0.6, 1)
+theme_override_font_sizes/font_size = 20
+text = "INVENTARIO"
+horizontal_alignment = 1
+
+[node name="CloseHint" type="Label" parent="Panel"]
+layout_mode = 2
+anchors_preset = 2
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -120.0
+offset_top = 18.0
+offset_right = -16.0
+offset_bottom = 56.0
+theme_override_colors/font_color = Color(0.7, 0.7, 0.65, 0.8)
+theme_override_font_sizes/font_size = 12
+text = "Tab/Escape: Cerrar"
+horizontal_alignment = 1
+
+[node name="WeaponSection" type="Panel" parent="Panel"]
+layout_mode = 2
+anchors_preset = 0
+offset_left = 16.0
+offset_top = 64.0
+offset_right = -16.0
+offset_bottom = 120.0
+theme_override_styles/panel = SubResource("weapon_bg")
+
+[node name="WeaponTitle" type="Label" parent="Panel/WeaponSection"]
+layout_mode = 2
+anchors_preset = 0
+offset_left = 12.0
+offset_top = 8.0
+offset_right = -12.0
+offset_bottom = 40.0
+theme_override_colors/font_color = Color(0.95, 0.85, 0.5, 1)
+theme_override_font_sizes/font_size = 16
+text = "ARMA EQUIPADA"
+horizontal_alignment = 1
+
+[node name="WeaponInfo" type="HBoxContainer" parent="Panel/WeaponSection"]
+layout_mode = 2
+anchors_preset = 0
+offset_left = 12.0
+offset_top = 44.0
+offset_right = -12.0
+offset_bottom = 80.0
+theme_override_constants/separation = 12
+
+[node name="WeaponIcon" type="TextureRect" parent="Panel/WeaponSection/WeaponInfo"]
+layout_mode = 2
+custom_minimum_size = Vector2(48, 48)
+theme_override_colors/default_color = Color(1, 1, 1, 1)
+
+[node name="WeaponDetails" type="VBoxContainer" parent="Panel/WeaponSection/WeaponInfo"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="WeaponName" type="Label" parent="Panel/WeaponSection/WeaponInfo/WeaponDetails"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.95, 0.8, 1)
+theme_override_font_sizes/font_size = 16
+text = "Sin arma"
+
+[node name="AmmoLabel" type="Label" parent="Panel/WeaponSection/WeaponInfo/WeaponDetails"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.75, 0.55, 1)
+theme_override_font_sizes/font_size = 14
+text = "Munición: 0"
+
+[node name="ItemsSection" type="Panel" parent="Panel"]
+layout_mode = 2
+anchors_preset = 0
+offset_left = 16.0
+offset_top = 136.0
+offset_right = -16.0
+offset_bottom = -16.0
+theme_override_styles/panel = SubResource("panel_dark")
+
+[node name="ItemsTitle" type="Label" parent="Panel/ItemsSection"]
+layout_mode = 2
+anchors_preset = 0
+offset_left = 12.0
+offset_top = 8.0
+offset_right = -12.0
+offset_bottom = 40.0
+theme_override_colors/font_color = Color(0.95, 0.85, 0.5, 1)
+theme_override_font_sizes/font_size = 16
+text = "OBJETOS"
+horizontal_alignment = 1
+
+[node name="ItemsContainer" type="ScrollContainer" parent="Panel/ItemsSection"]
+layout_mode = 2
+anchors_preset = 0
+offset_left = 4.0
+offset_top = 44.0
+offset_right = -4.0
+offset_bottom = -4.0
+theme_override_styles/box = SubResource("panel_dark")
+custom_minimum_size = Vector2(0, 160)
+horizontal_scroll_mode = 0
+
+[node name="ItemsList" type="VBoxContainer" parent="Panel/ItemsSection/ItemsContainer"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="EmptyLabel" type="Label" parent="Panel/ItemsSection/ItemsContainer/ItemsList"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.6, 0.55, 1)
+theme_override_font_sizes/font_size = 14
+text = "Inventario vacío"
+horizontal_alignment = 1
+
+[node name="EatHint" type="Label" parent="Panel"]
+layout_mode = 2
+anchors_preset = 4
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -200.0
+offset_top = -36.0
+offset_right = 200.0
+offset_bottom = -12.0
+theme_override_colors/font_color = Color(0.7, 0.7, 0.65, 0.8)
+theme_override_font_sizes/font_size = 12
+text = "Click en Comida → Botón Comer | Escape/Tab: Cerrar"
+horizontal_alignment = 1

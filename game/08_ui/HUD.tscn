@@ -222,7 +222,7 @@ offset_bottom = -8.0
 grow_vertical = 0
 theme_override_colors/font_color = Color(0.75, 0.78, 0.7, 0.85)
 theme_override_font_sizes/font_size = 12
-text = "WASD mover · Shift correr · Click/Space atacar · E saquear · Q botiquín · F comer"
+text = "WASD mover · Shift correr · Click disparar · Click derecho/Space atacar · E saquear · Q botiquín · Tab inventario"
 
 [node name="DamageFlash" type="ColorRect" parent="."]
 anchors_preset = 15

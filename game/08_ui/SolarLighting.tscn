@@ -1,14 +1,9 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://08_ui/SolarLighting.gd" id="1"]
-[ext_resource type="Shader" path="res://08_ui/SolarGlare.gdshader" id="2"]
 
-[sub_resource type="CanvasItemMaterial" id="1_material"]
-shader = ExtResource("2")
-
-[node name="SolarLighting" type="CanvasLayer"]
+[node name="SolarLighting" type="Node2D"]
 script = ExtResource("1")
-z_index = 10
 
 [node name="CanvasModulate" type="CanvasModulate" parent="."]
 id = 1
@@ -21,10 +16,3 @@ shadow_enabled = true
 light_mode = 0
 z_range_min = -1024
 z_range_max = 1024
-
-[node name="GlareQuad" type="ColorRect" parent="."]
-id = 3
-material = SubResource("1_material")
-visible = true
-mouse_filter = 2
-z_index = 100
