@@ -79,6 +79,11 @@ var _last_zombie_alert_msec: int = -100000
 var _last_horn_msec: int = -100000
 var _last_engine_start_msec: int = -100000
 
+## Archivos de ambiente externos (opcional): coloca OGG/WAV en
+## res://assets/audio/ambience/ con nombres rain.ogg, wind.ogg, night.ogg, forest.ogg, tension.ogg
+## Si existen, se usan en lugar de la síntesis procedural para mayor realismo.
+var _external_ambience: Dictionary = {}
+
 
 func _ready() -> void:
 	add_to_group("audio_director")
@@ -90,9 +95,36 @@ func _ready() -> void:
 	_listener = get_node_or_null("Listener2D") as AudioListener2D
 	if _listener != null:
 		_listener.make_current()
+	_load_external_ambience()
 	_resolve_scene_nodes()
 	_connect_event_bus()
 	_refresh_ambience()
+
+
+func _load_external_ambience() -> void:
+	var dir_path: String = "res://assets/audio/ambience/"
+	var names: Array[String] = ["rain", "wind", "night", "forest", "tension"]
+	for ambience_name in names:
+		var path: String = dir_path + ambience_name + ".ogg"
+		var stream: AudioStream = null
+		if ResourceLoader.exists(path):
+			stream = load(path) as AudioStream
+		else:
+			var path_wav: String = dir_path + ambience_name + ".wav"
+			if ResourceLoader.exists(path_wav):
+				stream = load(path_wav) as AudioStream
+		if stream == null:
+			continue
+		# Un archivo importado no loopea por defecto: sin esto la lluvia real
+		# se cortaba en seco al terminar y volvía al sintetizador procedural.
+		if stream is AudioStreamOggVorbis:
+			(stream as AudioStreamOggVorbis).loop = true
+		elif stream is AudioStreamWAV:
+			var wav: AudioStreamWAV = stream as AudioStreamWAV
+			wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			wav.loop_begin = 0
+			wav.loop_end = int(wav.data.size() / 2)
+		_external_ambience[ambience_name] = stream
 
 
 func _exit_tree() -> void:
@@ -834,9 +866,17 @@ func _to_stream(buf: PackedFloat32Array, peak: float, loop: bool) -> AudioStream
 	return stream
 
 
-func _stream_for(canonical: String) -> AudioStreamWAV:
+func _stream_for(canonical: String) -> AudioStream:
 	if _streams.has(canonical):
-		return _streams[canonical] as AudioStreamWAV
+		return _streams[canonical] as AudioStream
+	
+	# Para bucles de ambiente: priorizar archivos externos (OGG/WAV) si existen.
+	# Debe devolver AudioStream: castear este OGG a AudioStreamWAV daba null.
+	if _external_ambience.has(canonical.replace("_loop", "")):
+		var stream: AudioStream = _external_ambience[canonical.replace("_loop", "")]
+		_streams[canonical] = stream
+		return stream
+	
 	var rng: RandomNumberGenerator = _rng_for(canonical)
 	var buf: PackedFloat32Array
 	var loop: bool = false

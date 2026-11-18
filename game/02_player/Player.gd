@@ -30,6 +30,10 @@ const FOOD_FULL_MARGIN := 5.0
 const STARVATION_TICK := 2.0
 const STARVATION_DAMAGE := 2.0
 
+## Las balas contra el chasis no usan el daño de carne: el metal absorbe parte
+## y detiene el proyectil incluso con armas penetrantes.
+const VEHICLE_DAMAGE_SCALE := 0.55
+
 ## Ajustables desde el inspector o por código. Con 0.2/s una barra llena
 ## dura unos 8 minutos; la comida recupera 35 puntos.
 @export var max_hunger: float = 100.0
@@ -203,6 +207,10 @@ func _on_fire_requested(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> v
 	var end_pos: Vector2 = from_pos + direction * weapon.range
 	var origin: Vector2 = from_pos
 	var excluded: Array[RID] = [get_rid()]
+	# Al volante el propio chasis envuelve al jugador: excluirlo evita que el
+	# rayo muera contra el coche que estamos conduciendo.
+	if is_driving and active_vehicle != null and active_vehicle is CollisionObject2D:
+		excluded.append((active_vehicle as CollisionObject2D).get_rid())
 	var remaining_penetration: int = weapon.penetration
 	var walls_pierced: int = 0
 	
@@ -221,6 +229,23 @@ func _on_fire_requested(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> v
 			break
 		
 		var is_zombie: bool = collider.has_method("take_damage") and collider.is_in_group("zombies")
+		var is_vehicle: bool = not is_zombie and _is_vehicle(collider)
+
+		if is_vehicle:
+			# Chapa: no sangra, no se atraviesa y sí recibe daño real. La escala
+			# evita que una pistola destruya la camioneta en tres disparos.
+			var vehicle_damage: float = weapon.base_damage * VEHICLE_DAMAGE_SCALE
+			if walls_pierced > 0:
+				vehicle_damage *= pow(0.75, walls_pierced)
+			if collider.has_method("apply_damage"):
+				collider.call("apply_damage", vehicle_damage)
+			CombatTelemetry.record(self, "damage", vehicle_damage)
+			EventBus.notification.emit("Impacto en vehículo")
+			if ParticleManager.instance != null:
+				ParticleManager.instance.spawn_impact(hit_pos, direction,
+					ImpactParticles.SurfaceType.METAL)
+			break
+
 		if not is_zombie and remaining_penetration > 0 and collider is CollisionObject2D:
 			# Pared atravesable: chispa, excluir este collider y seguir desde
 			# justo después del punto de impacto.
@@ -268,9 +293,20 @@ func _on_fire_requested(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> v
 	# El destello lo genera WeaponController/ParticleManager en coordenadas del mundo.
 	# No se dibuja aquí: si fuera hijo del jugador, se movería con él.
 
+func _is_vehicle(collider: Object) -> bool:
+	if collider == null:
+		return false
+	if collider is Node and (collider as Node).is_in_group("player_vehicle"):
+		return true
+	return collider.has_method("apply_damage") or collider.has_method("take_damage")
+
 func _get_surface_type(collider: Object) -> int:
 	if collider == null:
 		return ImpactParticles.SurfaceType.CONCRETE
+	# El vehículo también es CharacterBody2D: sin esta comprobación sangraba
+	# cada vez que una bala rebotaba en la chapa.
+	if _is_vehicle(collider):
+		return ImpactParticles.SurfaceType.METAL
 	if collider is CharacterBody2D:
 		return ImpactParticles.SurfaceType.FLESH
 	if collider is StaticBody2D:

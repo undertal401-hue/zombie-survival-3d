@@ -22,7 +22,7 @@ static func survivor_sheet() -> ImageTexture:
 	img.fill(Color(0, 0, 0, 0))
 	# Cuatro regiones clavadas: mismo pose en todas para no reproducir movimiento.
 	for f in range(4):
-		_draw_survivor(img, f * FRAME)
+		_draw_survivor(img, f * FRAME, f)
 	return ImageTexture.create_from_image(img)
 
 static func vehicle() -> ImageTexture:

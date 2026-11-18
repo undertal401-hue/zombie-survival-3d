@@ -54,3 +54,10 @@ func _ready() -> void:
 		" notificaciones=", notes)
 	car.call("exit_vehicle")
 	await get_tree().physics_frame
+	var metal_ok: bool = surface == ImpactParticles.SurfaceType.METAL
+	var damage_ok: bool = hp_after < hp_before - 1.0
+	var no_self_ok: bool = absf(hp_drive_after - hp_drive_before) < 0.01
+	print("PROBE RESULT metal=", metal_ok, " damage=", damage_ok,
+		" no_self_damage=", no_self_ok,
+		" PASS=", metal_ok and damage_ok and no_self_ok)
+	get_tree().quit(0)

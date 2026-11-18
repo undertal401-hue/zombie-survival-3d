@@ -13,6 +13,9 @@ const MAX_SPEED: float = 360.0
 const ACCELERATION: float = 650.0
 const FRICTION: float = 980.0
 const DETECTION_RADIUS: float = 86.0
+## Giro con inercia: 3.2 rad/s ≈ 0.5 s para un giro de 90º. Sustituye el
+## salto instantáneo de rotation que hacía "teletransportar" la camioneta.
+const MAX_TURN_RATE: float = 3.2
 
 ## Asiento y salida: la salida se intenta primero en sentido contrario al
 ## movimiento para que el jugador nunca aparezca por delante del parachoques.
@@ -96,6 +99,10 @@ func _ready() -> void:
 	collision_mask = 1
 	sprite.texture = CustomSprites.vehicle()
 	sprite.scale = Vector2(0.55, 0.55)
+	# El dibujo tiene el capó hacia -Y, pero la física y los faros usan +X
+	# como delantero (Vector2.RIGHT.rotated(rotation)). Sin esta corrección el
+	# coche avanzaba de lado respecto a su nariz dibujada.
+	sprite.rotation = PI * 0.5
 	detection.body_entered.connect(_on_body_entered)
 	detection.body_exited.connect(_on_body_exited)
 	_headlight = _create_headlight()
@@ -109,7 +116,7 @@ func _create_headlight() -> PointLight2D:
 	light.color = Color(1.0, 0.94, 0.72)
 	light.energy = 0.0
 	light.visible = false
-	light.position = Vector2(0.0, -20.0)
+	light.position = Vector2(20.0, 0.0)
 	add_child(light)
 	return light
 
@@ -145,8 +152,14 @@ func _physics_process(delta: float) -> void:
 		var direction: Vector2 = Vector2(input.x, -input.y)
 		if direction.length() > 0.0:
 			direction = direction.normalized()
-			velocity = velocity.move_toward(direction * top_speed, accel * delta)
-			rotation = direction.angle()
+			var desired_rotation: float = direction.angle()
+			var turn_delta: float = wrapf(desired_rotation - rotation, -PI, PI)
+			rotation += clampf(turn_delta, -MAX_TURN_RATE * delta, MAX_TURN_RATE * delta)
+			# Se avanza en la dirección de la nariz, no en la del input: si no,
+			# al girar despacio el chasis se deslizaría lateralmente.
+			var forward: Vector2 = Vector2.RIGHT.rotated(rotation)
+			var throttle: float = clampf(1.0 - absf(turn_delta) / PI * 0.55, 0.45, 1.0)
+			velocity = velocity.move_toward(forward * top_speed * throttle, accel * delta)
 		else:
 			velocity = velocity.move_toward(Vector2.ZERO, brake * delta)
 	else:
