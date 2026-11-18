@@ -2,10 +2,12 @@ class_name ExtractionZone
 extends Area2D
 
 const RADIUS := 72.0
+const REQUIRED_FUEL := 3
 
 @onready var title: Label = $Title
 
 var _player_inside: Node2D = null
+var _victory_triggered: bool = false
 
 func _ready() -> void:
 	add_to_group("extraction")
@@ -17,11 +19,36 @@ func _on_body_entered(body: Node2D) -> void:
 	if not body.is_in_group("player"):
 		return
 	_player_inside = body
-	EventBus.notification.emit("Zona de extracción (no operativa)")
+	_check_extraction(body)
 
 func _on_body_exited(body: Node2D) -> void:
 	if body == _player_inside:
 		_player_inside = null
+
+func _check_extraction(player: Node2D) -> void:
+	if _victory_triggered:
+		return
+	
+	# `combustible` es el bidón del objetivo (QA); `vehicle_fuel` es el id
+	# fabricable. Ambos sirven para extraer, pero no se duplica su cuenta.
+	var fuel: int = Inventory.count("combustible") + Inventory.count("vehicle_fuel")
+	if fuel >= REQUIRED_FUEL:
+		_victory_triggered = true
+		EventBus.victory.emit()
+		EventBus.notification.emit("¡EXTRACTION EXITOSA! Has sobrevivido.")
+		call_deferred("_show_victory")
+	else:
+		var needed: int = REQUIRED_FUEL - fuel
+		EventBus.notification.emit("Faltan %d bidones de combustible para extraer." % needed)
+
+func _show_victory() -> void:
+	var hud := get_tree().get_first_node_in_group("hud") as Node
+	if hud != null and hud.has_method("_on_victory"):
+		hud.call("_on_victory")
+	else:
+		# Fallback: pause and show generic victory
+		get_tree().paused = true
+		EventBus.notification.emit("¡VICTORIA! R para reiniciar.")
 
 func _update_title() -> void:
 	title.text = "ZONA DE EXTRACCIÓN"

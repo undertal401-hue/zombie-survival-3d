@@ -7,6 +7,8 @@ extends Node2D
 
 const HOUSE_SCENE: PackedScene = preload("res://05_house/House.tscn")
 const LOOT_SCENE: PackedScene = preload("res://04_items/LootContainer.tscn")
+const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
+const GROUND_TILEMAP_SCENE: PackedScene = preload("res://05_house/GroundTileMap.tscn")
 
 enum Zone { NW, NORTH, NE, WEST, CENTER, EAST, SW, SOUTH, SE }
 
@@ -118,9 +120,16 @@ func _ready() -> void:
 
 ## (Re)genera el barrio completo de forma determinista.
 func build() -> void:
+	# Instanciar GroundTileMap
+	var ground_tm: GroundTileMap = GROUND_TILEMAP_SCENE.instantiate()
+	add_child(ground_tm)
+	ground_tm.generate_ground(Rect2(-map_size().x * 0.5, -map_size().y * 0.5, map_size().x, map_size().y), "urban")
+	ground_tm.z_index = -10
+
 	for child in get_children():
-		remove_child(child)
-		child.queue_free()
+		if child != ground_tm:
+			remove_child(child)
+			child.queue_free()
 
 	_rng = RandomNumberGenerator.new()
 	_rng.seed = layout_seed
@@ -411,7 +420,11 @@ func _assign_loot() -> void:
 		if pool.is_empty():
 			continue
 		var medkit_house: House = pool[_rng.randi_range(0, pool.size() - 1)]
-		_add_loot_container(medkit_house, "medkit", 1, "armario")
+		# 50% medkit, 50% ammo
+		if _rng.randf() < 0.5:
+			_add_loot_container(medkit_house, "medkit", 1, "armario")
+		else:
+			_add_loot_container(medkit_house, "pistol_ammo", 12, "armario")
 		used[medkit_house] = true
 
 	for zone in FOOD_ZONES:
@@ -438,6 +451,11 @@ func _assign_loot() -> void:
 
 	_add_world_loot(_cell_center(2, 7) + Vector2(0, 30), "medkit", 1, "caja")
 	_add_world_loot(_cell_center(9, 8) + Vector2(0, 50), "medkit", 1, "caja")
+	
+	# Munición dispersa por el mapa
+	_add_world_loot(_cell_center(4, 4) + Vector2(-40, 20), "pistol_ammo", 12, "caja")
+	_add_world_loot(_cell_center(6, 5) + Vector2(30, -30), "pistol_ammo", 24, "caja")
+	_add_world_loot(_cell_center(1, 2) + Vector2(10, 10), "pistol_ammo", 12, "caja")
 
 func _add_loot_container(house: House, item_id: String, amount: int, container_name: String) -> void:
 	var loot := LOOT_SCENE.instantiate() as LootContainer

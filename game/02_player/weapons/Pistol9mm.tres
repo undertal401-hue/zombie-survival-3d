@@ -1,0 +1,44 @@
+[gd_resource type="Weapon" load_steps=2 format=3]
+
+[resource]
+weapon_name = "Pistola 9mm"
+description = "Arma lateral estándar. Fiable, precisa, munición común."
+category = 1
+slot_index = 1
+base_damage = 25.0
+damage_falloff_start = 30.0
+damage_falloff_end = 80.0
+min_damage = 8.0
+headshot_multiplier = 2.5
+limb_multiplier = 0.8
+range = 500.0
+spread = 0.02
+spread_per_shot = 0.02
+max_spread = 0.14
+spread_recovery = 0.1
+recoil_per_shot = 0.024
+max_recoil = 0.11
+recoil_recovery = 0.1
+recoil_camera_kick = 1.0
+stamina_cost = 3.0
+condition_item_id = "Pistola 9mm"
+wear_per_shot = 0.004
+fire_rate = 450.0
+burst_count = 1
+is_automatic = false
+move_speed_multiplier = 0.72
+ammo_type = "pistol_ammo"
+magazine_size = 12
+ammo_per_shot = 1
+start_with_full_mag = true
+reload_time = 1.8
+reload_time_empty = 2.2
+chambered_round = true
+muzzle_flash_offset = Vector2(14, 0)
+muzzle_flash_scale = 0.8
+shell_eject_offset = Vector2(-3, -1)
+shell_eject_force = 120.0
+tracer_chance = 0.1
+camera_shake_magnitude = 1.5
+camera_shake_duration = 0.08
+penetration = 1

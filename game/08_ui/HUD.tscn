@@ -1,6 +1,8 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://08_ui/HUD.gd" id="1"]
+[ext_resource type="Script" path="res://08_ui/Minimap.gd" id="2"]
+[ext_resource type="Script" path="res://08_ui/Compass.gd" id="3"]
 
 [sub_resource type="StyleBoxFlat" id="panel_dark"]
 content_margin_left = 8.0
@@ -46,6 +48,13 @@ corner_radius_top_right = 2
 corner_radius_bottom_right = 2
 corner_radius_bottom_left = 2
 
+[sub_resource type="StyleBoxFlat" id="reload_fill"]
+bg_color = Color(1, 0.78, 0.28, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
 [sub_resource type="StyleBoxFlat" id="end_panel"]
 bg_color = Color(0.07, 0.08, 0.07, 0.97)
 border_width_left = 2
@@ -61,13 +70,13 @@ corner_radius_bottom_left = 6
 [node name="HUD" type="CanvasLayer"]
 process_mode = 3
 script = ExtResource("1")
-z_index = 20
+layer = 1
 
 [node name="Status" type="Panel" parent="."]
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 332.0
-offset_bottom = 156.0
+offset_bottom = 218.0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("panel_dark")
 
@@ -135,7 +144,25 @@ theme_override_styles/fill = SubResource("hunger_fill")
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.9, 0.55, 1)
 theme_override_font_sizes/font_size = 13
+autowrap_mode = 2
 text = "Bidones: 0/3   Botiquines: 1   Comida: 0"
+
+[node name="ReloadLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.78, 0.28, 1)
+theme_override_font_sizes/font_size = 13
+text = "RECARGANDO 0%"
+visible = false
+
+[node name="ReloadBar" type="ProgressBar" parent="Status/Margin/VBox"]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+max_value = 1.0
+step = 0.01
+show_percentage = false
+theme_override_styles/background = SubResource("bar_bg")
+theme_override_styles/fill = SubResource("reload_fill")
+visible = false
 
 [node name="Objective" type="Panel" parent="."]
 anchors_preset = 1
@@ -201,15 +228,42 @@ anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -300.0
-offset_top = 156.0
+offset_top = 226.0
 offset_right = 300.0
-offset_bottom = 190.0
+offset_bottom = 260.0
 grow_horizontal = 2
 theme_override_colors/font_color = Color(1, 0.9, 0.55, 1)
 theme_override_colors/font_outline_color = Color(0.03, 0.03, 0.02, 1)
 theme_override_constants/outline_size = 4
 theme_override_font_sizes/font_size = 18
 horizontal_alignment = 1
+
+[node name="Compass" type="Control" parent="."]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -160.0
+offset_top = 8.0
+offset_right = 160.0
+offset_bottom = 44.0
+grow_horizontal = 2
+mouse_filter = 2
+script = ExtResource("3")
+
+[node name="Minimap" type="Control" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -196.0
+offset_top = -196.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("2")
 
 [node name="Controls" type="Label" parent="."]
 anchors_preset = 2
@@ -222,7 +276,7 @@ offset_bottom = -8.0
 grow_vertical = 0
 theme_override_colors/font_color = Color(0.75, 0.78, 0.7, 0.85)
 theme_override_font_sizes/font_size = 12
-text = "WASD mover · Shift correr · Click disparar · Click derecho/Space atacar · E saquear · Q botiquín · Tab inventario"
+text = "WASD mover · Shift correr · Click izq. disparar · Click der./Space atacar · F comer · E saquear · Q botiquín · Tab inventario"
 
 [node name="DamageFlash" type="ColorRect" parent="."]
 anchors_preset = 15

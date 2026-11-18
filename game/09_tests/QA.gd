@@ -1,6 +1,7 @@
 extends Node
 
-## QA temporal. Modos: inputtest, inspect, play, hunger, capture, perf.
+## QA temporal. Modos: inputtest, inspect, play, hunger, capture, perf, mechanics.
+## `mechanics` imprime solo el contrato de sistemas nuevos (r1) sin batería completa.
 
 var _held: Dictionary = {}
 var _main: Node
@@ -32,6 +33,10 @@ func _ready() -> void:
 		_damage_events += 1
 		_damage_total += amount
 	)
+	# Esperar un frame antes de instanciar Main: durante _ready() el root aún
+	# está "busy setting up children" y add_child() fallaría.
+	await get_tree().process_frame
+	_ensure_main_scene()
 	for i in range(30):
 		await get_tree().physics_frame
 	var mode: String = OS.get_environment("QA_MODE")
@@ -50,7 +55,24 @@ func _ready() -> void:
 			await _capture_mode()
 		"perf":
 			await _perf_mode()
+		"mechanics":
+			_print_mechanics_ready()
+			get_tree().quit(0)
+			return
+	# Resumen siempre presente: en r1 es informativo (PENDING/PARTIAL), nunca FAIL.
+	_print_mechanics_ready()
 	get_tree().quit(0)
+
+## El harness se ejecuta como QA.tscn, así que current_scene es este nodo y no
+## Main. Si el world no está cargado, lo instanciamos y lo fijamos como escena
+## actual para que el resto de los modos encuentren HUD/Level/Neighborhood.
+func _ensure_main_scene() -> void:
+	var current: Node = get_tree().current_scene
+	if current != null and current.get_node_or_null("Level/Neighborhood") != null:
+		return
+	var main: Node = load("res://07_house/Main.tscn").instantiate()
+	get_tree().root.add_child(main)
+	get_tree().current_scene = main
 
 func _key_for(action: String) -> int:
 	match action:
@@ -477,9 +499,15 @@ func _check_borders_and_compass() -> void:
 	var bottom_y: float = _player.global_position.y
 	var center: Vector2 = camera.get_screen_center_position()
 	var half_view: Vector2 = viewport_size * 0.5
+	# Mundo abierto: la camara acompaña al jugador y solo se frena en los bordes
+	# del mundo (12600x12600), no en los muros del pueblo.
+	var world_half := Vector2(6300.0, 6300.0)
+	var forest: Node = _main.get_node_or_null("Level/Forest") if _main != null else null
+	if forest != null and forest.has_method("world_half"):
+		world_half = forest.call("world_half")
 	var expected_center := Vector2(
-		clampf(_player.global_position.x, -2400.0 + half_view.x, 2400.0 - half_view.x),
-		clampf(_player.global_position.y, -1500.0 + half_view.y, 1500.0 - half_view.y)
+		clampf(_player.global_position.x, -world_half.x + half_view.x, world_half.x - half_view.x),
+		clampf(_player.global_position.y, -world_half.y + half_view.y, world_half.y - half_view.y)
 	)
 	print("BORDER_RESULT left_x=%.1f bottom_y=%.1f camera=%s expected=%s" % [
 		left_x, bottom_y, str(center), str(expected_center)
@@ -487,18 +515,24 @@ func _check_borders_and_compass() -> void:
 	print("CHECK border_left=%s" % str(left_x <= -2340.0 and left_x >= -2349.0))
 	print("CHECK border_bottom=%s" % str(bottom_y >= 1435.0 and bottom_y <= 1449.0))
 	print("CHECK camera_clamp=%s" % str(center.distance_to(expected_center) < 3.0))
+	var open_world: bool = (camera.limit_left <= -world_half.x + 100.0
+		and camera.limit_right >= world_half.x - 100.0
+		and camera.limit_top <= -world_half.y + 100.0
+		and camera.limit_bottom >= world_half.y - 100.0)
+	print("CHECK open_world=%s limits=%d,%d,%d,%d" % [
+		str(open_world), camera.limit_left, camera.limit_top, camera.limit_right, camera.limit_bottom
+	])
 	_check_compass("start")
 
 func _check_compass(label: String) -> void:
-	var text: String = (_hud.get_node("Objective/Margin/VBox/CompassLabel") as Label).text
+	# Fase 4 sustituyó el antiguo CompassLabel de texto por la brújula visual
+	# (HUD/Compass), que resuelve el objetivo en su variable _objective.
+	var compass: Control = _hud.get_node_or_null("Compass") as Control
+	var objective: Node2D = compass.get("_objective") as Node2D if compass != null else null
+	var valid: bool = compass != null and objective != null
 	var offset: Vector2 = _extraction.global_position - _player.global_position
-	if offset.length() < 1.0:
-		print("COMPASS %s text='%s' expected=aqui" % [label, text])
-		print("CHECK compass_%s=%s" % [label, str(text.contains("aquí"))])
-		return
-	var expected: String = _cardinal(offset)
-	print("COMPASS %s text='%s' expected=%s" % [label, text, expected])
-	print("CHECK compass_%s=%s" % [label, str(text.contains(expected))])
+	print("COMPASS %s objective=%s dist=%.0f" % [label, str(objective != null), offset.length()])
+	print("CHECK compass_%s=%s" % [label, str(valid)])
 
 func _collect_objective() -> void:
 	var containers: Array = []
@@ -862,13 +896,111 @@ func _capture_mode() -> void:
 		var image := get_viewport().get_texture().get_image()
 		image.save_png("/tmp/opencode/qa_shots/%s.png" % shot[0])
 		var camera := player.get_node("Camera2D") as Camera2D
-		var compass_node = main.get_node_or_null("HUD/Objective/Margin/VBox/CompassLabel")
-		var compass: String
-		if compass_node:
-			compass = compass_node.text
-		else:
-			compass = "N/A"
+		var compass_node = main.get_node_or_null("HUD/Compass")
+		var compass: String = "activa" if compass_node != null else "N/A"
 		print("SHOT %s pos=%s camera=%s compass='%s'" % [
 			shot[0], str(player.global_position), str(camera.get_screen_center_position()), compass
 		])
+
+# ============================================================================
+# CONTRATO DE CALIDAD R1 — sistemas nuevos en implementación paralela.
+# Todo se consulta de forma defensiva: una API ausente produce PENDING, nunca
+# un SCRIPT ERROR ni un CHECK en falso. Útil también como modo "mechanics".
+# ============================================================================
+
+func _has_prop(obj: Object, prop: String) -> bool:
+	if obj == null:
+		return false
+	for entry in obj.get_property_list():
+		if String(entry.get("name", "")) == prop:
+			return true
+	return false
+
+func _mechanics_ready_report() -> Dictionary:
+	var report: Dictionary = {}
+
+	# 1. GameState autoload: capa compatible (get_state+load_state) O
+	# API canónica de core (phase+stats+rng).
+	var gs: Node = get_node_or_null("/root/GameState")
+	report["game_state"] = gs != null and (
+		(gs.has_method("get_state") and gs.has_method("load_state"))
+		or (gs.has_method("phase") and gs.has_method("stats") and gs.has_method("rng"))
+	)
+
+	# 2. Crafting (Inventario.craft / craft_item o autoload /root/Crafting).
+	var inv_node: Node = get_node_or_null("/root/Inventory")
+	var can_craft: bool = inv_node != null and (inv_node.has_method("craft") or inv_node.has_method("craft_item"))
+	var craft_node: Node = get_node_or_null("/root/Crafting")
+	if craft_node != null and craft_node.has_method("craft"):
+		can_craft = true
+	report["crafting"] = can_craft
+
+	# 3. Condición de armas (Weapon.condition|durability|wear + repair/is_broken).
+	# Tras Player._die() el jugador sale del grupo "player" y el WeaponController
+	# dejaría de verse. Se buscan tres rutas, en orden, sin tocar grupos ni textos:
+	# 1) grupo player, 2) Main/Player, 3) cualquier WeaponController bajo Main.
+	var scene: Node = get_tree().current_scene
+	var player_node: Node = get_tree().get_first_node_in_group("player")
+	var wc: Node = null
+	if player_node != null:
+		wc = player_node.get_node_or_null("WeaponController")
+	if wc == null and scene != null:
+		var main_player: Node = scene.get_node_or_null("Player")
+		if main_player != null:
+			wc = main_player.get_node_or_null("WeaponController")
+	if wc == null and scene != null:
+		var weapon_controllers: Array[Node] = scene.find_children("*", "WeaponController", true, false)
+		if not weapon_controllers.is_empty():
+			wc = weapon_controllers[0]
+	var weapon_ready: bool = false
+	if wc != null and wc.has_method("get_weapon_in_slot"):
+		for slot in range(5):
+			var weapon: Variant = wc.call("get_weapon_in_slot", slot)
+			if weapon == null:
+				continue
+			for prop in ["condition", "durability", "wear"]:
+				if _has_prop(weapon, prop):
+					weapon_ready = true
+			if weapon.has_method("repair") or weapon.has_method("is_broken"):
+				weapon_ready = true
+	report["weapon_condition"] = weapon_ready
+
+	# 4. Hordas: WaveManager | HordeManager | WorldDirector en Main con
+	# start_wave(), y EventBus.wave_started O horde_started.
+	# `scene` ya se resolvió en el apartado 3 (se reutiliza, sin redeclarar).
+	var horde: Node = scene.get_node_or_null("WaveManager") if scene != null else null
+	if horde == null and scene != null:
+		horde = scene.get_node_or_null("HordeManager")
+	if horde == null and scene != null:
+		horde = scene.get_node_or_null("WorldDirector")
+	report["hordes"] = (
+		horde != null and horde.has_method("start_wave")
+		and (EventBus.has_signal("wave_started") or EventBus.has_signal("horde_started"))
+	)
+
+	# 5. Vehículo con combustible (`fuel` o `vehicle_fuel`) y daño.
+	var car: Node = scene.get_node_or_null("VehicleNorth") if scene != null else null
+	report["vehicle_fuel_damage"] = (
+		car != null
+		and (_has_prop(car, "fuel") or _has_prop(car, "vehicle_fuel"))
+		and (car.has_method("refuel") or car.has_method("apply_damage") or car.has_method("take_damage"))
+	)
+
+	var active: int = 0
+	for key in ["game_state", "crafting", "weapon_condition", "hordes", "vehicle_fuel_damage"]:
+		if bool(report.get(key, false)):
+			active += 1
+	report["active"] = active
+	report["total"] = 5
+	return report
+
+func _print_mechanics_ready() -> void:
+	var report: Dictionary = _mechanics_ready_report()
+	var flags: Array[String] = []
+	for key in ["game_state", "crafting", "weapon_condition", "hordes", "vehicle_fuel_damage"]:
+		flags.append("%s=%s" % [key, str(bool(report.get(key, false)))])
+	var active: int = int(report.get("active", 0))
+	var status: String = "OK" if active == 5 else ("PENDING" if active == 0 else "PARTIAL")
+	print("MECHANICS_READY %d/5 %s" % [active, ", ".join(flags)])
+	print("CHECK mechanics_ready=%s active=%d/5 (informativo en r1; OK exige 5/5)" % [status, active])
 

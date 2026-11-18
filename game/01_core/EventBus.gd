@@ -11,3 +11,19 @@ signal interaction_cleared
 signal notification(text: String)
 signal victory
 signal game_over
+signal forest_entered
+signal forest_exited
+
+# Señales nuevas del estado central y de los subsistemas. Se dejan sin tipos
+# para que cualquier nodo pueda emitirlas sin fricción (fase, kind e item_id
+# pueden viajar como String o StringName según el productor).
+signal game_state_changed(phase)
+signal difficulty_changed(level)
+signal horde_started(wave)
+signal weather_changed(kind)
+signal craft_completed(item_id, amount)
+signal vehicle_state_changed(vehicle, fuel, hp)
+signal zombie_alerted(zombie, source)
+# Avisos prioritarios del director de mundo (hordas, tormentas): el HUD los
+# muestra por encima de los mensajes normales sin cambiar textos del contrato.
+signal priority_notification(text)

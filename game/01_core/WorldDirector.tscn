@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bworlddirector20261117"]
+
+[ext_resource type="Script" path="res://01_core/WorldDirector.gd" id="1_world_director"]
+
+[node name="WorldDirector" type="Node"]
+script = ExtResource("1_world_director")

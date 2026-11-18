@@ -7,6 +7,16 @@
 [ext_resource type="PackedScene" path="res://05_house/Neighborhood.tscn" id="6_neighborhood"]
 [ext_resource type="PackedScene" path="res://04_items/ExtractionZone.tscn" id="7_extraction"]
 [ext_resource type="PackedScene" path="res://08_ui/InventoryMenu.tscn" id="8_inventory"]
+[ext_resource type="PackedScene" path="res://08_ui/SolarLighting.tscn" id="9_solar"]
+[ext_resource type="PackedScene" path="res://11_forest/Forest.tscn" id="10_forest"]
+[ext_resource type="PackedScene" path="res://11_forest/ForestAtmosphere.tscn" id="11_atmosphere"]
+[ext_resource type="PackedScene" path="res://11_forest/ForestZombies.tscn" id="12_forest_zombies"]
+[ext_resource type="PackedScene" path="res://12_vehicles/DriveableVehicle.tscn" id="13_vehicle"]
+[ext_resource type="PackedScene" path="res://01_core/WorldDirector.tscn" id="14_world_director"]
+[ext_resource type="PackedScene" path="res://14_quests/QuestDirector.tscn" id="15_quest_director"]
+[ext_resource type="PackedScene" path="res://15_fx/CombatFX.tscn" id="16_combat_fx"]
+[ext_resource type="PackedScene" path="res://16_meta/MetaProgress.tscn" id="17_meta_progress"]
+[ext_resource type="PackedScene" path="res://13_audio/AudioDirector.tscn" id="18_audio_director"]
 
 [sub_resource type="RectangleShape2D" id="1_hwall"]
 size = Vector2(4800, 40)
@@ -35,6 +45,8 @@ color = Color(0.2, 0.24, 0.16, 1)
 [node name="Level" type="Node2D" parent="." unique_id=1412999040 groups=["nav_obstacles"]]
 
 [node name="Neighborhood" parent="Level" unique_id=567880118 instance=ExtResource("6_neighborhood")]
+
+[node name="Forest" parent="Level" unique_id=1811226117 instance=ExtResource("10_forest")]
 
 [node name="WallTop" type="StaticBody2D" parent="Level" unique_id=1853174298]
 position = Vector2(0, -1480)
@@ -96,3 +108,35 @@ item_id = "medkit"
 [node name="HUD" parent="." unique_id=390881930 instance=ExtResource("4_hud")]
 
 [node name="InventoryMenu" parent="." unique_id=524118371 instance=ExtResource("8_inventory")]
+
+[node name="SolarLighting" parent="." unique_id=1122334455 instance=ExtResource("9_solar")]
+
+[node name="WaveManager" parent="." instance=ExtResource("14_world_director")]
+
+[node name="QuestDirector" parent="." instance=ExtResource("15_quest_director")]
+
+[node name="CombatFX" parent="." instance=ExtResource("16_combat_fx")]
+
+[node name="MetaProgress" parent="." instance=ExtResource("17_meta_progress")]
+
+[node name="AudioDirector" parent="." instance=ExtResource("18_audio_director")]
+
+[node name="ForestAtmosphere" parent="." instance=ExtResource("11_atmosphere")]
+
+[node name="ForestZombies" parent="." instance=ExtResource("12_forest_zombies")]
+
+[node name="VehicleNorth" parent="." instance=ExtResource("13_vehicle")]
+position = Vector2(1200, -1760)
+vehicle_name = "camioneta norte"
+
+[node name="VehicleWest" parent="." instance=ExtResource("13_vehicle")]
+position = Vector2(-2760, -600)
+vehicle_name = "camioneta oeste"
+
+[node name="VehicleSouth" parent="." instance=ExtResource("13_vehicle")]
+position = Vector2(1200, 1760)
+vehicle_name = "camioneta sur"
+
+[node name="VehicleTown" parent="." instance=ExtResource("13_vehicle")]
+position = Vector2(-2250, 1320)
+vehicle_name = "camioneta del campamento"

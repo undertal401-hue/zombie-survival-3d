@@ -1,11 +1,20 @@
 extends CharacterBody2D
 
-enum Kind { WALKER, RUNNER }
+enum Kind { WALKER, RUNNER, TANK, SPITTER, SCREAMER }
+enum State { PATROL, INVESTIGATE, CHASE, ATTACK, STUNNED, DEAD }
+
+const HIT_TORSO: int = 0
+const HIT_HEAD: int = 1
+const HIT_LEG: int = 2
 
 const ATTACK_RANGE := 34.0
 const SEPARATION_RADIUS := 26.0
 const SEPARATION_FORCE := 55.0
 const ALERT_TIME := 5.0
+
+## Señal local de alerta: mientras EventBus no exponga `zombie_alerted`, el
+## grupo "zombies" se propaga el objetivo llamando a receive_group_alert().
+signal zombie_alerted(world_position: Vector2, radius: float, source: Node)
 
 @export var kind: Kind = Kind.WALKER
 @export var speed: float = 80.0
@@ -15,20 +24,50 @@ const ALERT_TIME := 5.0
 @export var detect_radius: float = 430.0
 @export var lose_radius: float = 700.0
 
+## Nuevas propiedades para tipos especiales
+@export var spit_range: float = 300.0
+@export var spit_damage: float = 15.0
+@export var spit_cooldown: float = 3.0
+@export var scream_radius: float = 500.0
+@export var scream_cooldown: float = 8.0
+@export var charge_speed: float = 250.0
+@export var charge_cooldown: float = 5.0
+
+## Percepcion / IA
+@export var vision_half_angle_degrees: float = 100.0
+@export var close_sense_radius: float = 105.0
+@export var hearing_shot_radius: float = 950.0
+@export var hearing_impact_radius: float = 540.0
+@export var hearing_melee_radius: float = 250.0
+@export var hearing_vehicle_radius: float = 560.0
+@export var alert_propagation_radius: float = 420.0
+
+var _spit_timer: float = 0.0
+var _scream_timer: float = 0.0
+var _charge_timer: float = 0.0
+var _charge_duration: float = 0.0
+var _is_charging: bool = false
+var _charge_direction: Vector2 = Vector2.ZERO
+
 @onready var agent: NavigationAgent2D = $NavigationAgent2D
 @onready var body_visual: Polygon2D = $Body
 @onready var nose: Polygon2D = $Nose
 @onready var alert_label: Label = $Alert
+@onready var zombie_visual: ZombieVisual = $ZombieVisual
 
 var target: Node2D
 var hp: float = 68.0
 var attack_cooldown: float = 0.0
 
+var state: State = State.PATROL
+var _state_after_stun: State = State.CHASE
+var _stun_timer: float = 0.0
 var _spawn_position: Vector2
 var _last_known: Vector2
 var _wander_target: Vector2
 var _wander_timer: float = 0.0
 var _alert_timer: float = 0.0
+var _investigate_wait: float = 0.0
 var _flash_timer: float = 0.0
 var _knockback: Vector2 = Vector2.ZERO
 var _dead: bool = false
@@ -36,16 +75,40 @@ var _repath_timer: float = 0.0
 var _last_destination: Vector2 = Vector2.INF
 var _separation_cache: Array = []
 var _separation_refresh: float = 0.0
+var _facing_angle: float = 0.0
+
+# Oido / alerta en grupo
+var _noise_cooldown: float = 0.0
+var _propagate_cooldown: float = 0.0
+var _receive_cooldown: float = 0.0
+var _hearing_source: Node = null
+var _connected_weapons: Array = []
+var _hearing_refresh: float = 0.0
+
+# Dano por extremidad y dificultad
+var _leg_wounds: int = 0
+var _is_crawling: bool = false
+var _difficulty: Dictionary = {
+	"speed": 1.0, "perception": 1.0, "damage": 1.0, "health": 1.0
+}
+var _base_max_hp: float = 0.0
+var _difficulty_refresh: float = 0.0
+
 
 func _ready() -> void:
 	add_to_group("zombies")
 	_spawn_position = global_position
 	_last_known = _spawn_position
+	_facing_angle = body_visual.rotation
+	_refresh_difficulty()
 	_apply_kind()
-	hp = max_hp
-	target = get_tree().get_first_node_in_group("player")
+	hp = max_hp * float(_difficulty.get("health", 1.0))
+	target = get_tree().get_first_node_in_group("player") as Node2D
 	alert_label.visible = false
 	_pick_wander_target()
+	_connect_hearing_sources()
+	_connect_bus_alert_if_available()
+
 
 func _physics_process(delta: float) -> void:
 	if _dead:
@@ -53,59 +116,377 @@ func _physics_process(delta: float) -> void:
 
 	attack_cooldown = maxf(attack_cooldown - delta, 0.0)
 	_repath_timer = maxf(_repath_timer - delta, 0.0)
+	_noise_cooldown = maxf(_noise_cooldown - delta, 0.0)
+	_propagate_cooldown = maxf(_propagate_cooldown - delta, 0.0)
+	_receive_cooldown = maxf(_receive_cooldown - delta, 0.0)
 	_separation_refresh -= delta
+	_difficulty_refresh -= delta
+	_hearing_refresh -= delta
+	if _difficulty_refresh <= 0.0:
+		_refresh_difficulty()
+	if _hearing_refresh <= 0.0:
+		_connect_hearing_sources()
+		_hearing_refresh = 2.0
 	if _separation_refresh <= 0.0:
 		_separation_cache = get_tree().get_nodes_in_group("zombies")
 		_separation_refresh = 0.2
 	_update_flash(delta)
 
-	if target == null or not is_instance_valid(target) or not target.is_in_group("player"):
-		target = get_tree().get_first_node_in_group("player")
+	# Timers para habilidades especiales
+	_spit_timer = maxf(_spit_timer - delta, 0.0)
+	_scream_timer = maxf(_scream_timer - delta, 0.0)
+	_charge_timer = maxf(_charge_timer - delta, 0.0)
 
-	var sees_player: bool = false
-	var distance: float = INF
-	if target != null:
-		distance = global_position.distance_to(target.global_position)
-		sees_player = distance <= detect_radius and _has_line_of_sight()
-		if sees_player:
-			_alert_timer = ALERT_TIME
-			_last_known = target.global_position
-		if distance > lose_radius and not sees_player:
-			_alert_timer = 0.0
+	if _is_charging:
+		# La duración es independiente del cooldown: si se reutilizara
+		# _charge_timer, la carga se acortaría a la mitad y el cooldown quedaría
+		# en 0, encadenando cargas cada ~0.75s en vez de cada 5s.
+		_charge_duration = maxf(_charge_duration - delta, 0.0)
+		if _charge_duration <= 0.0:
+			_is_charging = false
 
-	if _alert_timer > 0.0:
-		_alert_timer = maxf(_alert_timer - delta, 0.0)
-		if sees_player and distance <= ATTACK_RANGE:
-			velocity = Vector2.ZERO
-			_attack()
-		else:
-			var destination: Vector2 = target.global_position if sees_player else _last_known
-			_navigate_to(destination, speed)
-			if not sees_player and global_position.distance_to(_last_known) < 28.0:
-				_alert_timer = 0.0
-	else:
-		_wander(delta)
+	_refresh_target()
+	_update_perception(delta)
+	_run_state(delta)
 
 	_apply_separation()
-	velocity += _knockback
+	if not _is_charging:
+		velocity += _knockback
 	_knockback = _knockback.move_toward(Vector2.ZERO, 220.0 * delta)
 
 	if velocity.length() > 8.0:
-		var facing: float = lerp_angle(body_visual.rotation, velocity.angle(), minf(delta * 8.0, 1.0))
-		body_visual.rotation = facing
-		nose.rotation = facing
+		_facing_angle = lerp_angle(_facing_angle, velocity.angle(), minf(delta * 8.0, 1.0))
+		body_visual.rotation = _facing_angle
+		nose.rotation = _facing_angle
 
 	move_and_slide()
-	alert_label.visible = _alert_timer > 0.0
 
-func take_damage(amount: float, from: Node2D = null) -> void:
+	# Actualizar visual
+	if zombie_visual != null and not _dead:
+		var target_dir: Vector2 = Vector2.ZERO
+		if target != null and is_instance_valid(target):
+			target_dir = (target.global_position - global_position).normalized()
+		zombie_visual.update_state(velocity, _alert_timer > 0.0, target_dir, _is_crawling)
+
+	alert_label.visible = _alert_timer > 0.0 and not _dead
+
+
+# ---------------------------------------------------------------------------
+# Maquina de estados
+# ---------------------------------------------------------------------------
+
+func _refresh_target() -> void:
+	if target == null or not is_instance_valid(target) or not target.is_in_group("player"):
+		target = get_tree().get_first_node_in_group("player") as Node2D
+
+
+func _target_valid() -> bool:
+	return target != null and is_instance_valid(target) and target.is_in_group("player")
+
+
+func _update_perception(delta: float) -> void:
+	var sees_player: bool = false
+	var distance: float = INF
+	if target != null and is_instance_valid(target):
+		distance = global_position.distance_to(target.global_position)
+		sees_player = _can_detect(target)
+		if sees_player:
+			_become_alerted(target.global_position, target, false)
+		elif distance > lose_radius and _alert_timer <= 0.0:
+			_last_known = _spawn_position
+
+	if _alert_timer > 0.0:
+		_alert_timer = maxf(_alert_timer - delta, 0.0)
+		if _alert_timer <= 0.0:
+			_investigate_wait = 0.6
+			if state == State.CHASE or state == State.ATTACK:
+				state = State.INVESTIGATE
+			if _hearing_source != null and is_instance_valid(_hearing_source):
+				_hearing_source = null
+
+
+func _run_state(delta: float) -> void:
+	match state:
+		State.STUNNED:
+			_stun_timer -= delta
+			velocity = velocity.move_toward(Vector2.ZERO, 420.0 * delta)
+			if _stun_timer <= 0.0:
+				state = _state_after_stun
+		State.PATROL:
+			_wander(delta)
+		State.INVESTIGATE, State.CHASE, State.ATTACK:
+			_pursue(delta)
+		State.DEAD:
+			velocity = Vector2.ZERO
+
+
+func _pursue(delta: float) -> void:
+	if not _target_valid():
+		state = State.INVESTIGATE
+		_navigate_to(_last_known, speed * _speed_multiplier() * 0.8)
+		if _reached(_last_known):
+			_settle_investigation(delta)
+		return
+
+	if _is_charging:
+		velocity = _charge_direction * charge_speed
+		return
+
+	var distance: float = global_position.distance_to(target.global_position)
+	var sees: bool = _can_detect(target)
+	var move_speed: float = speed * _speed_multiplier()
+
+	# Habilidades especiales por tipo (mantienen el comportamiento original).
+	if kind == Kind.SPITTER and spit_range > 0.0:
+		if distance <= spit_range and distance > ATTACK_RANGE and _spit_timer <= 0.0 and sees:
+			state = State.CHASE
+			_spit_attack()
+			velocity = Vector2.ZERO
+			return
+	elif kind == Kind.SCREAMER and scream_radius > 0.0:
+		if _scream_timer <= 0.0 and distance <= scream_radius:
+			_scream_attack()
+	elif kind == Kind.TANK and charge_speed > 0.0:
+		if distance <= 200.0 and distance > ATTACK_RANGE and _charge_timer <= 0.0 and sees:
+			state = State.CHASE
+			_start_charge(target.global_position)
+			velocity = _charge_direction * charge_speed
+			return
+
+	if distance <= ATTACK_RANGE:
+		state = State.ATTACK
+		velocity = Vector2.ZERO
+		_attack()
+		return
+
+	state = State.CHASE if sees else State.INVESTIGATE
+	var destination: Vector2 = target.global_position if sees else _last_known
+	_navigate_to(destination, move_speed)
+	if not sees and _reached(_last_known):
+		_settle_investigation(delta)
+
+
+func _settle_investigation(delta: float) -> void:
+	_investigate_wait -= delta
+	velocity = Vector2.ZERO
+	if _investigate_wait <= 0.0:
+		_alert_timer = 0.0
+		state = State.PATROL
+		_pick_wander_target()
+
+
+func _reached(point: Vector2) -> bool:
+	return global_position.distance_to(point) < 28.0
+
+
+# ---------------------------------------------------------------------------
+# Percepcion: cono + linea de vision + oido
+# ---------------------------------------------------------------------------
+
+func _can_detect(node: Node2D) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	var to_target: Vector2 = node.global_position - global_position
+	var distance: float = to_target.length()
+	var sight_radius: float = detect_radius * float(_difficulty.get("perception", 1.0))
+	if distance > sight_radius:
+		return false
+	if distance > close_sense_radius and distance > 0.001:
+		var cone: float = deg_to_rad(vision_half_angle_degrees)
+		if absf(angle_difference(_facing_angle, to_target.angle())) > cone:
+			return false
+		return _has_line_of_sight_to(node)
+	# A muy corta distancia el zombie tambien percibe por contacto/olido, aunque
+	# un marco de puerta rompa la linea de vision exacta centro a centro.
+	return true
+
+
+func _has_line_of_sight() -> bool:
+	return _has_line_of_sight_to(target)
+
+
+func _has_line_of_sight_to(node: Node2D) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	var query := PhysicsRayQueryParameters2D.create(global_position, node.global_position)
+	query.collision_mask = 1
+	query.exclude = [get_rid()]
+	if node is CollisionObject2D:
+		query.exclude.append(node.get_rid())
+	return get_world_2d().direct_space_state.intersect_ray(query).is_empty()
+
+
+func _connect_hearing_sources() -> void:
+	var player: Node2D = get_tree().get_first_node_in_group("player") as Node2D
+	if player == null:
+		return
+	# Senales locales del WeaponController: disparos, impactos y melee.
+	for child in player.get_children():
+		if child == null or not is_instance_valid(child) or _connected_weapons.has(child):
+			continue
+		if not child.has_signal("fire_requested") or not child.has_signal("melee_attack"):
+			continue
+		child.connect("fire_requested", Callable(self, "_on_gun_noise"))
+		child.connect("melee_attack", Callable(self, "_on_melee_noise"))
+		_connected_weapons.append(child)
+
+
+func _connect_bus_alert_if_available() -> void:
+	if not EventBus.has_signal("zombie_alerted"):
+		return
+	# La señal del EventBus puede tener 1, 2 o 3 argumentos segun el nucleo;
+	# elegimos el adaptador con el mismo numero para evitar errores de Callable.
+	var arg_count: int = 0
+	for info in EventBus.get_signal_list():
+		if String(info.get("name", "")) == "zombie_alerted":
+			arg_count = (info.get("args", []) as Array).size()
+			break
+	match arg_count:
+		1:
+			EventBus.connect("zombie_alerted", Callable(self, "_on_bus_alert_1"))
+		2:
+			EventBus.connect("zombie_alerted", Callable(self, "_on_bus_alert_2"))
+		3:
+			EventBus.connect("zombie_alerted", Callable(self, "_on_bus_alert_3"))
+
+
+func _on_gun_noise(_weapon: Variant, from: Vector2, to: Vector2) -> void:
+	# Ruido en la boca y en el punto de impacto (el raycast del jugador puede
+	# terminar en una pared, que también debe atraer a los zombies).
+	_hear_noise(from, hearing_shot_radius, get_tree().get_first_node_in_group("player"), true)
+	_hear_noise(to, hearing_impact_radius, null, true)
+
+
+func _on_melee_noise(_weapon: Variant, direction: Vector2) -> void:
+	var origin: Vector2 = global_position
+	var player: Node2D = get_tree().get_first_node_in_group("player") as Node2D
+	if player != null:
+		origin = player.global_position
+	_hear_noise(origin + direction.normalized() * 18.0, hearing_melee_radius, player, true)
+
+
+func _on_bus_alert_1(a: Variant) -> void:
+	if a == self:
+		return
+	_hear_noise(_alert_point(a), _alert_radius(null), _alert_source(a, null), true)
+
+
+func _on_bus_alert_2(a: Variant, b: Variant) -> void:
+	if a == self:
+		return
+	_hear_noise(_alert_point(a), _alert_radius(b), _alert_source(a, b), true)
+
+
+func _on_bus_alert_3(a: Variant, b: Variant, c: Variant) -> void:
+	if a == self:
+		return
+	_hear_noise(_alert_point(a), _alert_radius(b), _alert_source(a, c), true)
+
+
+func _alert_source(a: Variant, b: Variant) -> Node:
+	if b is Node and (b as Node).is_in_group("player"):
+		return b as Node
+	if a is Node and (a as Node).is_in_group("player"):
+		return a as Node
+	return null
+
+
+func _alert_point(value: Variant) -> Vector2:
+	if value is Vector2:
+		return value
+	if value is Vector2i:
+		return Vector2(value)
+	if value is Node2D and is_instance_valid(value):
+		return value.global_position
+	return Vector2.INF
+
+
+func _alert_radius(value: Variant) -> float:
+	if value is float or value is int:
+		return maxf(float(value), 0.0)
+	if value is String and value.is_valid_float():
+		return clampf(float(value), 0.0, 2000.0)
+	return alert_propagation_radius
+
+
+func _hear_noise(world_position: Vector2, radius: float, source: Node, propagate: bool = false) -> void:
+	if _dead or _noise_cooldown > 0.0 or world_position == Vector2.INF:
+		return
+	if global_position.distance_to(world_position) > radius:
+		return
+	_noise_cooldown = 0.3
+	_become_alerted(world_position, source, propagate)
+
+
+func _become_alerted(world_position: Vector2, source: Node, propagate: bool = true) -> void:
+	if _dead:
+		return
+	var was_calm: bool = _alert_timer <= 0.0 or state == State.PATROL or state == State.INVESTIGATE
+	if source != null and is_instance_valid(source) and source is Node2D:
+		var source_2d: Node2D = source as Node2D
+		if source_2d.is_in_group("player"):
+			target = source_2d
+			_hearing_source = source_2d
+	if target == null:
+		target = get_tree().get_first_node_in_group("player") as Node2D
+	_last_known = world_position
+	_alert_timer = ALERT_TIME
+	_investigate_wait = 0.6
+	if state != State.STUNNED:
+		state = State.CHASE
+	_state_after_stun = State.CHASE
+	if was_calm and propagate:
+		_propagate_alert(world_position, alert_propagation_radius, source)
+
+
+## Un zombie alertado comparte el ultimo punto conocido con el Gruppe cercano.
+func _propagate_alert(world_position: Vector2, radius: float, source: Node) -> void:
+	zombie_alerted.emit(world_position, radius, source)
+	if _propagate_cooldown > 0.0 or world_position == Vector2.INF:
+		return
+	_propagate_cooldown = 1.2
+	for other in get_tree().get_nodes_in_group("zombies"):
+		if other == self or not is_instance_valid(other):
+			continue
+		if not other.has_method("receive_group_alert"):
+			continue
+		var other_2d: Node2D = other as Node2D
+		if other_2d == null or other_2d.global_position.distance_to(world_position) > radius:
+			continue
+		other.call("receive_group_alert", world_position, radius, self)
+
+
+func receive_group_alert(world_position: Vector2, radius: float, _source: Node = null) -> void:
+	if _dead or _receive_cooldown > 0.0 or world_position == Vector2.INF:
+		return
+	if global_position.distance_to(world_position) > radius:
+		return
+	_receive_cooldown = 0.55 + randf() * 0.25
+	_hear_noise(world_position, radius, null, false)
+
+
+# ---------------------------------------------------------------------------
+# Dano, extremidades, aturdimiento y muerte
+# ---------------------------------------------------------------------------
+
+func take_damage(amount: float, from: Node2D = null, hit_zone: int = HIT_TORSO) -> void:
 	if _dead:
 		return
 	hp -= amount
 	_flash_timer = 0.12
 	modulate = Color(1.5, 0.65, 0.65, 1.0)
 
+	if zombie_visual != null:
+		zombie_visual.play_hit()
+
+	if ParticleManager.instance != null:
+		var direction: Vector2 = Vector2.ZERO
+		if from != null:
+			direction = (global_position - from.global_position).normalized()
+		ParticleManager.instance.spawn_blood(global_position, direction, 25)
+
 	if from != null:
+		var was_calm: bool = _alert_timer <= 0.0 or state == State.PATROL or state == State.INVESTIGATE
 		_alert_timer = ALERT_TIME + 2.0
 		_last_known = from.global_position
 		if from.is_in_group("player"):
@@ -113,18 +494,132 @@ func take_damage(amount: float, from: Node2D = null) -> void:
 		var push: Vector2 = global_position - from.global_position
 		if push.length() > 0.001:
 			_knockback = push.normalized() * 120.0
+		_state_after_stun = State.CHASE
+		state = State.STUNNED
+		_stun_timer = 0.55 if hit_zone == HIT_HEAD else 0.16
+		if was_calm:
+			_propagate_alert(_last_known, alert_propagation_radius, from)
+
+	if hit_zone == HIT_LEG:
+		_apply_leg_wound()
 
 	if hp <= 0.0:
 		_die()
 
+
+## Variante con punto de impacto: los sistemas de combate pueden pasar la
+## posicion exacta del disparo para clasificar cabeza / torso / pierna.
+func take_damage_at(amount: float, from: Node2D, hit_position: Vector2) -> void:
+	var zone: int = HIT_TORSO
+	if hit_position.y < global_position.y - 4.0:
+		zone = HIT_HEAD
+	elif hit_position.y > global_position.y + 4.0:
+		zone = HIT_LEG
+	take_damage(amount, from, zone)
+
+
+func _apply_leg_wound() -> void:
+	_leg_wounds += 1
+	var slow: float = maxf(1.0 - 0.32 * float(_leg_wounds), 0.25)
+	if not _is_crawling and (_leg_wounds >= 2 or hp < max_hp * 0.35):
+		_is_crawling = true
+	if _is_crawling:
+		slow = minf(slow, 0.28)
+		if zombie_visual != null:
+			zombie_visual.play_crawl()
+	# La velocidad base se conserva: el multiplicador se aplica al moverse.
+	set_meta("leg_wounds", _leg_wounds)
+	set_meta("crawling", _is_crawling)
+	set_meta("speed_factor", slow)
+
+
+func _speed_multiplier() -> float:
+	var wound_slow: float = float(get_meta("speed_factor", 1.0))
+	return clampf(wound_slow * float(_difficulty.get("speed", 1.0)), 0.1, 2.5)
+
+
 func _attack() -> void:
-	if attack_cooldown > 0.0 or target == null:
+	if attack_cooldown > 0.0 or target == null or state == State.STUNNED:
 		return
 	attack_cooldown = attack_cooldown_time
+
+	if zombie_visual != null:
+		zombie_visual.play_attack()
+
 	if target.has_method("receive_damage"):
-		target.call("receive_damage", attack_damage)
+		target.call("receive_damage", attack_damage * float(_difficulty.get("damage", 1.0)))
+
+
+## Ataque escupitajo (Spitter)
+func _spit_attack() -> void:
+	if _spit_timer > 0.0 or target == null:
+		return
+	_spit_timer = spit_cooldown
+
+	if zombie_visual != null:
+		zombie_visual.play_attack()
+
+	var spit_scene: PackedScene = preload("res://03_zombies/projectiles/AcidSpit.tscn")
+	var spit: Node2D = spit_scene.instantiate()
+	# Parentear a la escena, no a root: un escupitajo en vuelo podría sobrevivir
+	# a reload_current_scene() y dañar al jugador de la partida nueva.
+	var parent: Node = get_tree().current_scene if get_tree().current_scene != null else get_tree().root
+	parent.add_child(spit)
+
+	var direction: Vector2 = (target.global_position - global_position).normalized()
+	spit.global_position = global_position + direction * 20.0
+	spit.rotation = direction.angle()
+	spit.call("launch", direction, spit_damage * float(_difficulty.get("damage", 1.0)), spit_range)
+
+
+## Grito de alerta (Screamer)
+func _scream_attack() -> void:
+	if _scream_timer > 0.0:
+		return
+	_scream_timer = scream_cooldown
+
+	if zombie_visual != null:
+		zombie_visual.play_attack()
+
+	if ParticleManager.instance != null:
+		ParticleManager.instance.spawn_impact_flesh(global_position, Vector2.ZERO)
+
+	_propagate_alert(global_position, scream_radius, self)
+
+	if target != null and global_position.distance_to(target.global_position) <= 80.0:
+		if target.has_method("receive_damage"):
+			target.call("receive_damage", attack_damage * 0.5 * float(_difficulty.get("damage", 1.0)))
+
+
+func _alert_from_scream(scream_pos: Vector2) -> void:
+	receive_group_alert(scream_pos, scream_radius, null)
+
+
+## Carga (Tank)
+func _start_charge(target_pos: Vector2) -> void:
+	if _charge_timer > 0.0:
+		return
+	_charge_timer = charge_cooldown
+	_charge_duration = 1.5  # Duración de la carga
+	_is_charging = true
+
+	var direction: Vector2 = (target_pos - global_position).normalized()
+	_charge_direction = direction
+
+	if zombie_visual != null:
+		zombie_visual.play_attack()
+
+	if ParticleManager.instance != null:
+		ParticleManager.instance.spawn_impact_concrete(global_position, _charge_direction)
+
+
+# ---------------------------------------------------------------------------
+# Navegacion y movement
+# ---------------------------------------------------------------------------
 
 func _navigate_to(destination: Vector2, move_speed: float) -> void:
+	if not is_instance_valid(agent):
+		return
 	if _repath_timer <= 0.0 or _last_destination == Vector2.INF or destination.distance_squared_to(_last_destination) > 784.0:
 		agent.target_position = destination
 		_last_destination = destination
@@ -136,17 +631,20 @@ func _navigate_to(destination: Vector2, move_speed: float) -> void:
 	else:
 		velocity = Vector2.ZERO
 
+
 func _wander(delta: float) -> void:
 	_wander_timer -= delta
 	if _wander_timer <= 0.0 or global_position.distance_to(_wander_target) < 20.0:
 		_pick_wander_target()
-	_navigate_to(_wander_target, speed * 0.35)
+	_navigate_to(_wander_target, speed * _speed_multiplier() * 0.35)
+
 
 func _pick_wander_target() -> void:
 	var angle: float = randf() * TAU
 	var radius: float = randf_range(30.0, 100.0)
 	_wander_target = _spawn_position + Vector2(cos(angle), sin(angle)) * radius
 	_wander_timer = randf_range(2.5, 5.0)
+
 
 func _apply_separation() -> void:
 	var separation: Vector2 = Vector2.ZERO
@@ -163,6 +661,7 @@ func _apply_separation() -> void:
 			separation += (away / gap) * (1.0 - gap / SEPARATION_RADIUS)
 	velocity += separation * SEPARATION_FORCE
 
+
 func _update_flash(delta: float) -> void:
 	if _flash_timer <= 0.0:
 		return
@@ -170,45 +669,205 @@ func _update_flash(delta: float) -> void:
 	if _flash_timer <= 0.0:
 		modulate = Color.WHITE
 
-func _has_line_of_sight() -> bool:
-	if target == null:
-		return false
-	var query := PhysicsRayQueryParameters2D.create(global_position, target.global_position)
-	query.collision_mask = 1
-	query.exclude = [get_rid(), target.get_rid()]
-	return get_world_2d().direct_space_state.intersect_ray(query).is_empty()
+
+# ---------------------------------------------------------------------------
+# Tipos y dificultad
+# ---------------------------------------------------------------------------
 
 func _apply_kind() -> void:
-	if kind == Kind.RUNNER:
-		speed = 150.0
-		max_hp = 30.0
-		attack_damage = 7.0
-		attack_cooldown_time = 0.8
-		detect_radius = 560.0
-		lose_radius = 800.0
-		body_visual.color = Color(0.82, 0.58, 0.2)
-		nose.color = Color(0.95, 0.8, 0.5)
-		body_visual.scale = Vector2(0.82, 0.82)
-		nose.scale = Vector2(0.82, 0.82)
-	else:
-		speed = 80.0
-		max_hp = 68.0
-		attack_damage = 10.0
-		attack_cooldown_time = 1.0
-		detect_radius = 430.0
-		lose_radius = 700.0
-		body_visual.color = Color(0.62, 0.22, 0.18)
-		nose.color = Color(0.8, 0.5, 0.45)
-	alert_label.text = "!" if kind == Kind.RUNNER else "?"
+	match kind:
+		Kind.WALKER:
+			speed = 80.0
+			max_hp = 68.0
+			attack_damage = 10.0
+			attack_cooldown_time = 1.0
+			detect_radius = 430.0
+			lose_radius = 700.0
+			body_visual.color = Color(0.62, 0.22, 0.18)
+			nose.color = Color(0.8, 0.5, 0.45)
+			body_visual.scale = Vector2(1.0, 1.0)
+			nose.scale = Vector2(1.0, 1.0)
+			spit_range = 0.0
+			spit_damage = 0.0
+			spit_cooldown = 0.0
+			scream_radius = 0.0
+			scream_cooldown = 0.0
+			charge_speed = 0.0
+			charge_cooldown = 0.0
+			if zombie_visual != null:
+				zombie_visual.set_type(ZombieVisual.ZombieType.WALKER)
+			alert_label.text = "?"
+
+		Kind.RUNNER:
+			speed = 150.0
+			max_hp = 30.0
+			attack_damage = 7.0
+			attack_cooldown_time = 0.8
+			detect_radius = 560.0
+			lose_radius = 800.0
+			body_visual.color = Color(0.82, 0.58, 0.2)
+			nose.color = Color(0.95, 0.8, 0.5)
+			body_visual.scale = Vector2(0.82, 0.82)
+			nose.scale = Vector2(0.82, 0.82)
+			spit_range = 0.0
+			spit_damage = 0.0
+			spit_cooldown = 0.0
+			scream_radius = 0.0
+			scream_cooldown = 0.0
+			charge_speed = 0.0
+			charge_cooldown = 0.0
+			if zombie_visual != null:
+				zombie_visual.set_type(ZombieVisual.ZombieType.RUNNER)
+			alert_label.text = "!"
+
+		Kind.TANK:
+			speed = 45.0
+			max_hp = 250.0
+			attack_damage = 25.0
+			attack_cooldown_time = 1.5
+			detect_radius = 350.0
+			lose_radius = 600.0
+			body_visual.color = Color(0.4, 0.4, 0.5)
+			nose.color = Color(0.6, 0.6, 0.7)
+			body_visual.scale = Vector2(1.5, 1.5)
+			nose.scale = Vector2(1.5, 1.5)
+			spit_range = 0.0
+			spit_damage = 0.0
+			spit_cooldown = 0.0
+			scream_radius = 0.0
+			scream_cooldown = 0.0
+			charge_speed = 250.0
+			charge_cooldown = 5.0
+			if zombie_visual != null:
+				zombie_visual.set_type(ZombieVisual.ZombieType.TANK)
+			alert_label.text = "!!"
+
+		Kind.SPITTER:
+			speed = 70.0
+			max_hp = 50.0
+			attack_damage = 8.0
+			attack_cooldown_time = 1.2
+			detect_radius = 500.0
+			lose_radius = 700.0
+			body_visual.color = Color(0.4, 0.7, 0.4)
+			nose.color = Color(0.6, 0.9, 0.6)
+			body_visual.scale = Vector2(0.9, 0.9)
+			nose.scale = Vector2(0.9, 0.9)
+			spit_range = 300.0
+			spit_damage = 15.0
+			spit_cooldown = 3.0
+			scream_radius = 0.0
+			scream_cooldown = 0.0
+			charge_speed = 0.0
+			charge_cooldown = 0.0
+			if zombie_visual != null:
+				zombie_visual.set_type(ZombieVisual.ZombieType.SPITTER)
+			alert_label.text = "~"
+
+		Kind.SCREAMER:
+			speed = 100.0
+			max_hp = 40.0
+			attack_damage = 12.0
+			attack_cooldown_time = 1.0
+			detect_radius = 400.0
+			lose_radius = 650.0
+			body_visual.color = Color(0.8, 0.3, 0.8)
+			nose.color = Color(1.0, 0.5, 1.0)
+			body_visual.scale = Vector2(0.85, 0.85)
+			nose.scale = Vector2(0.85, 0.85)
+			spit_range = 0.0
+			spit_damage = 0.0
+			spit_cooldown = 0.0
+			scream_radius = 500.0
+			scream_cooldown = 8.0
+			charge_speed = 0.0
+			charge_cooldown = 0.0
+			if zombie_visual != null:
+				zombie_visual.set_type(ZombieVisual.ZombieType.SCREAMER)
+			alert_label.text = "~~"
+
+	_base_max_hp = max_hp
+	hp = max_hp
+
+
+## Consume GameState.difficulty() de forma defensiva. Acepta numero, texto o
+## diccionario; si no existe el autoload, todos los multiplicadores son 1.0.
+func _refresh_difficulty() -> void:
+	_difficulty_refresh = 4.0
+	var old_health: float = float(_difficulty.get("health", 1.0))
+	var profile: Dictionary = {
+		"speed": 1.0, "perception": 1.0, "damage": 1.0, "health": 1.0
+	}
+	var provider: Object = null
+	var tree: SceneTree = get_tree()
+	if tree != null and tree.root != null:
+		provider = tree.root.get_node_or_null("GameState")
+	if provider == null and Engine.has_singleton("GameState"):
+		provider = Engine.get_singleton("GameState")
+	if provider == null or not provider.has_method("difficulty"):
+		_difficulty = profile
+		return
+
+	var raw: Variant = provider.call("difficulty")
+	if raw is Dictionary:
+		var data: Dictionary = raw
+		profile["speed"] = _diff_factor(data, ["zombie_speed", "speed", "speed_multiplier"], 1.0)
+		profile["perception"] = _diff_factor(data, ["zombie_perception", "perception", "detection", "detect"], 1.0)
+		profile["damage"] = _diff_factor(data, ["zombie_damage", "damage", "damage_multiplier"], 1.0)
+		profile["health"] = _diff_factor(data, ["zombie_health", "health", "hp"], 1.0)
+	elif raw is float or raw is int:
+		# GameState.difficulty() esta normalizado [0,1] (0 facil, 1 maximo).
+		# Valores >1 se tratan como multiplicador directo, como en WorldDirector.
+		var level: float = clampf(float(raw), 0.0, 3.0)
+		var t: float
+		if level <= 1.0:
+			t = level
+		else:
+			t = clampf((level - 1.0) / 0.8, 0.0, 2.0)
+		profile["speed"] = clampf(1.0 + t * 0.22, 0.85, 1.5)
+		profile["perception"] = clampf(1.0 + t * 0.28, 0.85, 1.6)
+		profile["damage"] = clampf(1.0 + t * 0.45, 0.8, 2.0)
+		profile["health"] = clampf(1.0 + t * 0.40, 0.85, 1.9)
+	elif raw is String:
+		match String(raw).to_lower():
+			"easy", "facil", "fácil", "novice":
+				profile = {"speed": 0.9, "perception": 0.85, "damage": 0.75, "health": 0.85}
+			"hard", "dificil", "difícil", "veteran":
+				profile = {"speed": 1.15, "perception": 1.2, "damage": 1.35, "health": 1.3}
+			"nightmare", "pesadilla", "extreme":
+				profile = {"speed": 1.35, "perception": 1.4, "damage": 1.7, "health": 1.6}
+	var new_health: float = float(profile.get("health", 1.0))
+	_difficulty = profile
+	# Si la dificultad cambia a mitad de partida, reescalamos vida sin revivir
+	# zombies muertos ni alterar el tipo base.
+	if _base_max_hp > 0.0 and not is_equal_approx(old_health, new_health) and hp > 0.0:
+		var ratio: float = new_health / maxf(old_health, 0.001)
+		max_hp = _base_max_hp * new_health
+		hp = clampf(hp * ratio, 1.0, max_hp)
+
+
+func _diff_factor(data: Dictionary, keys: Array, fallback: float) -> float:
+	for key in keys:
+		if not data.has(key):
+			continue
+		var value: Variant = data[key]
+		if value is float or value is int:
+			return clampf(float(value), 0.5, 2.5)
+	return fallback
+
 
 func _die() -> void:
 	_dead = true
+	state = State.DEAD
 	remove_from_group("zombies")
 	collision_layer = 0
 	collision_mask = 0
 	set_physics_process(false)
 	alert_label.visible = false
 	EventBus.zombie_died.emit(self)
+
+	if zombie_visual != null:
+		zombie_visual.play_death()
 
 	var tween := create_tween()
 	tween.set_parallel(true)
