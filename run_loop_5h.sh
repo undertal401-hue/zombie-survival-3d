@@ -18,7 +18,7 @@ STOP_FILE="$VAULT/loop.stop"
 
 ROUNDS="${ROUNDS:-25}"
 PAUSE_SECONDS="${PAUSE_SECONDS:-600}"
-ROUND_TIMEOUT="${ROUND_TIMEOUT:-900}"
+ROUND_TIMEOUT="${ROUND_TIMEOUT:-1800}"
 
 log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*"; }
 

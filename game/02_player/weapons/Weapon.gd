@@ -85,7 +85,7 @@ var condition: float:
 @export var melee_arc: float = PI / 3              # 60°
 @export var melee_knockback: float = 200.0
 @export var melee_cooldown: float = 0.6
-@export var melee_hit_stop: float = 0.08           # hit pause frames
+@export var melee_hit_stop: float = 0.08           # duración del shake de cámara al golpear (no hit-stop global)
 
 ## --- Efectos Visuales/Sonoros ---
 @export var muzzle_flash: PackedScene
