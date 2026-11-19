@@ -113,7 +113,7 @@ func _input_test() -> void:
 		await get_tree().physics_frame
 	var delta: Vector2 = player.global_position - start
 	print("INPUT_TEST start=%s end=%s delta=%s" % [str(start), str(player.global_position), str(delta)])
-	print("INPUT_TEST_%s" % ("OK" if delta.x > 40.0 else "FAIL"))
+	print("INPUT_TEST_%s" % ("OK" if delta.x > 40.0 else "FAIL "))
 
 func _inspect() -> void:
 	var main := get_tree().current_scene

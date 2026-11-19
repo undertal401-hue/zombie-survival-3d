@@ -463,7 +463,7 @@ func _become_alerted(world_position: Vector2, source: Node, propagate: bool = tr
 		_propagate_alert(world_position, alert_propagation_radius, source)
 
 
-## Un zombie alertado comparte el ultimo punto conocido con el Gruppe cercano.
+## Un zombie alertado comparte el último punto conocido con el grupo cercano.
 func _propagate_alert(world_position: Vector2, radius: float, source: Node) -> void:
 	if _propagate_cooldown > 0.0 or world_position == Vector2.INF:
 		return
