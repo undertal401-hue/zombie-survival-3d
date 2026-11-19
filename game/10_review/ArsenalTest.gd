@@ -3,6 +3,7 @@ extends Node
 ## está cableado, la munición se consume de verdad y el save/load round-tripa.
 
 var _failures: Array[String] = []
+var _main: Node
 
 func _check(condition: bool, label: String) -> void:
 	print(("OK   " if condition else "FAIL ") + label)
@@ -11,17 +12,17 @@ func _check(condition: bool, label: String) -> void:
 
 func _ready() -> void:
 	await get_tree().process_frame
-	var main: Node = load("res://07_house/Main.tscn").instantiate()
-	get_tree().root.add_child(main)
-	get_tree().current_scene = main
+	_main = load("res://07_house/Main.tscn").instantiate()
+	get_tree().root.add_child(_main)
+	get_tree().current_scene = _main
 	for i in range(10):
 		await get_tree().process_frame
 
-	var player: Node = main.get_node("Player")
+	var player: Node = _main.get_node("Player")
 	var wc: WeaponController = player.get_node("WeaponController") as WeaponController
 	_check(wc != null, "WeaponController presente")
 	if wc == null:
-		_finish()
+		await _finish()
 		return
 
 	_check(wc.weapons.size() == 5, "loadout de 5 ranuras")
@@ -74,9 +75,16 @@ func _ready() -> void:
 	wc.load_save_data(data)
 	_check(wc.get_weapon_in_slot(2) != null and wc.get_weapon_in_slot(2).weapon_name == "Escopeta 12ga",
 		"save/load restaura armas por resource_path")
-	_finish()
+	await _finish()
 
 func _finish() -> void:
+	if is_instance_valid(_main):
+		_main.queue_free()
+		_main = null
+	# Dar tiempo al árbol a liberar el mundo instanciado antes de salir,
+	# evitando "ObjectDB instances were leaked at exit" en headless.
+	for i in range(3):
+		await get_tree().process_frame
 	print("ARSENAL_TEST failures=%d" % _failures.size())
 	for f in _failures:
 		print("  - " + f)

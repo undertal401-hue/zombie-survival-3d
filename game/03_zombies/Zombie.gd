@@ -325,10 +325,6 @@ func _can_detect(node: Node2D) -> bool:
 	return true
 
 
-func _has_line_of_sight() -> bool:
-	return _has_line_of_sight_to(target)
-
-
 func _has_line_of_sight_to(node: Node2D) -> bool:
 	if node == null or not is_instance_valid(node):
 		return false
@@ -617,10 +613,6 @@ func _scream_attack() -> void:
 	if target != null and global_position.distance_to(target.global_position) <= 80.0:
 		if target.has_method("receive_damage"):
 			target.call("receive_damage", attack_damage * 0.5 * float(_difficulty.get("damage", 1.0)))
-
-
-func _alert_from_scream(scream_pos: Vector2) -> void:
-	receive_group_alert(scream_pos, scream_radius, null)
 
 
 ## Carga (Tank)

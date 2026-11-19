@@ -3,6 +3,7 @@ extends Node
 ## botín por riesgo y composición escalonada de hordas.
 
 var _failures: Array[String] = []
+var _main: Node
 
 func _check(condition: bool, label: String) -> void:
 	print(("OK   " if condition else "FAIL ") + label)
@@ -11,9 +12,9 @@ func _check(condition: bool, label: String) -> void:
 
 func _ready() -> void:
 	await get_tree().process_frame
-	var main: Node = load("res://07_house/Main.tscn").instantiate()
-	get_tree().root.add_child(main)
-	get_tree().current_scene = main
+	_main = load("res://07_house/Main.tscn").instantiate()
+	get_tree().root.add_child(_main)
+	get_tree().current_scene = _main
 	for i in range(10):
 		await get_tree().process_frame
 
@@ -59,7 +60,7 @@ func _ready() -> void:
 	tank.queue_free()
 
 	# --- Composición de hordas ---
-	var director: Node = main.get_node_or_null("WaveManager")
+	var director: Node = _main.get_node_or_null("WaveManager")
 	_check(director != null, "WaveManager presente")
 	if director != null:
 		director.set("_horde_wave", 1)
@@ -76,9 +77,16 @@ func _ready() -> void:
 			seen[int(director.call("_horde_kind_for", i))] = true
 		_check(seen.has(2) and seen.has(3) and seen.has(4),
 			"oleada 4 incluye tanque, escupidor y gritón")
-	_finish()
+	await _finish()
 
 func _finish() -> void:
+	if is_instance_valid(_main):
+		_main.queue_free()
+		_main = null
+	# Dar tiempo al árbol a liberar el mundo instanciado antes de salir,
+	# evitando "ObjectDB instances were leaked at exit" en headless.
+	for i in range(3):
+		await get_tree().process_frame
 	print("AI_WAVE_TEST failures=%d" % _failures.size())
 	for f in _failures:
 		print("  - " + f)

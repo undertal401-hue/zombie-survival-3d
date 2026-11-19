@@ -1,13 +1,15 @@
 extends Node
 
+var _main: Node
+
 func _ready() -> void:
 	await get_tree().process_frame
-	var main: Node = load("res://07_house/Main.tscn").instantiate()
-	get_tree().root.add_child(main)
-	get_tree().current_scene = main
+	_main = load("res://07_house/Main.tscn").instantiate()
+	get_tree().root.add_child(_main)
+	get_tree().current_scene = _main
 	for i in range(10):
 		await get_tree().process_frame
-	var player: CharacterBody2D = main.get_node("Player")
+	var player: CharacterBody2D = _main.get_node("Player")
 	var inv = get_node("/root/Inventory")
 	inv.call("clear")
 	inv.call("add_item", "pistol_ammo", 200)
@@ -63,6 +65,13 @@ func _ready() -> void:
 	print("STRESS END hp=", int(player.hp), " zombies=", zombies, " pickups=", pickups,
 		" projectiles=", projectiles, " puddles=", puddles,
 		" paused=", get_tree().paused, " time_scale=", Engine.time_scale)
+	if is_instance_valid(_main):
+		_main.queue_free()
+		_main = null
+	# Dar tiempo al árbol a liberar el mundo instanciado antes de salir,
+	# evitando "ObjectDB instances were leaked at exit" en headless.
+	for i in range(3):
+		await get_tree().process_frame
 	# La salida se programa ANTES de los assert: si uno falla en debug el
 	# proceso ya tiene su codigo y el CI no puede dar verde aunque el arnes
 	# se detenga. En release los asserts se compilan fuera y los `errors`

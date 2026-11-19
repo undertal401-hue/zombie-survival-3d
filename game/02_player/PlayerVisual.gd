@@ -220,6 +220,6 @@ func load_all_from_atlas(atlas: Texture2D, layout: Dictionary) -> void:
 	pass
 
 func _set_hit_flash(progress: float) -> void:
-	if animated_sprite.material != null and animated_sprite.material is ShaderMaterial:
-		var mat: ShaderMaterial = animated_sprite.material as ShaderMaterial
+	var mat := animated_sprite.material as ShaderMaterial
+	if mat != null:
 		mat.set_shader_parameter("hit_flash_progress", progress)

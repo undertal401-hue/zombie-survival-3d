@@ -11,11 +11,13 @@ const SYSTEMS: Array[String] = [
 	"game_state", "crafting", "weapon_condition", "hordes", "vehicle_fuel_damage"
 ]
 
+var _main: Node
+
 func _ready() -> void:
 	await get_tree().process_frame
-	var main: Node = load("res://07_house/Main.tscn").instantiate()
-	get_tree().root.add_child(main)
-	get_tree().current_scene = main
+	_main = load("res://07_house/Main.tscn").instantiate()
+	get_tree().root.add_child(_main)
+	get_tree().current_scene = _main
 	for i in range(10):
 		await get_tree().process_frame
 	var audit: Dictionary = _run_audit()
@@ -28,6 +30,13 @@ func _ready() -> void:
 	print("=== AUDIT END ===")
 	var audit_failures: int = SYSTEMS.size() - int(audit.get("active", 0))
 	print("MECHANICS_AUDIT failures=%d" % audit_failures)
+	if is_instance_valid(_main):
+		_main.queue_free()
+		_main = null
+	# Dar tiempo al árbol a liberar el mundo instanciado antes de salir,
+	# evitando "ObjectDB instances were leaked at exit" en headless.
+	for i in range(3):
+		await get_tree().process_frame
 	# La salida se programa ANTES de los assert: si un sistema no esta activo
 	# el assert dispara "Assertion failed" en debug (detectado por CI) y el
 	# proceso ya tiene codigo de fallo. En release los asserts se compilan

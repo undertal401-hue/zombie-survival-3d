@@ -4,6 +4,7 @@ extends Node
 ## sin depender del estado "OK" de los arneses de presencia de API.
 
 var _failures: Array[String] = []
+var _main: Node
 
 func _check(condition: bool, label: String) -> void:
 	print(("OK   " if condition else "FAIL ") + label)
@@ -13,16 +14,16 @@ func _check(condition: bool, label: String) -> void:
 
 func _ready() -> void:
 	await get_tree().process_frame
-	var main: Node = load("res://07_house/Main.tscn").instantiate()
-	get_tree().root.add_child(main)
-	get_tree().current_scene = main
+	_main = load("res://07_house/Main.tscn").instantiate()
+	get_tree().root.add_child(_main)
+	get_tree().current_scene = _main
 	for i in range(10):
 		await get_tree().process_frame
 
 	var zombies: Array = get_tree().get_nodes_in_group("zombies")
 	_check(zombies.size() >= 2, "hay al menos 2 zombis vivos")
 	if zombies.size() < 2:
-		_finish()
+		await _finish()
 		return
 
 	var a: Node2D = zombies[0] as Node2D
@@ -50,10 +51,19 @@ func _ready() -> void:
 	_check((a.get("_separation_neighbors") as Array).is_empty(), "muerte limpia el conjunto de vecinos")
 	_check(area != null and not area.monitoring, "muerte desactiva la monitorización")
 
-	_finish()
+	await _finish()
 
 
 func _finish() -> void:
+	if is_instance_valid(_main):
+		if get_tree().current_scene == _main:
+			get_tree().current_scene = null
+		_main.queue_free()
+		_main = null
+	# Dar tiempo al árbol a liberar el mundo instanciado antes de salir,
+	# evitando "ObjectDB instances were leaked at exit" en headless.
+	for i in range(6):
+		await get_tree().process_frame
 	print("SEPARATION_TEST failures=%d" % _failures.size())
 	for f in _failures:
 		print("  - " + f)
