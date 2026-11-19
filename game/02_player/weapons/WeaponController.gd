@@ -39,7 +39,6 @@ var _fire_pressed: bool = false
 var _reload_pressed: bool = false
 
 ## Estado
-var _fire_timer: float = 0.0
 var _burst_timer: float = 0.0
 var _is_burst_firing: bool = false
 ## Evita spam del aviso de aguante al mantener disparo/melee.
@@ -119,10 +118,6 @@ func _process(delta: float) -> void:
 	# de nuevo, pero la recarga ya iniciada sigue avanzando arriba.
 	if _gameplay_blocked():
 		return
-
-	# Timer de disparo
-	if _fire_timer > 0.0:
-		_fire_timer -= delta
 
 	# Burst firing
 	if _is_burst_firing:
@@ -257,8 +252,6 @@ func _fire_shot() -> void:
 	current_weapon.consume_ammo()
 	current_weapon.apply_spread()
 	
-	_fire_timer = current_weapon.get_fire_interval()
-	
 	# Burst logic: contar cada disparo y parar al llegar a burst_count.
 	if current_weapon.burst_count > 1:
 		current_weapon.burst_shots_fired += 1
@@ -353,7 +346,6 @@ func _equip_slot(slot: int) -> void:
 	# Una ráfaga o un disparo mantenido del arma anterior no siguen en la nueva.
 	_is_burst_firing = false
 	_burst_timer = 0.0
-	_fire_timer = 0.0
 	_fire_held = false
 	_fire_pressed = false
 	
@@ -374,7 +366,6 @@ func cancel_reload_for_vehicle() -> void:
 			weapon.cancel_reload(true)
 	_is_burst_firing = false
 	_burst_timer = 0.0
-	_fire_timer = 0.0
 	_fire_held = false
 	_fire_pressed = false
 	if current_weapon != null:
