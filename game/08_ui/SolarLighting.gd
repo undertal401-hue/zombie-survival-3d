@@ -54,7 +54,15 @@ func _ready() -> void:
 	# Aplicar estado inicial
 	_apply_lighting()
 
+	# El resplandor debe seguir circular si cambia el tamaño de la ventana.
+	var viewport := get_viewport()
+	if viewport != null and not viewport.size_changed.is_connected(_on_viewport_resized):
+		viewport.size_changed.connect(_on_viewport_resized)
+
 func _exit_tree() -> void:
+	var viewport := get_viewport()
+	if viewport != null and viewport.size_changed.is_connected(_on_viewport_resized):
+		viewport.size_changed.disconnect(_on_viewport_resized)
 	if _light_tween != null and _light_tween.is_valid():
 		_light_tween.kill()
 
@@ -83,6 +91,9 @@ func _apply_lighting() -> void:
 
 ## El resplandor era un shader huérfano. Ahora sigue al sol en pantalla y
 ## se apaga con la energía solar, sin coste cuando no hay luz directa.
+func _on_viewport_resized() -> void:
+	_update_glare()
+
 func _update_glare() -> void:
 	if glare_rect == null or glare_rect.material == null:
 		return
@@ -94,8 +105,11 @@ func _update_glare() -> void:
 		0.5 + cos(solar_angle) * 0.45,
 		0.5 + sin(solar_angle) * 0.35
 	)
+	var viewport_size: Vector2 = get_viewport_rect().size
+	var viewport_aspect: float = viewport_size.x / maxf(viewport_size.y, 1.0)
 	shader_mat.set_shader_parameter("sun_screen_pos", sun_uv)
 	shader_mat.set_shader_parameter("glare_intensity", clampf(sun_energy * 0.9, 0.0, 0.30))
+	shader_mat.set_shader_parameter("viewport_aspect", viewport_aspect)
 
 func _update_sun_position() -> void:
 	# DirectionalLight2D en Godot 4 usa rotación para definir la dirección

@@ -3,6 +3,11 @@ extends Node
 ## QA temporal. Modos: inputtest, inspect, play, hunger, capture, perf, mechanics.
 ## `mechanics` imprime solo el contrato de sistemas nuevos (r1) sin batería completa.
 
+## Default EXACTAMENTE igual al directorio usado hoy (user://qa_shots).
+const DEFAULT_CAPTURE_DIR := "user://qa_shots"
+## QA_CAPTURE_DIR permite redirigir las capturas; sin entorno se usa el default.
+var capture_dir: String = OS.get_environment("QA_CAPTURE_DIR") if not OS.get_environment("QA_CAPTURE_DIR").is_empty() else DEFAULT_CAPTURE_DIR
+
 var _held: Dictionary = {}
 var _main: Node
 var _player: CharacterBody2D
@@ -874,9 +879,12 @@ func _perf_mode() -> void:
 func _capture_mode() -> void:
 	var main := get_tree().current_scene
 	var player := get_tree().get_first_node_in_group("player") as CharacterBody2D
-	var shot_dir: DirAccess = DirAccess.open("user://")
-	if shot_dir != null:
-		shot_dir.make_dir_recursive("qa_shots")
+	if capture_dir == DEFAULT_CAPTURE_DIR:
+		var shot_dir: DirAccess = DirAccess.open("user://")
+		if shot_dir != null:
+			shot_dir.make_dir_recursive("qa_shots")
+	else:
+		DirAccess.make_dir_recursive_absolute(capture_dir)
 	var shots := [
 		["start", Vector2(-2100, 1350)],
 		["west_border", Vector2(-2340, 1350)],
@@ -896,7 +904,7 @@ func _capture_mode() -> void:
 			await get_tree().physics_frame
 		await RenderingServer.frame_post_draw
 		var image := get_viewport().get_texture().get_image()
-		image.save_png("user://qa_shots/%s.png" % shot[0])
+		image.save_png(capture_dir.path_join("%s.png" % shot[0]))
 		var camera := player.get_node("Camera2D") as Camera2D
 		var compass_node = main.get_node_or_null("HUD/Compass")
 		var compass: String = "activa" if compass_node != null else "N/A"

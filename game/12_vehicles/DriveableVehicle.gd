@@ -537,11 +537,10 @@ func _night_factor() -> float:
 			if p.contains("day") or p.contains("dia"):
 				return 0.0
 
-	var solar: Node = get_node_or_null("/root/SolarLighting")
-	if solar == null:
-		var lights: Array[Node] = get_tree().get_nodes_in_group("lighting")
-		if not lights.is_empty():
-			solar = lights[0]
+	# SolarLighting NO es autoload: es el hijo `SolarLighting` de Main y no
+	# pertenece a ningún grupo (grep: sin add_to_group en SolarLighting.gd).
+	# /root/SolarLighting y el grupo "lighting" nunca existen.
+	var solar: Node = get_node_or_null("/root/Main/SolarLighting")
 	if solar != null and is_instance_valid(solar):
 		var energy: Variant = solar.get("ambient_energy")
 		if energy is float or energy is int:

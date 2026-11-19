@@ -32,6 +32,9 @@ const HORDE_EARLY_KINDS: Array[int] = [0, 1]
 const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
 const LOOT_SCENE: PackedScene = preload("res://04_items/LootContainer.tscn")
 const SEED_OFFSET: int = 101
+## Umbral de propagación al bosque: evita reasignar colores de las bandas de
+## niebla cada frame cuando el valor suavizado ya convergió al objetivo.
+const WEATHER_EPSILON: float = 0.002
 
 @export_group("Ciclo y clima")
 ## Segundos por ciclo completo (amanecer -> día -> atardecer -> noche).
@@ -65,6 +68,9 @@ var _visibility: float = 1.0
 var _target_visibility: float = 1.0
 var _speed_mult: float = 1.0
 var _target_speed: float = 1.0
+# Últimos valores propagados al Forest (centinelas para forzar el primer envío).
+var _last_fog: float = -1.0
+var _last_speed: float = -1.0
 var _in_forest: bool = false
 
 var _weather_timer: float = 0.0
@@ -144,10 +150,17 @@ func _process(delta: float) -> void:
 	_speed_mult = lerpf(_speed_mult, _target_speed, smoothing)
 
 	if _forest != null and is_instance_valid(_forest):
-		if _forest.has_method("set_weather_fog"):
-			_forest.call("set_weather_fog", WEATHER_FOG[_weather] * _visibility)
-		if _forest.has_method("set_weather_speed_multiplier"):
-			_forest.call("set_weather_speed_multiplier", _speed_mult)
+		# Suavizado exponencial intacto arriba; aquí solo se propaga cuando el
+		# valor suavizado cambió de verdad (o en el primer envío).
+		var fog: float = WEATHER_FOG[_weather] * _visibility
+		if absf(fog - _last_fog) > WEATHER_EPSILON:
+			_last_fog = fog
+			if _forest.has_method("set_weather_fog"):
+				_forest.call("set_weather_fog", fog)
+		if absf(_speed_mult - _last_speed) > WEATHER_EPSILON:
+			_last_speed = _speed_mult
+			if _forest.has_method("set_weather_speed_multiplier"):
+				_forest.call("set_weather_speed_multiplier", _speed_mult)
 
 	_light_timer -= delta
 	if _light_timer <= 0.0:
