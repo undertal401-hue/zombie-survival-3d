@@ -11,10 +11,7 @@ class_name PlayerVisual
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 
 var _current_state: String = "idle"
-var _last_velocity: Vector2 = Vector2.ZERO
 var _is_attacking: bool = false
-var _attack_anim: String = ""
-var _weapon_type: int = 1  # 0=melee, 1=pistol, 2=shotgun, 3=rifle
 ## Las animaciones usan 4 frames procedurales reutilizados para todas las
 ## acciones. animation_finished sí se emite, pero los clips son muy cortos:
 ## ataques y recargas necesitan un fallback temporal que fije su duración mínima.
@@ -59,7 +56,6 @@ func _process(delta: float) -> void:
 		_attack_timer = maxf(_attack_timer - delta, 0.0)
 		if _attack_timer <= 0.0 and _is_attacking:
 			_is_attacking = false
-			_attack_anim = ""
 			_current_state = ""
 
 func _setup_animations() -> void:
@@ -129,11 +125,10 @@ func update_from_player(player: Node2D, velocity: Vector2, weapon_controller: No
 	
 	var is_moving: bool = velocity.length() > 1.0
 	var is_running: bool = Input.is_action_pressed("sprint") and is_moving
-	var wc: WeaponController = weapon_controller as WeaponController
-	
-	# Detectar arma actual
-	if wc != null and wc.current_weapon != null:
-		_weapon_type = int(wc.current_weapon.category)
+	# weapon_controller permanece en la firma porque Player.gd lo pasa, pero
+	# hoy no se consulta: el arma se resuelve en play_attack()/play_reload()
+	# desde el category que Player entrega. Quitar el parámetro exigiría tocar
+	# Player.gd, fuera de esta superficie.
 	
 	# Orientación del sprite (también durante ataques y recargas): el dibujo
 	# procedural tiene la coronilla y el cañón hacia -Y, pero el nodo Player
@@ -178,7 +173,6 @@ func play_attack(weapon_category: int) -> void:
 		3: anim_name = "attack_rifle"
 		_: anim_name = "attack_pistol"
 	
-	_attack_anim = anim_name
 	animated_sprite.play(anim_name)
 	# Los frames procedurales terminan demasiado pronto: imponer duración mínima.
 	_attack_timer = 0.35
@@ -193,7 +187,6 @@ func play_reload(weapon_category: int) -> void:
 		_: anim_name = "reload_pistol"
 	
 	animated_sprite.play(anim_name)
-	_attack_anim = anim_name
 	_attack_timer = 0.9
 
 func play_hurt() -> void:
@@ -210,7 +203,6 @@ func _on_animation_finished() -> void:
 	if animated_sprite.animation in ["attack_melee", "attack_pistol", "attack_shotgun", "attack_rifle",
 		"reload_pistol", "reload_shotgun", "reload_rifle"]:
 		_is_attacking = false
-		_attack_anim = ""
 		_attack_timer = 0.0
 		_current_state = ""
 

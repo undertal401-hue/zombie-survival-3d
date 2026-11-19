@@ -10,14 +10,14 @@ class_name ZombieVisual
 
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 
-var _zombie_type: int = 0
 var _current_state: String = "idle"
 var _is_attacking: bool = false
 var _is_dying: bool = false
 
-## Los SpriteFrames se crean vacíos (no hay assets de sprite), así que
-## animated_sprite.animation_finished nunca se emite. Necesitamos un fallback
-## temporal para desbloquear update_state() igual que hace PlayerVisual.
+## Zombie.tscn no asigna sprite_frames y este script no añade frames: las siete
+## animaciones quedan vacías, así que animation_finished nunca se emite. El
+## fallback temporal es lo único que desbloquea update_state() (PlayerVisual sí
+## tiene frames procedurales y necesita el suyo por ser clips muy cortos).
 var _attack_timer: float = 0.0
 const ATTACK_FALLBACK: float = 0.5
 
@@ -69,8 +69,6 @@ func _process(delta: float) -> void:
 			_current_state = ""  # Forzar actualización en siguiente frame
 
 func set_type(type: int) -> void:
-	_zombie_type = type
-	
 	# Ajustar velocidades y escala según tipo
 	var frames: SpriteFrames = animated_sprite.sprite_frames
 	match type:

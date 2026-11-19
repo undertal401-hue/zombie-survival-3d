@@ -37,9 +37,6 @@ var current_weapon: Weapon
 var _fire_held: bool = false
 var _fire_pressed: bool = false
 var _reload_pressed: bool = false
-var _switch_up: bool = false
-var _switch_down: bool = false
-var _quick_slots_pressed: Array[bool] = []
 
 ## Estado
 var _fire_timer: float = 0.0

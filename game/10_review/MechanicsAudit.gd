@@ -1,8 +1,10 @@
 extends Node
 
 ## Informe legible del contrato de calidad r1 (5 sistemas nuevos).
-## No instancia Main ni ejecuta la batería: solo inspecciona la API disponible.
-## Cada sistema se reporta como OK / PARTIAL / PENDING; nunca como FAIL.
+## Instancia Main, igual que los demas arneses de regresion, para que los cinco
+## sistemas esten presentes; no ejecuta la bateria completa.
+## Cada sistema se reporta como OK / PENDING; el PROCESO falla (codigo 1) si
+## active<5: marca MECHANICS_AUDIT failures=N.
 ## Uso: godot --headless --path . res://10_review/MechanicsAudit.tscn
 
 const SYSTEMS: Array[String] = [
@@ -11,6 +13,11 @@ const SYSTEMS: Array[String] = [
 
 func _ready() -> void:
 	await get_tree().process_frame
+	var main: Node = load("res://07_house/Main.tscn").instantiate()
+	get_tree().root.add_child(main)
+	get_tree().current_scene = main
+	for i in range(10):
+		await get_tree().process_frame
 	var audit: Dictionary = _run_audit()
 	print("=== MECHANICS AUDIT v1 ===")
 	for key in SYSTEMS:
@@ -19,7 +26,15 @@ func _ready() -> void:
 		print("[%s] %-22s %s" % ["OK" if ok else "PENDING", key, detail])
 	print("AUDIT total=%d/%d" % [int(audit.get("active", 0)), SYSTEMS.size()])
 	print("=== AUDIT END ===")
-	get_tree().quit(0)
+	var audit_failures: int = SYSTEMS.size() - int(audit.get("active", 0))
+	print("MECHANICS_AUDIT failures=%d" % audit_failures)
+	# La salida se programa ANTES de los assert: si un sistema no esta activo
+	# el assert dispara "Assertion failed" en debug (detectado por CI) y el
+	# proceso ya tiene codigo de fallo. En release los asserts se compilan
+	# fuera y audit_failures sigue gobernando la salida.
+	get_tree().quit(1 if audit_failures > 0 else 0)
+	for key in SYSTEMS:
+		assert(bool(audit.get(key, false)), "MECHANICS_AUDIT: %s no activo" % key)
 
 func _has_prop(obj: Object, prop: String) -> bool:
 	if obj == null:

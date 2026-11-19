@@ -17,7 +17,7 @@ func _ready() -> void:
 	await RenderingServer.frame_post_draw
 
 	var image: Image = get_viewport().get_texture().get_image()
-	var path: String = "/tmp/opencode/ui_after.png"
+	var path: String = "user://ui_after.png"
 	image.save_png(path)
-	print("CAPTURE path=", path, " size=", image.get_size())
+	print("CAPTURE path=", path, " global=", ProjectSettings.globalize_path(path), " size=", image.get_size())
 	get_tree().quit(0)

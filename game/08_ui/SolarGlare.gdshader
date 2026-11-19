@@ -8,11 +8,13 @@ uniform float glare_falloff : hint_range(0.5, 5.0) = 2.2;
 uniform vec2 sun_screen_pos = vec2(0.5, 0.3);
 
 void fragment() {
-	// Vector desde posición del sol a pixel actual (en UV 0-1)
+	// Vector desde posición del sol a pixel actual (en UV 0-1).
 	vec2 to_sun = sun_screen_pos - UV;
-	// Distancia radial en espacio UV. Nota: sin el aspecto del viewport el
-	// resplandor es elíptico en pantallas no cuadradas; corregirlo exigiría
-	// un uniform con la ratio, cableado desde SolarLighting.gd.
+	// Corregir aspecto del viewport para que el resplandor sea circular en
+	// pantallas no cuadradas. SCREEN_PIXEL_SIZE permite hacerlo solo desde el
+	// shader, sin uniforms extra ni cambios en SolarLighting.gd.
+	float aspect = SCREEN_PIXEL_SIZE.y / max(SCREEN_PIXEL_SIZE.x, 0.000001);
+	to_sun.x *= aspect;
 	float dist = length(to_sun);
 
 	// Resplandor radial suave con smoothstep

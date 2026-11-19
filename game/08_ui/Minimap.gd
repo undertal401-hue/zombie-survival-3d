@@ -106,25 +106,25 @@ func _draw() -> void:
 
 	# Extracción: anillo azul (se marca en el borde si está fuera de rango).
 	for node in _nodes_extraction:
-		if node is Node2D:
+		if is_instance_valid(node) and node is Node2D:
 			_draw_marker(center, radius, scale, ppos, (node as Node2D).global_position, COL_EXTRACTION, 6.0, true)
 
 	# Objetos saqueables.
 	for group_nodes: Array in [_nodes_loot, _nodes_pickups]:
 		for node in group_nodes:
-			if node is Node2D and is_instance_valid(node):
+			if is_instance_valid(node) and node is Node2D:
 				_draw_marker(center, radius, scale, ppos, (node as Node2D).global_position, COL_LOOT, 2.5, false)
 
 	# Zombis.
 	for node in _nodes_zombies:
-		if node is Node2D:
+		if is_instance_valid(node) and node is Node2D:
 			_draw_marker(center, radius, scale, ppos, (node as Node2D).global_position, COL_ZOMBIE, 3.0, false)
 
 	# Vehículos: icono orientado, barras de chasis/fuel y ruta al más cercano.
 	var nearest: Node2D = null
 	var nearest_dist: float = INF
 	for node in _nodes_vehicles:
-		if not (node is Node2D) or not is_instance_valid(node):
+		if not is_instance_valid(node) or not (node is Node2D):
 			continue
 		var vehicle: Node2D = node as Node2D
 		var dist: float = vehicle.global_position.distance_to(ppos)

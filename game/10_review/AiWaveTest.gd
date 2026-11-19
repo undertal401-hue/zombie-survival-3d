@@ -82,3 +82,10 @@ func _finish() -> void:
 	print("AI_WAVE_TEST failures=%d" % _failures.size())
 	for f in _failures:
 		print("  - " + f)
+	# La salida se programa ANTES de los assert: si uno falla en debug el
+	# proceso ya tiene su codigo y el CI no puede dar verde aunque el arnes
+	# se detenga. En release los asserts se compilan fuera y los _failures
+	# de arriba siguen gobernando la salida.
+	get_tree().quit(1 if not _failures.is_empty() else 0)
+	for f in _failures:
+		assert(false, "AI_WAVE_TEST: " + f)

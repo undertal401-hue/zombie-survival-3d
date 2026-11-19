@@ -107,7 +107,7 @@ func _draw_vehicle_bearing(center_x: float, bearing: float, half: float,
 	var nearest: Node2D = null
 	var nearest_dist: float = INF
 	for node in _nodes_vehicles:
-		if not (node is Node2D) or not is_instance_valid(node):
+		if not is_instance_valid(node) or not (node is Node2D):
 			continue
 		var vehicle: Node2D = node as Node2D
 		var dist: float = vehicle.global_position.distance_to(_player.global_position)
