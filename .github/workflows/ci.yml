@@ -124,6 +124,7 @@ jobs:
           run_suite "10_review/SeparationTest.tscn" "SEPARATION_TEST failures=0"
           run_suite "10_review/ArsenalTest.tscn"    "ARSENAL_TEST failures=0"
           run_suite "10_review/AiWaveTest.tscn"     "AI_WAVE_TEST failures=0"
+          run_suite "10_review/NightGlareTest.tscn" "NIGHT_GLARE_TEST failures=0"
           run_suite "10_review/MechanicsAudit.tscn" "MECHANICS_AUDIT failures=0"
           run_suite "10_review/StressTest.tscn"      "STRESS_TEST failures=0"
 

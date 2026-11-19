@@ -10,6 +10,10 @@ const LOOT_SCENE: PackedScene = preload("res://04_items/LootContainer.tscn")
 const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
 const GROUND_TILEMAP_SCENE: PackedScene = preload("res://05_house/GroundTileMap.tscn")
 
+## Fuente unica del numero de puntos de spawn del barrio. Main hereda este
+## valor como defecto de zombie_count para que ambas cifras no diverjan.
+const ZOMBIE_SPAWN_COUNT: int = 26
+
 enum Zone { NW, NORTH, NE, WEST, CENTER, EAST, SW, SOUTH, SE }
 
 # [x1, y1, x2, y2, ancho, tipo] en lineas de celda (0..10).
@@ -854,7 +858,7 @@ func _collect_zombie_spawns() -> void:
 			first = point
 	chosen.append(first)
 
-	var target_count: int = 26
+	var target_count: int = ZOMBIE_SPAWN_COUNT
 	while chosen.size() < target_count and chosen.size() < candidates.size():
 		var best_point: Vector2 = candidates[0]
 		var best_score: float = -1.0

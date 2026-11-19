@@ -12,7 +12,7 @@ const PHASE_SCAN_SECONDS: float = 0.25
 const DISTANCE_FLUSH_SECONDS: float = 0.25
 const MAX_FRAME_DISTANCE: float = 64.0
 
-@export var zombie_count: int = 26
+@export var zombie_count: int = Neighborhood.ZOMBIE_SPAWN_COUNT
 
 var bake_ms: int = 0
 
