@@ -32,6 +32,12 @@ const MAX_FUEL: float = 100.0
 const FUEL_PER_PIXEL: float = 0.012
 const FUEL_PER_CAN: float = 45.0
 const LOW_FUEL_RATIO: float = 0.2
+## Masa del depósito lleno en unidades de carga y carga total a la que se
+## satura la penalización de velocidad. Nombres para los literales de la
+## economía combustible→carga→velocidad; valores intactos (tope -45%, suelo 55%).
+const FUEL_LOAD_UNITS: float = 4.0
+const LOAD_UNIT_CAPACITY: float = 80.0
+const MAX_LOAD_SPEED_PENALTY: float = 0.45
 
 const MAX_HP: float = 100.0
 const HP_PER_SCRAP: float = 30.0
@@ -215,8 +221,8 @@ func _load_factor() -> float:
 	var inv: Node = get_node_or_null("/root/Inventory")
 	if inv != null and inv.has_method("total"):
 		units = float(inv.call("total"))
-	units += fuel / MAX_FUEL * 4.0
-	return 1.0 - clampf(units / 80.0, 0.0, 0.45)
+	units += fuel / MAX_FUEL * FUEL_LOAD_UNITS
+	return 1.0 - clampf(units / LOAD_UNIT_CAPACITY, 0.0, MAX_LOAD_SPEED_PENALTY)
 
 func _check_fuel_warnings() -> void:
 	if fuel <= 0.0:
