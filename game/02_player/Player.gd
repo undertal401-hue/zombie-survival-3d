@@ -251,6 +251,8 @@ func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announ
 			if ParticleManager.instance != null:
 				ParticleManager.instance.spawn_impact(hit_pos, direction,
 					ImpactParticles.SurfaceType.METAL)
+				ParticleManager.instance.spawn_decal(&"metal", hit_pos,
+					ParticleManager.instance.palette_color(&"steel_dark"))
 			break
 
 		if not is_zombie and remaining_penetration > 0 and collider is CollisionObject2D:
@@ -258,6 +260,8 @@ func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announ
 			# justo después del punto de impacto.
 			if ParticleManager.instance != null:
 				ParticleManager.instance.spawn_impact(hit_pos, direction, _get_surface_type(collider))
+				ParticleManager.instance.spawn_decal(&"impact", hit_pos,
+					ParticleManager.instance.palette_color(&"steel_dark"))
 			excluded.append((collider as CollisionObject2D).get_rid())
 			walls_pierced += 1
 			remaining_penetration -= 1
@@ -291,11 +295,15 @@ func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announ
 				EventBus.notification.emit("Impacto!")
 			if ParticleManager.instance != null:
 				ParticleManager.instance.spawn_blood(hit_pos, direction, 15)
+				ParticleManager.instance.spawn_decal(&"blood", hit_pos,
+					ParticleManager.instance.palette_color(&"blood"))
 		else:
 			if announce:
 				EventBus.notification.emit("Impacto en obstáculo")
 			if ParticleManager.instance != null:
 				ParticleManager.instance.spawn_impact(hit_pos, direction, _get_surface_type(collider))
+				ParticleManager.instance.spawn_decal(&"impact", hit_pos,
+					ParticleManager.instance.palette_color(&"steel_dark"))
 		break
 	# El destello lo genera WeaponController/ParticleManager en coordenadas del mundo.
 

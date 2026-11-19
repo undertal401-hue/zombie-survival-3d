@@ -8,6 +8,19 @@ extends Node2D
 
 class_name SolarLighting
 
+## --- Color grading por fase (ART_BIBLE.md §2, paleta de 16 colores) -------
+## Multiplicadores suaves sobre el tinte que ya envía WorldDirector via
+## apply_state(). No sustituyen ese tinte: solo matizan la fase del ciclo.
+## Dusk deriva de AMBER (#d2a867)/BLOOD (#b52b20); night de
+## STEEL_DARK/STEEL_LIGHT (#55626d/#9aabb6); day es BONE neutro (#efe4bd).
+const GRADE_DAWN: Color = Color(0.99, 0.94, 0.90)
+const GRADE_DAY: Color = Color(1.00, 1.00, 1.00)
+const GRADE_DUSK: Color = Color(1.00, 0.93, 0.82)
+const GRADE_NIGHT: Color = Color(0.84, 0.90, 1.00)
+## Suavizado exponencial del grading (misma familia que WorldDirector).
+const GRADE_SMOOTH_TAU: float = 0.6
+const GRADE_CACHE_INTERVAL: float = 0.25
+
 @onready var canvas_modulate: CanvasModulate = $CanvasModulate
 @onready var sun_light: DirectionalLight2D = $SunLight
 @onready var glare_rect: ColorRect = $GlareLayer/GlareRect
@@ -35,6 +48,13 @@ var _base_sun_energy: float
 var _tint: Color = Color.WHITE
 var _light_tween: Tween = null
 
+## Estado del color grading por fase.
+var _phase_grade: Color = Color.WHITE
+var _phase_grade_target: Color = Color.WHITE
+var _grade_director: Node = null
+var _grade_cache_t: float = 0.0
+var _shadow_controller: PixelShadowController = null
+
 # Señal para notificar cambios de dirección solar a otros sistemas
 signal solar_direction_changed(angle_rad: float, angle_deg: float)
 
@@ -51,8 +71,16 @@ func _ready() -> void:
 	# Posicionar sol según dirección actual
 	_update_sun_position()
 
-	# Aplicar estado inicial
+	# Resolver la fase real ANTES del primer apply para que el grading
+	# inicial no arranque neutro durante el primer frame.
+	_refresh_grade_target()
 	_apply_lighting()
+
+	# Nodo hijo sin gameplay: mantiene las sombras del grupo `pixel_shadows`
+	# desplazadas según el sol. No forma parte del gameplay ni del combate.
+	_shadow_controller = PixelShadowController.new(self)
+	_shadow_controller.name = "PixelShadowController"
+	add_child(_shadow_controller)
 
 	# El resplandor debe seguir circular si cambia el tamaño de la ventana.
 	var viewport := get_viewport()
@@ -65,6 +93,61 @@ func _exit_tree() -> void:
 		viewport.size_changed.disconnect(_on_viewport_resized)
 	if _light_tween != null and _light_tween.is_valid():
 		_light_tween.kill()
+
+## Grading por fase: sondeo barato del director + suavizado exponencial.
+## El Tween de apply_state sigue gobernando clima/energía/ángulo; aquí solo
+## se matiza el CanvasModulate, sin tocar la API pública ni el glare.
+func _process(delta: float) -> void:
+	_grade_cache_t -= delta
+	if _grade_cache_t <= 0.0:
+		_grade_cache_t = GRADE_CACHE_INTERVAL
+		_refresh_grade_target()
+	var next_grade: Color = _phase_grade.lerp(
+		_phase_grade_target, 1.0 - exp(-delta / GRADE_SMOOTH_TAU)
+	)
+	if not _grade_close(next_grade, _phase_grade):
+		_phase_grade = next_grade
+		_apply_lighting()
+
+func _grade_close(a: Color, b: Color) -> bool:
+	return absf(a.r - b.r) < 0.0005 and absf(a.g - b.g) < 0.0005 and absf(a.b - b.b) < 0.0005
+
+func _refresh_grade_target() -> void:
+	if _grade_director == null or not is_instance_valid(_grade_director):
+		_grade_director = _find_director()
+	var phase: String = "day"
+	if _grade_director != null and is_instance_valid(_grade_director) and _grade_director.has_method("current_phase"):
+		phase = String(_grade_director.call("current_phase"))
+	_phase_grade_target = _grade_for_phase(phase)
+
+func _find_director() -> Node:
+	var parent := get_parent()
+	if parent != null:
+		for node_name in ["WaveManager", "HordeManager", "WorldDirector"]:
+			var candidate: Node = parent.get_node_or_null(node_name)
+			if candidate != null and candidate.has_method("current_phase"):
+				return candidate
+	for candidate in get_tree().get_nodes_in_group("world_director"):
+		if is_instance_valid(candidate) and candidate.has_method("current_phase"):
+			return candidate
+	for path in ["/root/Main/WaveManager", "/root/WorldDirector"]:
+		var candidate: Node = get_node_or_null(path)
+		if candidate != null and candidate.has_method("current_phase"):
+			return candidate
+	return null
+
+func _grade_for_phase(phase: String) -> Color:
+	match phase:
+		"dawn":
+			return GRADE_DAWN
+		"dusk":
+			return GRADE_DUSK
+		"night":
+			return GRADE_NIGHT
+		"day":
+			return GRADE_DAY
+		_:
+			return Color.WHITE
 
 func _setup_canvas_modulate() -> void:
 	canvas_modulate.color = Color(ambient_color.r, ambient_color.g, ambient_color.b, ambient_energy)
@@ -81,9 +164,9 @@ func _apply_lighting() -> void:
 	# El tinte del clima multiplica el color base; el alpha de CanvasModulate
 	# sigue siendo la energía ambiente, igual que en la configuración original.
 	canvas_modulate.color = Color(
-		ambient_color.r * _tint.r,
-		ambient_color.g * _tint.g,
-		ambient_color.b * _tint.b,
+		ambient_color.r * _tint.r * _phase_grade.r,
+		ambient_color.g * _tint.g * _phase_grade.g,
+		ambient_color.b * _tint.b * _phase_grade.b,
 		ambient_energy
 	)
 	sun_light.energy = sun_energy
@@ -195,3 +278,68 @@ func reset_to_defaults() -> void:
 	ambient_energy = _base_ambient_energy
 	sun_energy = _base_sun_energy
 	_apply_lighting()
+
+
+## --- Sombras pixeladas ----------------------------------------------------
+## Nodo Node2D hijo, sin gameplay: lee el grupo `pixel_shadows` solo cada
+## 0,25 s y coloca cada sombra en la posición global de su padre, desplazada
+## en dirección opuesta al sol. El ángulo da la dirección; la energía solar
+## da la longitud y la opacidad (sol bajo = sombra larga y tenue).
+class PixelShadowController extends Node2D:
+	const CACHE_INTERVAL: float = 0.25
+	const OFFSET_LOW_SUN: float = 14.0
+	const OFFSET_HIGH_SUN: float = 3.0
+	## La energía solar típica de día ronda 0.18-0.23 -> alpha ~0.41-0.49,
+	## cercano al 0.5 del .tscn; amanecer/atardecer/noche desvanecen la sombra.
+	const ALPHA_BASE: float = 0.12
+	const ALPHA_PER_SUN: float = 1.6
+	const ALPHA_MAX: float = 0.62
+
+	var _solar: Node2D
+	var _entries: Array = []
+	var _cache_t: float = 0.0
+
+	func _init(solar: Node2D) -> void:
+		_solar = solar
+
+	func _process(delta: float) -> void:
+		if not is_instance_valid(_solar):
+			return
+		_cache_t -= delta
+		if _cache_t <= 0.0:
+			_cache_t = CACHE_INTERVAL
+			_recache()
+		if _entries.is_empty():
+			return
+		var sun: float = clampf(float(_solar.get("sun_energy")), 0.0, 1.0)
+		var angle: float = float(_solar.get("solar_angle"))
+		# Sol en `angle`; la sombra cae en dirección opuesta.
+		var dir := -Vector2.from_angle(angle)
+		var offset: Vector2 = dir * lerpf(OFFSET_LOW_SUN, OFFSET_HIGH_SUN, sun)
+		var alpha: float = minf(ALPHA_BASE + sun * ALPHA_PER_SUN, ALPHA_MAX)
+		for entry in _entries:
+			var node := entry["node"] as Node2D
+			var parent := entry["parent"] as Node2D
+			if not is_instance_valid(node) or not is_instance_valid(parent):
+				continue
+			node.global_position = parent.global_position + offset
+			var base: Color = entry["color"]
+			node.modulate = Color(base.r, base.g, base.b, alpha)
+
+	func _recache() -> void:
+		_entries.clear()
+		var tree := get_tree()
+		if tree == null:
+			return
+		for candidate in tree.get_nodes_in_group("pixel_shadows"):
+			if not is_instance_valid(candidate) or not (candidate is Node2D):
+				continue
+			var node := candidate as Node2D
+			var parent := node.get_parent() as Node2D
+			if parent == null:
+				continue
+			_entries.append({
+				"node": node,
+				"parent": parent,
+				"color": node.modulate,
+			})

@@ -87,6 +87,15 @@ jobs:
             exit 1
           fi
 
+      - name: "verify deterministic art pipeline"
+        shell: bash
+        run: |
+          python3 game/tools/gen_art.py --check
+          if [ $? -ne 0 ]; then
+            echo "::error::El generador de arte determinista fallo su verificacion"
+            exit 1
+          fi
+
       - name: "run regression suites"
         shell: bash
         run: |
@@ -120,6 +129,8 @@ jobs:
             fi
           }
 
+          run_suite "10_review/ArtAnimTest.tscn"    "ART_ANIM_TEST failures=0"
+          run_suite "10_review/FxDecalTest.tscn"    "FX_DECAL_TEST failures=0"
           run_suite "10_review/TestFixes.tscn"      "HARD_GATE failures=0"
           run_suite "10_review/SeparationTest.tscn" "SEPARATION_TEST failures=0"
           run_suite "10_review/ArsenalTest.tscn"    "ARSENAL_TEST failures=0"

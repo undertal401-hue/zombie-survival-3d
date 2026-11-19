@@ -10,6 +10,11 @@ class_name PlayerVisual
 
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 
+## Hoja real generada por tools/gen_art.py (ADR-001): 32x32, palette-locked.
+const PLAYER_SHEET: String = "res://assets/art/sprites/player_sheet.png"
+const FRAME: int = 32
+const SHEET_COLS: int = 8
+
 var _current_state: String = "idle"
 var _is_attacking: bool = false
 ## Las animaciones usan 4 frames procedurales reutilizados para todas las
@@ -32,6 +37,10 @@ enum AnimState {
 
 func _ready() -> void:
 	_setup_animations()
+	# Pixel art: muestreo puntual, sin interpolación (ADR-001).
+	animated_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	if animated_sprite.material is CanvasItemMaterial:
+		(animated_sprite.material as CanvasItemMaterial).texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	animated_sprite.play("idle")
 	animated_sprite.animation_finished.connect(_on_animation_finished)
 
@@ -77,22 +86,14 @@ func _setup_animations() -> void:
 		if not frames.has_animation(anim):
 			frames.add_animation(anim)
 
-	# Sprite original del proyecto: cuatro fotogramas de caminata en una sola
-	# tira. Se reutilizan para todas las acciones (el flash y el timeline
-	# distinguen el estado), manteniendo un estilo uniforme.
-	var sheet: Texture2D = CustomSprites.survivor_sheet()
-	for anim in anims:
-		for f in range(4):
-			var atlas := AtlasTexture.new()
-			atlas.atlas = sheet
-			atlas.region = Rect2(
-				float(f * CustomSprites.FRAME), 0.0,
-				float(CustomSprites.FRAME), float(CustomSprites.FRAME)
-			)
-			frames.add_frame(anim, atlas, 1.0, f)
+	# Hoja de pixel art real (ADR-001): 12 animaciones x 4 frames en una retícula
+	# de 8 columnas de celdas de 32x32. Cada animação conserva sus 4 frames.
+	var sheet: Texture2D = load(PLAYER_SHEET) as Texture2D
+	if sheet == null:
+		push_warning("PlayerVisual: no se pudo cargar %s" % PLAYER_SHEET)
+	_install_frames(frames, sheet, anims, SHEET_COLS)
 
-	# Velocidades definitivas: la tira procedural es la única fuente de frames
-	# (los cargadores de sprites reales siguen sin implementar).
+	# Velocidades definitivas sobre la hoja bitmap.
 	frames.set_animation_speed("idle", 8)
 	frames.set_animation_speed("walk", 10)
 	frames.set_animation_speed("run", 14)
@@ -119,6 +120,25 @@ func _setup_animations() -> void:
 	frames.set_animation_loop("reload_rifle", false)
 	frames.set_animation_loop("hurt", false)
 	frames.set_animation_loop("death", false)
+
+## Instala 4 frames por animación desde una hoja de celdas de 32x32.
+## `cell` se numera en orden de lectura: fila 0 primero, izq. -> der.
+func _install_frames(frames: SpriteFrames, sheet: Texture2D,
+		anims: Array, cols: int) -> void:
+	var cell: int = 0
+	for anim_variant in anims:
+		var anim: String = String(anim_variant)
+		while frames.get_frame_count(anim) > 0:
+			frames.remove_frame(anim, frames.get_frame_count(anim) - 1)
+		for f in range(4):
+			var atlas := AtlasTexture.new()
+			atlas.atlas = sheet
+			var col: int = cell % cols
+			var row: int = int(floor(float(cell) / float(cols)))
+			atlas.region = Rect2(float(col * FRAME), float(row * FRAME),
+				float(FRAME), float(FRAME))
+			frames.add_frame(anim, atlas, 1.0, f)
+			cell += 1
 
 func update_from_player(player: Node2D, velocity: Vector2, weapon_controller: Node) -> void:
 	if player == null:
@@ -210,15 +230,39 @@ func _on_animation_finished() -> void:
 func set_modulate_color(color: Color) -> void:
 	animated_sprite.modulate = color
 
-## API para cargar sprites reales desde archivos
-func load_sprite_sheet(anim_name: String, texture: Texture2D, h_frames: int, v_frames: int, frame_count: int = -1) -> void:
-	# TODO: Implementar cuando se tenga la API correcta de Godot 4.7
-	# Por ahora, las animaciones se configuran via editor o archivos .tres
-	pass
+## API para cargar sprites reales desde archivos (pipeline ADR-001).
+func load_sprite_sheet(anim_name: String, texture: Texture2D,
+		h_frames: int, v_frames: int, frame_count: int = -1) -> void:
+	var frames: SpriteFrames = animated_sprite.sprite_frames
+	if frames == null or texture == null or h_frames <= 0 or v_frames <= 0:
+		return
+	if not frames.has_animation(anim_name):
+		frames.add_animation(anim_name)
+	while frames.get_frame_count(anim_name) > 0:
+		frames.remove_frame(anim_name, frames.get_frame_count(anim_name) - 1)
+	var fw: int = int(floor(float(texture.get_width()) / float(h_frames)))
+	var fh: int = int(floor(float(texture.get_height()) / float(v_frames)))
+	var total: int = h_frames * v_frames
+	if frame_count > 0:
+		total = mini(frame_count, total)
+	for i in range(total):
+		var atlas := AtlasTexture.new()
+		atlas.atlas = texture
+		var col: int = i % h_frames
+		var row: int = int(floor(float(i) / float(h_frames)))
+		atlas.region = Rect2(float(col * fw), float(row * fh),
+			float(fw), float(fh))
+		frames.add_frame(anim_name, atlas, 1.0, i)
 
+## layout = { "anim": {"h_frames": int, "v_frames": int, "frame_count": int} }
 func load_all_from_atlas(atlas: Texture2D, layout: Dictionary) -> void:
-	# TODO: Implementar cuando se tenga la API correcta
-	pass
+	for anim_variant in layout.keys():
+		var cfg: Dictionary = layout[anim_variant] as Dictionary
+		if cfg == null:
+			continue
+		load_sprite_sheet(String(anim_variant), atlas,
+			int(cfg.get("h_frames", 1)), int(cfg.get("v_frames", 1)),
+			int(cfg.get("frame_count", -1)))
 
 func _set_hit_flash(progress: float) -> void:
 	var mat := animated_sprite.material as ShaderMaterial
