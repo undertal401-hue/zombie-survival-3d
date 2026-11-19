@@ -495,10 +495,17 @@ func _is_free(point: Vector2, extra_excluded: Array = []) -> bool:
 	query.exclude = excluded
 	return space.intersect_point(query, 1).is_empty()
 
-## Fase día/noche defensiva: acepta WorldDirector (por ruta o grupo), luego
-## SolarLighting como fallback y, si no hay nada, crepúsculo neutro.
+## Fase día/noche defensiva: acepta WorldDirector (por ruta, padre o grupo),
+## luego SolarLighting como fallback y, si no hay nada, crepúsculo neutro.
 func _night_factor() -> float:
-	var director: Node = get_node_or_null("/root/WorldDirector")
+	# WorldDirector NO es autoload: es el hijo `WaveManager` de Main (Main.tscn:114).
+	# /root/WorldDirector no existe nunca; probar primero la ruta real y luego el
+	# padre (este vehículo también es hijo de Main) antes que los grupos.
+	var director: Node = get_node_or_null("/root/Main/WaveManager")
+	if director == null:
+		var parent: Node = get_parent()
+		if parent != null:
+			director = parent.get_node_or_null("WaveManager")
 	if director == null:
 		for group_name: String in ["world_director", "world_directors"]:
 			var nodes: Array[Node] = get_tree().get_nodes_in_group(group_name)
@@ -506,6 +513,15 @@ func _night_factor() -> float:
 				director = nodes[0]
 				break
 	if director != null and is_instance_valid(director):
+		# API real del director: current_phase() -> "dawn"/"day"/"dusk"/"night".
+		if director.has_method("current_phase"):
+			var phase_v: Variant = director.call("current_phase")
+			if phase_v is String or phase_v is StringName:
+				var p: String = String(phase_v).to_lower()
+				if p.contains("night") or p.contains("noche") or p.contains("dusk"):
+					return 1.0
+				if p.contains("day") or p.contains("dia") or p.contains("dawn"):
+					return 0.0
 		if director.has_method("night_factor"):
 			return clampf(float(director.call("night_factor")), 0.0, 1.0)
 		if director.has_method("is_night"):

@@ -129,6 +129,25 @@ func _load_external_ambience() -> void:
 
 func _exit_tree() -> void:
 	_stop_engine(false)
+	# Al cerrar, el AudioServer se libera DESPUÉS del árbol de escena. Si un
+	# reproductor sigue sonando en ese instante, Godot no libera su
+	# AudioStreamPlaybackWAV: el playback mantiene vivo el AudioStreamWAV
+	# (refcount 1) y el StringName del bus (p. ej. AudioDirectorSFX), y aparece
+	# "ObjectDB instances were leaked at exit". Parar todo playback activo aquí
+	# (antes de que se destruya el nodo) libera esas referencias. Es un cambio
+	# solo de teardown: durante el juego el sonido y la caché no se tocan.
+	for voice in _voices:
+		if is_instance_valid(voice):
+			voice.call("stop")
+	_voices.clear()
+	for key in _layers.keys():
+		var layer: Dictionary = _layers[key]
+		var player: Node = layer.get("player") as Node
+		if player != null and is_instance_valid(player):
+			player.call("stop")
+	_layers.clear()
+	_streams.clear()
+	_external_ambience.clear()
 
 
 ## API pública ---------------------------------------------------------------
