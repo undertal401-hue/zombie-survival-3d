@@ -12,9 +12,9 @@ const SEPARATION_RADIUS := 26.0
 const SEPARATION_FORCE := 55.0
 const ALERT_TIME := 5.0
 
-## Señal local de alerta: mientras EventBus no exponga `zombie_alerted`, el
-## grupo "zombies" se propaga el objetivo llamando a receive_group_alert().
-signal zombie_alerted(world_position: Vector2, radius: float, source: Node)
+## La alerta se propaga por EventBus.zombie_alerted y, localmente, con el
+## bucle de grupo de _propagate_alert() -> receive_group_alert(). Antes había
+## aquí una señal local zombie_alerted que nadie conectaba (deuda #17).
 
 @export var kind: Kind = Kind.WALKER
 @export var speed: float = 80.0
@@ -341,6 +341,11 @@ func _has_line_of_sight_to(node: Node2D) -> bool:
 
 
 func _connect_hearing_sources() -> void:
+	# Deuda #18: purgar referencias liberadas. Un WeaponController se libera al
+	# recargar la escena; sin esto el array solo crece. El motor ya retira las
+	# conexiones a objetos liberados; aquí solo limpiamos nuestra copia.
+	if not _connected_weapons.is_empty():
+		_connected_weapons = _connected_weapons.filter(func(w): return is_instance_valid(w))
 	var player: Node2D = get_tree().get_first_node_in_group("player") as Node2D
 	if player == null:
 		return
@@ -465,7 +470,6 @@ func _become_alerted(world_position: Vector2, source: Node, propagate: bool = tr
 
 ## Un zombie alertado comparte el ultimo punto conocido con el Gruppe cercano.
 func _propagate_alert(world_position: Vector2, radius: float, source: Node) -> void:
-	zombie_alerted.emit(world_position, radius, source)
 	if _propagate_cooldown > 0.0 or world_position == Vector2.INF:
 		return
 	_propagate_cooldown = 1.2

@@ -15,8 +15,9 @@ var _last_velocity: Vector2 = Vector2.ZERO
 var _is_attacking: bool = false
 var _attack_anim: String = ""
 var _weapon_type: int = 1  # 0=melee, 1=pistol, 2=shotgun, 3=rifle
-## Las animaciones se crean programáticamente sin frames: animation_finished
-## nunca se emite, así que los ataques/recargas necesitan un fallback temporal.
+## Las animaciones usan 4 frames procedurales reutilizados para todas las
+## acciones. animation_finished sí se emite, pero los clips son muy cortos:
+## ataques y recargas necesitan un fallback temporal que fije su duración mínima.
 var _attack_timer: float = 0.0
 
 ## Hit flash effect
@@ -179,7 +180,7 @@ func play_attack(weapon_category: int) -> void:
 	
 	_attack_anim = anim_name
 	animated_sprite.play(anim_name)
-	# Sin frames reales no hay animation_finished: liberar el estado por tiempo.
+	# Los frames procedurales terminan demasiado pronto: imponer duración mínima.
 	_attack_timer = 0.35
 
 func play_reload(weapon_category: int) -> void:

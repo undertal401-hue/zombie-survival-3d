@@ -844,8 +844,19 @@ func _ready() -> void:
 		hard_failures.append("loadout de 5 ranuras ausente")
 	else:
 		for slot: int in range(4):
-			if gate_wc.get_weapon_in_slot(slot) == null:
+			var slot_weapon: Weapon = gate_wc.get_weapon_in_slot(slot)
+			if slot_weapon == null:
 				hard_failures.append("ranura de arma %d vacia" % slot)
+			else:
+				# Una carga rota (recurso sin script Weapon, identidad vacia o
+				# sin dano) no debe contar como "arma presente" y dar OK.
+				if slot_weapon.get_script() == null:
+					hard_failures.append("ranura %d sin script Weapon" % slot)
+				if slot_weapon.weapon_name.strip_edges().is_empty() \
+					or slot_weapon.weapon_name == "Unnamed Weapon":
+					hard_failures.append("ranura %d sin identidad" % slot)
+				if slot_weapon.base_damage <= 0.0:
+					hard_failures.append("ranura %d sin dano" % slot)
 	if Inventory.count("Machete") <= 0:
 		hard_failures.append("condicion de armas no inicializada")
 	if not EventBus.has_signal("victory") or not EventBus.has_signal("game_over"):
@@ -858,7 +869,23 @@ func _ready() -> void:
 	
 	for i in range(4):
 		await get_tree().process_frame
-	get_tree().quit(1 if not hard_failures.is_empty() else 0)
+	# La salida se programa ANTES de los assert: si un assert falla en debug,
+	# el proceso ya tiene el codigo de fallo y el CI no puede dar verde aunque
+	# el arnes se detenga. En release los asserts se compilan fuera y los
+	# hard_failures de arriba siguen gobernando la salida.
+	var gate_exit_code: int = 1 if not hard_failures.is_empty() else 0
+	get_tree().quit(gate_exit_code)
+	if gate_wc != null:
+		for slot: int in range(4):
+			var w: Weapon = gate_wc.get_weapon_in_slot(slot)
+			if w != null:
+				assert(w.get_script() != null,
+					"HARD_GATE: ranura %d sin script Weapon" % slot)
+				assert(not w.weapon_name.strip_edges().is_empty()
+					and w.weapon_name != "Unnamed Weapon",
+					"HARD_GATE: ranura %d sin identidad" % slot)
+				assert(w.base_damage > 0.0,
+					"HARD_GATE: ranura %d sin dano" % slot)
 
 func _has_prop(obj: Object, prop: String) -> bool:
 	for p in obj.get_property_list():

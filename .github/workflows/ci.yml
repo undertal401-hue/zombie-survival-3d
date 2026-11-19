@@ -106,8 +106,8 @@ jobs:
               echo "::error::$scene termino con codigo $status"
               exit $status
             fi
-            if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load|ERROR:" "$logfile"; then
-              echo "::error::Errores de script en $scene"
+            if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load|ERROR:|Assertion failed" "$logfile"; then
+              echo "::error::Errores de script o assert en $scene"
               exit 1
             fi
             if grep -q "FAIL " "$logfile"; then
@@ -129,9 +129,21 @@ jobs:
           QA_MODE=mechanics timeout 120 $GODOT_BIN --headless --path game res://09_tests/QA.tscn --quit-after 700 > test-qa-mechanics.log 2>&1
           status=$?
           cat test-qa-mechanics.log
+          if [ $status -eq 124 ]; then
+            echo "::error::Timeout ejecutando QA mechanics"
+            exit 1
+          fi
           if [ $status -ne 0 ]; then
             echo "::error::QA mechanics termino con codigo $status"
             exit $status
+          fi
+          if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load|ERROR:|Assertion failed" test-qa-mechanics.log; then
+            echo "::error::Errores de script o assert en QA mechanics"
+            exit 1
+          fi
+          if grep -q "FAIL " test-qa-mechanics.log; then
+            echo "::error::Hay comprobaciones fallidas en QA mechanics"
+            exit 1
           fi
           if ! grep -q "MECHANICS_READY 5/5" test-qa-mechanics.log; then
             echo "::error::QA mechanics no alcanzo 5/5"
