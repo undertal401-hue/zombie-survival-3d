@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://08_ui/HUD.gd" id="1"]
 [ext_resource type="Script" path="res://08_ui/Minimap.gd" id="2"]
@@ -54,6 +54,22 @@ corner_radius_top_left = 2
 corner_radius_top_right = 2
 corner_radius_bottom_right = 2
 corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="combo_bar_bg"]
+bg_color = Color(0.102, 0.051, 0.051, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.043, 0.051, 0.043, 1)
+
+[sub_resource type="StyleBoxFlat" id="combo_fill"]
+bg_color = Color(0.824, 0.659, 0.404, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.043, 0.051, 0.043, 1)
 
 [sub_resource type="StyleBoxFlat" id="end_panel"]
 bg_color = Color(0.07, 0.08, 0.07, 0.97)
@@ -162,6 +178,33 @@ step = 0.01
 show_percentage = false
 theme_override_styles/background = SubResource("bar_bg")
 theme_override_styles/fill = SubResource("reload_fill")
+visible = false
+
+[node name="WaveClockLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.824, 0.659, 0.404, 1)
+theme_override_colors/font_outline_color = Color(0.043, 0.051, 0.043, 1)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 13
+text = "OLEADA 0  ·  RELOJ 00:00"
+
+[node name="ComboMultLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.824, 0.659, 0.404, 1)
+theme_override_colors/font_outline_color = Color(0.043, 0.051, 0.043, 1)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 14
+text = "COMBO x1.0"
+visible = false
+
+[node name="ComboBar" type="ProgressBar" parent="Status/Margin/VBox"]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+max_value = 3.0
+value = 1.0
+show_percentage = false
+theme_override_styles/background = SubResource("combo_bar_bg")
+theme_override_styles/fill = SubResource("combo_fill")
 visible = false
 
 [node name="Objective" type="Panel" parent="."]

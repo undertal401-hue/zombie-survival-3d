@@ -3,6 +3,12 @@ extends Node2D
 const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
 const NAV_INSET := 42.0
 
+## CAPA 2 / ÍTEM 12: índice de Zombie.Kind.BOSS y oleada a partir de la cual
+## aparece el "Tanque Alfa". Se spawn EA (extra) al inicial: no altera
+## ZOMBIE_SPAWN_COUNT ni la distribución ponderada de los 26 zombies de barrio.
+const BOSS_KIND: int = 5
+const BOSS_WAVE_THRESHOLD: int = 5
+
 # Huecos de muro compartidos por paredes y puertas (valor unico).
 const WALL_GAP_X: float = 1200.0
 const WALL_GAP_WEST_Y: float = -600.0
@@ -43,6 +49,8 @@ var _was_driving: bool = false
 var _distance_accum: float = 0.0
 var _distance_flush_timer: float = 0.0
 var _last_player_position: Vector2 = Vector2.ZERO
+## Una sola aparición del jefe por partida (oleada en que se generó, -1 = nunca).
+var _boss_spawned_wave: int = -1
 
 @onready var neighborhood: Neighborhood = $Level/Neighborhood
 @onready var navigation_region: NavigationRegion2D = $NavigationRegion2D
@@ -108,6 +116,10 @@ func _connect_state_signals() -> void:
 	EventBus.zombie_died.connect(_on_zombie_died_for_state)
 	EventBus.player_damaged.connect(_on_player_damaged_for_state)
 	# wave_started / horde_started los consume directamente GameState.
+	# El jefe se engancha a horde_started (siempre nocturno) sin tocar
+	# WorldDirector.gd: Main es el único punto de spawn extra permitido.
+	if EventBus.has_signal("horde_started"):
+		EventBus.horde_started.connect(_on_horde_started_for_boss)
 	EventBus.craft_completed.connect(_on_craft_completed_for_state)
 	EventBus.vehicle_state_changed.connect(_on_vehicle_state_changed_for_state)
 	EventBus.zombie_alerted.connect(_on_zombie_alerted_for_state)
@@ -137,6 +149,64 @@ func start_wave(wave: int) -> void:
 		wave_manager.call("start_wave", wave)
 	else:
 		EventBus.wave_started.emit(wave)
+	# Chequeo idempotente: si el manager emite horde_started, el guard evita
+	# duplicar al jefe en la misma oleada.
+	_maybe_spawn_boss_for_wave(wave)
+
+
+## El boss aparece en hordas nocturnas avanzadas (wave >= 5). Se mantiene el
+## spawn base intacto: los 26 zombies del barrio y su distribución de tipos
+## siguen gobernados por Neighborhood.ZOMBIE_SPAWN_COUNT y _spawn_zombies().
+func _on_horde_started_for_boss(wave) -> void:
+	_maybe_spawn_boss_for_wave(int(wave))
+
+
+func _maybe_spawn_boss_for_wave(wave: int) -> void:
+	if _boss_spawned_wave >= 0:
+		return
+	var night: bool = false
+	if wave_manager != null and wave_manager.has_method("current_phase"):
+		night = String(wave_manager.call("current_phase")) == "night"
+	var difficulty: float = float(GameState.difficulty())
+	# horde_started ya implica noche; además se admite fase night con dificultad
+	# alta aunque la numeración de oleadas venga de otro productor.
+	if wave < BOSS_WAVE_THRESHOLD and not (night and difficulty >= 0.7):
+		return
+	if spawn_boss() != null:
+		_boss_spawned_wave = wave
+
+
+## API pública: genera "Tanque Alfa" con sus stats de Kind.BOSS (fase 1).
+## `at_position` permite al director/world colocarlo en un punto concreto.
+func spawn_boss(at_position: Vector2 = Vector2.ZERO) -> CharacterBody2D:
+	if not is_inside_tree() or _boss_spawned_wave >= 0:
+		return null
+	var boss := ZOMBIE_SCENE.instantiate() as CharacterBody2D
+	if boss == null:
+		return null
+	boss.name = "BossAlpha"
+	var spawn_pos: Vector2 = at_position
+	if spawn_pos == Vector2.ZERO:
+		var points: Array[Vector2] = neighborhood.zombie_spawn_points()
+		if points.is_empty():
+			spawn_pos = Vector2(700.0, 0.0)
+		else:
+			# Entrada lejana al jugador: el aviso telegrafiado se lee mejor.
+			spawn_pos = points[0]
+			if player != null and is_instance_valid(player):
+				var best: float = -1.0
+				for point in points:
+					var distance: float = point.distance_to(player.global_position)
+					if distance > best:
+						best = distance
+						spawn_pos = point
+	boss.position = spawn_pos
+	boss.set("kind", BOSS_KIND)
+	GameState.register_actor(boss, &"zombie")
+	add_child(boss)
+	_boss_spawned_wave = 0
+	EventBus.priority_notification.emit("⚠ TANQUE ALFA ha entrado en el pueblo")
+	return boss
 
 func _process(delta: float) -> void:
 	if player == null or not is_instance_valid(player):

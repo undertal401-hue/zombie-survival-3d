@@ -8,7 +8,8 @@ extends Node
 signal achievement_unlocked(id: String, title: String)
 
 const SAVE_PATH: String = "user://meta_progress.json"
-const SAVE_VERSION: int = 1
+# ADR-003: v1 guardaba solo logros; v2 añade el árbol de mejoras y créditos.
+const SAVE_VERSION: int = 2
 
 ## id -> recompensa cosmética. El identificador es la clave estable en el JSON.
 const ACHIEVEMENTS: Dictionary = {
@@ -31,6 +32,44 @@ const TITLE_PRIORITY: Array[String] = [
 ]
 const DEFAULT_TITLE: String = "Nómada"
 
+# ADR-003 — árbol de progresión entre partidas: 3 ramas, 2 niveles por rama.
+# `cost` se paga con créditos ganados al cerrar runs. Cada `effect` está acotado
+# y se valida al aplicarlo; el JSON nunca introduce claves arbitrarias.
+const UPGRADE_TREE: Dictionary = {
+	"supervivencia": {
+		"label": "Supervivencia",
+		"levels": [
+			{"id": "hide", "level": 1, "cost": 1, "name": "Piel gruesa",
+				"effect": {"hunger_drain_mult": 0.75}},
+			{"id": "lungs", "level": 2, "cost": 2, "name": "Pulmones de acero",
+				"effect": {"hunger_drain_mult": 0.5, "start_hp": 20.0}},
+		],
+	},
+	"arsenal": {
+		"label": "Arsenal",
+		"levels": [
+			{"id": "belt", "level": 1, "cost": 1, "name": "Cinturón de munición",
+				"effect": {"ammo": {"pistol_ammo": 12}}},
+			{"id": "backup", "level": 2, "cost": 3, "name": "Escopeta de reserva",
+				"effect": {"ammo": {"shotgun_ammo": 8}, "extra_weapon": "shotgun"}},
+		],
+	},
+	"botin": {
+		"label": "Botín",
+		"levels": [
+			{"id": "scavenger", "level": 1, "cost": 1, "name": "Ojo de carroñero",
+				"effect": {"loot": {"medkit": 1}}},
+			{"id": "fuel_cache", "level": 2, "cost": 2, "name": "Reserva oculta",
+				"effect": {"loot": {"combustible": 2}}},
+		],
+	},
+}
+const UPGRADE_BRANCHES: Array[String] = ["supervivencia", "arsenal", "botin"]
+const MAX_UPGRADE_LEVEL: int = 2
+const MAX_CREDITS: int = 1000000
+# Plantilla real para el efecto "arma inicial extra" (ranura libre 4).
+const EXTRA_WEAPON_RES: Weapon = preload("res://02_player/weapons/Shotgun12ga.tres")
+
 const SURVIVOR_LOW_HP: float = 45.0
 const SURVIVOR_TARGET: int = 3
 const COLLECTOR_FUEL: int = 9
@@ -49,6 +88,15 @@ var _best_distance: float = 0.0
 var _runs: int = 0
 var _last_difficulty: float = 0.0
 var _clearings_found: int = 0
+
+# ADR-003 — progreso del árbol. Solo claves conocidas y niveles acotados.
+var _credits: int = 0
+var _purchased: Dictionary = {}   # rama -> nivel máximo comprado
+var _selected: Dictionary = {}    # rama -> nivel equipado
+var active_effects: Dictionary = {}
+var _applied_player_ids: Dictionary = {}
+var _applied_extra_weapon: Dictionary = {}
+var _granted_run: int = -1
 
 # Estado de la partida actual. Nada de esto se guarda: R recarga la escena.
 var _run_kills: int = 0
@@ -73,6 +121,14 @@ func _ready() -> void:
 	_connect_bus()
 	_snapshot_player()
 	_snapshot_medkits()
+	# ADR-003: aplicar mejoras equipadas al iniciar partida (efectos acotados).
+	apply_upgrades()
+	if EventBus.has_signal("wave_started") and not EventBus.is_connected(
+			"wave_started", Callable(self, "_on_wave_started_upgrades")):
+		EventBus.wave_started.connect(_on_wave_started_upgrades)
+	if not Inventory.inventory_changed.is_connected(
+			Callable(self, "_on_inventory_changed_upgrades")):
+		Inventory.inventory_changed.connect(_on_inventory_changed_upgrades)
 
 
 func _process(delta: float) -> void:
@@ -136,6 +192,9 @@ func record_run(stats: Dictionary) -> void:
 		if _best_time_seconds <= 0.0 or seconds < _best_time_seconds:
 			_best_time_seconds = seconds
 	_runs = maxi(_runs, 1)
+	# ADR-003: cada run genera créditos para el árbol (acotados por MAX_CREDITS).
+	var earned: int = (2 if victory else 1) + mini(kills / 25, 3)
+	_credits = mini(MAX_CREDITS, _credits + earned)
 	_last_difficulty = clampf(_number(stats.get("difficulty", _read_difficulty()), _last_difficulty), 0.0, 1.0)
 	var found: int = maxi(0, int(_number(stats.get("clearings", _clearings_found), 0.0)))
 	_clearings_found = maxi(_clearings_found, found)
@@ -174,6 +233,10 @@ func reset_progress() -> void:
 	_runs = 0
 	_last_difficulty = 0.0
 	_clearings_found = 0
+	_credits = 0
+	_purchased.clear()
+	_selected.clear()
+	active_effects.clear()
 	save_progress()
 
 
@@ -203,6 +266,229 @@ func save_progress() -> void:
 		return
 	file.store_string(JSON.stringify(_build_save_data(), "  "))
 	file.close()
+
+
+# --- ADR-003: árbol de mejoras ----------------------------------------------
+
+## Compra el siguiente nivel de una rama. Solo se puede adquirir el nivel
+## inmediatamente posterior al ya poseído; el coste se descuenta de créditos
+## ganados en runs anteriores. Devuelve false ante cualquier dato inválido.
+func buy_upgrade(branch, level) -> bool:
+	var key: String = String(branch)
+	if not UPGRADE_TREE.has(key):
+		return false
+	var requested: int = int(_number(level, 0.0))
+	if requested < 1 or requested > MAX_UPGRADE_LEVEL:
+		return false
+	var owned: int = clampi(int(_number(_purchased.get(key, 0), 0.0)), 0, MAX_UPGRADE_LEVEL)
+	if requested != owned + 1:
+		return false
+	var entry: Dictionary = _level_entry(key, requested)
+	if entry.is_empty():
+		return false
+	var cost: int = clampi(int(_number(entry.get("cost", 1), 1.0)), 0, MAX_CREDITS)
+	if _credits < cost:
+		return false
+	_credits -= cost
+	_purchased[key] = requested
+	_selected[key] = requested
+	apply_upgrades()
+	save_progress()
+	return true
+
+
+## Equipa un nivel ya comprado (permite bajar de nivel dentro de la rama).
+func select_upgrade(branch, level) -> bool:
+	var key: String = String(branch)
+	if not UPGRADE_TREE.has(key):
+		return false
+	var requested: int = int(_number(level, 0.0))
+	var owned: int = clampi(int(_number(_purchased.get(key, 0), 0.0)), 0, MAX_UPGRADE_LEVEL)
+	if requested < 0 or requested > owned or requested > MAX_UPGRADE_LEVEL:
+		return false
+	_selected[key] = requested
+	apply_upgrades()
+	save_progress()
+	return true
+
+
+## Nivel comprado en una rama (0 si ninguno). Nunca expone datos del JSON crudo.
+func get_upgrade_level(branch) -> int:
+	var key: String = String(branch)
+	if not UPGRADE_TREE.has(key):
+		return 0
+	return clampi(int(_number(_purchased.get(key, 0), 0.0)), 0, MAX_UPGRADE_LEVEL)
+
+
+## Nivel equipado en una rama.
+func get_selected_level(branch) -> int:
+	var key: String = String(branch)
+	if not UPGRADE_TREE.has(key):
+		return 0
+	return clampi(int(_number(_selected.get(key, 0), 0.0)), 0, MAX_UPGRADE_LEVEL)
+
+
+func get_credits() -> int:
+	return _credits
+
+
+## Agrega los efectos de TODAS las ramas equipadas y los aplica a los nodos
+## vivos. Se llama al iniciar partida y tras cada compra/selección.
+func apply_upgrades() -> Dictionary:
+	active_effects = _aggregate_effects()
+	# Diferido: el jugador y el inventario se crean en el _ready de Main.
+	call_deferred("_apply_effects_to_nodes")
+	call_deferred("_grant_starting_loot")
+	return active_effects.duplicate(true)
+
+
+## Efectos reales y acotados: ralentiza el hambre (supervivencia), da munición
+## inicial (arsenal) y botín de arranque (botín). Ningún valor sale del árbol.
+func _aggregate_effects() -> Dictionary:
+	var merged: Dictionary = {
+		"hunger_drain_mult": 1.0,
+		"start_hp": 0.0,
+		"ammo": {},
+		"loot": {},
+		"extra_weapon": "",
+	}
+	for branch in UPGRADE_BRANCHES:
+		var level: int = get_selected_level(branch)
+		if level <= 0:
+			continue
+		var branch_data: Variant = UPGRADE_TREE.get(branch, {})
+		if not (branch_data is Dictionary):
+			continue
+		var levels: Variant = (branch_data as Dictionary).get("levels", [])
+		if not (levels is Array):
+			continue
+		for i in range(mini(level, (levels as Array).size())):
+			var entry: Variant = (levels as Array)[i]
+			if not (entry is Dictionary):
+				continue
+			var effect: Variant = (entry as Dictionary).get("effect", {})
+			if effect is Dictionary:
+				_merge_effect(merged, effect as Dictionary)
+	return merged
+
+
+func _merge_effect(target: Dictionary, effect: Dictionary) -> void:
+	if effect.has("hunger_drain_mult"):
+		var factor: float = clampf(_number(effect["hunger_drain_mult"], 1.0), 0.1, 1.0)
+		target["hunger_drain_mult"] = clampf(
+			_number(target.get("hunger_drain_mult", 1.0), 1.0) * factor, 0.25, 1.0)
+	for key: String in ["start_hp"]:
+		if effect.has(key):
+			target[key] = clampf(_number(target.get(key, 0.0), 0.0)
+					+ _number(effect[key], 0.0), 0.0, 40.0)
+	for key: String in ["ammo", "loot"]:
+		if not (effect.has(key) and effect[key] is Dictionary):
+			continue
+		var bucket: Dictionary = target.get(key, {}) as Dictionary
+		if bucket == null:
+			bucket = {}
+			target[key] = bucket
+		var source: Dictionary = effect[key] as Dictionary
+		for item_id in source:
+			var safe_id: String = String(item_id).substr(0, 32)
+			var amount: int = clampi(int(_number(source[item_id], 0.0)), 0, 20)
+			bucket[safe_id] = clampi(int(bucket.get(safe_id, 0)) + amount, 0, 40)
+		target[key] = bucket
+	if effect.has("extra_weapon"):
+		target["extra_weapon"] = String(effect["extra_weapon"]).substr(0, 24)
+
+
+func _apply_effects_to_nodes() -> void:
+	var player_node: Node2D = _player()
+	if player_node == null or not is_instance_valid(player_node):
+		return
+	var pid: int = player_node.get_instance_id()
+	if _applied_player_ids.has(pid):
+		return
+	_applied_player_ids[pid] = true
+	var drain: Variant = player_node.get("hunger_drain_per_second")
+	if drain is float or drain is int:
+		var factor: float = clampf(_number(active_effects.get("hunger_drain_mult", 1.0), 1.0), 0.25, 1.0)
+		player_node.set("hunger_drain_per_second", maxf(0.01, float(drain) * factor))
+	var start_hp: float = clampf(_number(active_effects.get("start_hp", 0.0), 0.0), 0.0, 40.0)
+	var hp: Variant = player_node.get("hp")
+	if start_hp > 0.0 and (hp is float or hp is int):
+		player_node.set("hp", clampf(float(hp) + start_hp, 0.0, 100.0))
+	if String(active_effects.get("extra_weapon", "")) == "shotgun":
+		_equip_extra_weapon()
+
+
+## Equipa el arma extra SOLO en la ranura 4 (que el loadout deja libre). Si el
+## loadout cambiara, no hace nada: el HARD_GATE exige exactamente 5 ranuras.
+func _equip_extra_weapon() -> void:
+	var player_node: Node2D = _player()
+	if player_node == null:
+		return
+	var controller: Node = player_node.get_node_or_null("WeaponController")
+	if controller == null or not controller.has_method("add_weapon") \
+			or not controller.has_method("get_weapon_in_slot"):
+		return
+	var slots: Variant = controller.get("weapons")
+	if not (slots is Array) or (slots as Array).size() != 5:
+		return
+	var key: String = "extra_%d" % player_node.get_instance_id()
+	if _applied_extra_weapon.has(key) or controller.call("get_weapon_in_slot", 4) != null:
+		return
+	_applied_extra_weapon[key] = true
+	controller.call("add_weapon", EXTRA_WEAPON_RES, 4)
+
+
+func _grant_starting_loot() -> void:
+	if _granted_run == 1:
+		return
+	var inventory: Node = _inventory()
+	if inventory == null or not inventory.has_method("add_item"):
+		return
+	var loot: Variant = active_effects.get("loot", {})
+	if loot is Dictionary:
+		for item_id in (loot as Dictionary):
+			inventory.call("add_item", String(item_id),
+				clampi(int(_number((loot as Dictionary)[item_id], 0.0)), 0, 20), true)
+	var ammo: Variant = active_effects.get("ammo", {})
+	if ammo is Dictionary:
+		for ammo_id in (ammo as Dictionary):
+			inventory.call("add_item", String(ammo_id),
+				clampi(int(_number((ammo as Dictionary)[ammo_id], 0.0)), 0, 20), true)
+	_granted_run = 1
+	var extra_weapon: String = String(active_effects.get("extra_weapon", ""))
+	if not extra_weapon.is_empty():
+		_emit_unlock_notice("Mejora equipada: %s" % extra_weapon)
+
+
+func _on_wave_started_upgrades(wave: int) -> void:
+	if int(wave) == 1 and _granted_run != 1:
+		_grant_starting_loot()
+
+
+## Detecta el Inventory.clear() de inicio de partida para volver a entregar el
+## botín de la rama equipada en la siguiente run (sin duplicar dentro de una run).
+func _on_inventory_changed_upgrades() -> void:
+	var inventory: Node = _inventory()
+	if inventory != null and inventory.has_method("total") \
+			and int(_number(inventory.call("total"), 0.0)) <= 0:
+		_granted_run = -1
+
+
+func _level_entry(branch: String, level: int) -> Dictionary:
+	if not UPGRADE_TREE.has(branch):
+		return {}
+	var branch_data: Variant = UPGRADE_TREE[branch]
+	if not (branch_data is Dictionary):
+		return {}
+	var levels: Variant = (branch_data as Dictionary).get("levels", [])
+	if not (levels is Array):
+		return {}
+	for i in range((levels as Array).size()):
+		var entry: Variant = (levels as Array)[i]
+		if entry is Dictionary \
+				and clampi(int(_number((entry as Dictionary).get("level", 0), 0.0)), 0, MAX_UPGRADE_LEVEL) == level:
+			return entry as Dictionary
+	return {}
 
 
 # --- EventBus --------------------------------------------------------------
@@ -461,6 +747,9 @@ func _build_save_data() -> Dictionary:
 		"runs": _runs,
 		"difficulty": _last_difficulty,
 		"clearings_found": _clearings_found,
+		"credits": _credits,
+		"purchased": _purchased.duplicate(true),
+		"selected": _selected.duplicate(true),
 	}
 
 
@@ -479,9 +768,12 @@ func _load_progress() -> void:
 	var parser := JSON.new()
 	if parser.parse(text) != OK or not (parser.data is Dictionary):
 		return
-	var data: Dictionary = parser.data as Dictionary
-	if int(_number(data.get("version", 0), 0.0)) != SAVE_VERSION:
+	var raw_data: Dictionary = parser.data as Dictionary
+	var version: int = int(_number(raw_data.get("version", 0), 0.0))
+	# v1 se migra sin pérdida; versiones futuras/desconocidas no se consumen.
+	if version < 1 or version > SAVE_VERSION:
 		return
+	var data: Dictionary = _migrate(raw_data)
 	var raw_achievements: Variant = data.get("achievements", [])
 	if raw_achievements is Array:
 		for item in raw_achievements as Array:
@@ -496,6 +788,74 @@ func _load_progress() -> void:
 	_runs = maxi(0, int(_number(data.get("runs", 0), 0.0)))
 	_last_difficulty = clampf(_number(data.get("difficulty", 0), 0.0), 0.0, 1.0)
 	_clearings_found = maxi(0, int(_number(data.get("clearings_found", 0), 0.0)))
+	# Campos v2 (presentes en saves v2; por defecto 0 en saves v1 migrados).
+	_credits = clampi(int(_number(data.get("credits", 0), 0.0)), 0, MAX_CREDITS)
+	_purchased = (data.get("purchased", {}) as Dictionary).duplicate(true)
+	_selected = (data.get("selected", {}) as Dictionary).duplicate(true)
+
+
+## Migración v1 -> v2. Preserva TODOS los campos conocidos del save antiguo y
+## añade los nuevos con valores seguros. Todo se sanea: el archivo jamás puede
+## introducir ramas, niveles ni identificadores arbitrarios (deuda de seguridad).
+func _migrate(data: Dictionary) -> Dictionary:
+	var result: Dictionary = {}
+	result["version"] = SAVE_VERSION
+	result["achievements"] = _sanitize_ids(data.get("achievements", []))
+	result["titles"] = _sanitize_strings(data.get("titles", []))
+	result["best_time_seconds"] = clampf(_number(data.get("best_time_seconds", 0.0), 0.0), 0.0, 1.0e7)
+	result["best_kills"] = clampi(int(_number(data.get("best_kills", 0), 0.0)), 0, 1000000)
+	result["best_distance"] = clampf(_number(data.get("best_distance", 0.0), 0.0), 0.0, 1.0e8)
+	result["runs"] = clampi(int(_number(data.get("runs", 0), 0.0)), 0, 1000000)
+	result["difficulty"] = clampf(_number(data.get("difficulty", 0.0), 0.0), 0.0, 1.0)
+	result["clearings_found"] = clampi(int(_number(data.get("clearings_found", 0), 0.0)), 0, 1000000)
+	result["credits"] = clampi(int(_number(data.get("credits", 0), 0.0)), 0, MAX_CREDITS)
+	result["purchased"] = _sanitize_levels(data.get("purchased", {}))
+	result["selected"] = _sanitize_levels(data.get("selected", {}))
+	# Un save v1 sin créditos recibe un pequeño-starter acorde a sus runs/logros,
+	# sin perder ningún dato previo: la migración es aditiva, nunca destructiva.
+	if int(_number(data.get("version", 1), 1.0)) < SAVE_VERSION:
+		var earned: int = mini(int(result["runs"]), 25) + mini(int(result["achievements"]), 10)
+		result["credits"] = maxi(int(result["credits"]), mini(earned, 50))
+	return result
+
+
+func _sanitize_ids(value: Variant) -> Array:
+	var result: Array = []
+	if not (value is Array):
+		return result
+	for item in (value as Array):
+		var id: String = String(item).substr(0, 48)
+		if ACHIEVEMENTS.has(id) and not result.has(id):
+			result.append(id)
+	return result
+
+
+func _sanitize_strings(value: Variant) -> Array:
+	var result: Array = []
+	if not (value is Array):
+		return result
+	for item in (value as Array):
+		var text: String = String(item).substr(0, 64)
+		if not text.is_empty() and not result.has(text):
+			result.append(text)
+		if result.size() >= 32:
+			break
+	return result
+
+
+## Solo acepta ramas del UPGRADE_TREE y niveles 0..MAX_UPGRADE_LEVEL.
+func _sanitize_levels(value: Variant) -> Dictionary:
+	var result: Dictionary = {}
+	if not (value is Dictionary):
+		return result
+	for key in (value as Dictionary):
+		var branch: String = String(key).substr(0, 32)
+		if not UPGRADE_TREE.has(branch):
+			continue
+		var level: int = clampi(int(_number((value as Dictionary)[key], 0.0)), 0, MAX_UPGRADE_LEVEL)
+		if level > 0:
+			result[branch] = level
+	return result
 
 
 # --- Utilidades de solo lectura -------------------------------------------

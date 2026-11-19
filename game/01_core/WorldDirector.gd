@@ -28,6 +28,13 @@ const WEATHER_TINTS: Array[Color] = [
 const EVENT_NAMES: Array[String] = ["convoy", "campamento", "ruido"]
 const HORDE_KINDS: Array[int] = [0, 0, 1, 2, 3]
 const HORDE_EARLY_KINDS: Array[int] = [0, 1]
+## ÍTEM 14: el ruido del motor/claxon acumula "calor" que acelera el enfriamiento
+## de hordas y puede disparar una anticipada. Todo con RNG determinista.
+const NOISE_HORDE_HEAT_MAX: float = 3.0
+const NOISE_HORDE_HEAT_DECAY: float = 0.4
+const NOISE_HORDE_ROLL_INTERVAL: float = 4.0
+const NOISE_HORDE_CHANCE: float = 0.35
+const NOISE_COOLDOWN_BOOST: float = 1.5
 
 const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
 const LOOT_SCENE: PackedScene = preload("res://04_items/LootContainer.tscn")
@@ -84,6 +91,8 @@ var _horde_pending: bool = false
 var _horde_timer: float = 0.0
 var _horde_cooldown_left: float = 0.0
 var _horde_zombies: Array[CharacterBody2D] = []
+var _noise_heat: float = 0.0
+var _noise_roll_timer: float = NOISE_HORDE_ROLL_INTERVAL
 
 var _events: Array[Dictionary] = []
 
@@ -138,6 +147,16 @@ func _connect_bus() -> void:
 			var callable: Callable = Callable(self, "_on_" + signal_name)
 			if not EventBus.is_connected(signal_name, callable):
 				EventBus.connect(signal_name, callable)
+	# zombie_alerted(zombie, source): el vehículo emite (posición, radio).
+	# Handler con argumentos opcionales para sobrevivir a otros aritys.
+	if EventBus != null and EventBus.has_signal("zombie_alerted"):
+		var noise_cb: Callable = Callable(self, "_on_zombie_alerted")
+		if not EventBus.is_connected("zombie_alerted", noise_cb):
+			EventBus.connect("zombie_alerted", noise_cb)
+	if EventBus != null and EventBus.has_signal("vehicle_state_changed"):
+		var vehicle_cb: Callable = Callable(self, "_on_vehicle_state_changed")
+		if not EventBus.is_connected("vehicle_state_changed", vehicle_cb):
+			EventBus.connect("vehicle_state_changed", vehicle_cb)
 
 
 # --- Bucle principal -------------------------------------------------------
@@ -182,7 +201,15 @@ func _process(delta: float) -> void:
 		_respawn_timer = loot_respawn_seconds
 		respawn_loot_now()
 
-	_horde_cooldown_left = maxf(0.0, _horde_cooldown_left - delta)
+	# Ruido del vehículo: la calor decae y se consulta con RNG determinista en
+	# ventanas espaciadas (sin get_nodes_in_group por frame ni bucles O(N²)).
+	_noise_heat = maxf(0.0, _noise_heat - NOISE_HORDE_HEAT_DECAY * delta)
+	_noise_roll_timer -= delta
+	if _noise_roll_timer <= 0.0:
+		_noise_roll_timer = NOISE_HORDE_ROLL_INTERVAL
+		_maybe_noise_horde()
+	_horde_cooldown_left = maxf(0.0,
+		_horde_cooldown_left - delta * (1.0 + _noise_heat * NOISE_COOLDOWN_BOOST))
 	if _phase == 3:
 		if not _horde_active and _horde_cooldown_left <= 0.0:
 			_start_horde()
@@ -328,6 +355,68 @@ func _start_horde() -> void:
 		_spawn_horde(planned)
 	else:
 		_horde_pending = true
+
+
+## Ruido del motor/claxon del vehículo (EventBus.zombie_alerted con posición y
+## radio). Solo cuenta como "ruido de horda" si llega una posición y un radio:
+## los alertas cuyo primer argumento es un nodo no alteran el director.
+func _on_zombie_alerted(source = null, radius = null) -> void:
+	if not (source is Vector2) or not (radius is float or radius is int):
+		return
+	if float(radius) <= 0.0:
+		return
+	var weight: float = 1.0 if float(radius) < 800.0 else 1.4
+	_noise_heat = minf(NOISE_HORDE_HEAT_MAX, _noise_heat + weight)
+
+
+## vehicle_state_changed(vehicle, fuel, hp): un motor con fuel y chasis sigue
+## haciendo ruido aunque el claxon se haya callado; mantiene viva la calor de
+## ruido para la horda. Solo leemos el estado, nunca emitimos ni duplicamos la
+## señal de zombie_alerted del vehículo.
+func _on_vehicle_state_changed(vehicle = null, fuel = null, hp = null) -> void:
+	if vehicle == null:
+		return
+	var has_fuel: bool = true
+	var has_hp: bool = true
+	if fuel is float or fuel is int:
+		has_fuel = float(fuel) > 0.0
+	if hp is float or hp is int:
+		has_hp = float(hp) > 0.0
+	if has_fuel and has_hp:
+		_noise_heat = minf(NOISE_HORDE_HEAT_MAX, _noise_heat + 0.2)
+
+
+## Con calor alta, una horda puede anticiparse incluso de día. La probabilidad
+## crece con la calor y se decide con el stream 'world' de GameState.rng.
+func _maybe_noise_horde() -> void:
+	if _noise_heat <= 0.0 or _horde_active or _victory_guard():
+		return
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs == null or not gs.has_method("rng"):
+		return
+	var rng: RandomNumberGenerator = gs.call("rng", &"world") as RandomNumberGenerator
+	if rng == null:
+		return
+	var chance: float = clampf(_noise_heat / NOISE_HORDE_HEAT_MAX, 0.0, 1.0) * NOISE_HORDE_CHANCE
+	if rng.randf() >= chance:
+		return
+	_noise_heat = 0.0
+	_horde_cooldown_left = 0.0
+	_start_horde()
+	_notify("El ruido del motor ha atraído una horda de zombies.", true)
+
+
+## Evita hordas póstumas: GameState expone is_game_over/is_victory de forma
+## opcional y el director no depende de que esos métodos existan.
+func _victory_guard() -> bool:
+	var gs: Node = get_node_or_null("/root/GameState")
+	if gs == null or not is_instance_valid(gs):
+		return false
+	if gs.has_method("is_victory") and bool(gs.call("is_victory")):
+		return true
+	if gs.has_method("is_game_over") and bool(gs.call("is_game_over")):
+		return true
+	return false
 
 
 func _horde_count() -> int:

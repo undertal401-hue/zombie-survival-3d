@@ -619,10 +619,13 @@ func _go_extraction() -> void:
 	print("EXTRACTION_ROUTE fuel=%d pos=%s" % [Inventory.count("combustible"), str(_player.global_position)])
 	var reached: bool = await _move_to(_extraction.global_position, 10000, 36.0, true)
 	print("EXTRACTION reached=%s dist=%.0f" % [reached, _player.global_position.distance_to(_extraction.global_position)])
-	for i in range(30):
+	# La victoria ya no es inmediata: ExtractionZone tiene una cuenta atrás
+	# de 12 s (EXTRACTION_COUNTDOWN). Esperar solo 30 frames físicos (~0,5 s)
+	# daba un falso negativo en este modo. 60 × 0,25 s = 15 s de margen.
+	for i in range(60):
 		if _victory_fired:
 			break
-		await get_tree().physics_frame
+		await get_tree().create_timer(0.25).timeout
 	var overlay := _hud.get_node("EndOverlay") as ColorRect
 	var title := _hud.get_node("EndOverlay/EndPanel/EndTitle") as Label
 	print("VICTORY fired=%s overlay=%s title='%s'" % [str(_victory_fired), str(overlay.visible), title.text])

@@ -33,6 +33,7 @@ const ALIASES: Dictionary = {
 	"wave": "wave_start", "wave_alert": "wave_start",
 	"crafting": "craft", "craft_complete": "craft", "craft_completed": "craft",
 	"pickup": "loot", "loot_pickup": "loot", "pickup_item": "loot",
+	"loot_rarity": "loot", "rare_loot": "loot", "loot_rare": "loot",
 	"hungry": "hunger", "stomach": "hunger", "stomach_rumble": "hunger",
 	"damage": "player_hurt", "hurt": "player_hurt", "player_damage": "player_hurt",
 	"click": "ui_click", "ui_select": "ui_click",
@@ -52,6 +53,14 @@ const TELEGRAPH_SFX: Dictionary = {
 	2: {"id": "horn", "pitch": 0.62},            # TANK: corneta grave
 	3: {"id": "zombie_hurt", "pitch": 1.55},     # SPITTER: burbujeo
 	4: {"id": "horde_alert", "pitch": 1.20},     # SCREAMER: alarma
+}
+
+## ÍTEM 13: mismo PCM de 'loot' con pitch creciente según rareza; un rare
+## suena más agudo y metálico que un common, sin crear assets nuevos.
+const LOOT_RARITY_SFX: Dictionary = {
+	"common": {"id": "loot", "pitch": 1.0},
+	"uncommon": {"id": "loot", "pitch": 1.22},
+	"rare": {"id": "loot", "pitch": 1.55},
 }
 
 const UI_IDS: Dictionary = {
@@ -184,6 +193,14 @@ func play_sfx(id, position = null) -> bool:
 func play_sfx_pitched(id, position = null, pitch: float = 1.0) -> bool:
 	var raw: String = String(id).to_lower()
 	return _play_one_shot(_canonical(raw), _as_position(position), clampf(pitch, 0.1, 4.0))
+
+
+## Aviso sonoro de saqueo: la rareza cambia el pitch del SFX 'loot'.
+func play_loot_rarity(rarity: String, position = null) -> bool:
+	var key: String = String(rarity).to_lower()
+	var preset: Dictionary = LOOT_RARITY_SFX.get(key, LOOT_RARITY_SFX["common"])
+	return play_sfx_pitched(String(preset.get("id", "loot")), position,
+		float(preset.get("pitch", 1.0)))
 
 
 ## Aviso sonoro de telegrafía: un effects distinto por arquetipo de zombi.

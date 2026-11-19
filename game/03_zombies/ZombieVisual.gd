@@ -4,11 +4,15 @@ class_name ZombieVisual
 ## =============================================================================
 ## ZOMBIE VISUAL - AnimatedSprite2D por tipo de zombi
 ## =============================================================================
-## Tipos: WALKER, RUNNER, TANK, SPITTER, SCREAMER
+## Tipos: WALKER, RUNNER, TANK, SPITTER, SCREAMER, BOSS
 ## Animaciones: idle, walk, run, attack, hit, death, crawl
 ## =============================================================================
 
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
+## CAPA 2 / ÍTEM 12: barra exclusiva del jefe. No existe en el HUD global para
+## no repartir estado: el propio Zombie empuja su ratio de vida aquí.
+@onready var boss_bar: Node2D = $boss_bar
+@onready var boss_health: ColorRect = $boss_bar/boss_health
 
 ## Hojas de pixel art real generadas por tools/gen_art.py (ADR-001).
 ## Todas comparten el mismo layout: 8 animaciones x 4 frames, 8 columnas de 32x32.
@@ -18,6 +22,7 @@ const SHEETS: Array[String] = [
 	"res://assets/art/sprites/zombie_tank.png",
 	"res://assets/art/sprites/zombie_spitter.png",
 	"res://assets/art/sprites/zombie_screamer.png",
+	"res://assets/art/sprites/boss_sheet.png",
 ]
 const FRAME: int = 32
 const SHEET_COLS: int = 8
@@ -45,7 +50,12 @@ var _attack_timer: float = 0.0
 const ATTACK_FALLBACK: float = 0.5
 
 ## Tipos de zombi (coincide con Zombie.Kind)
-enum ZombieType { WALKER, RUNNER, TANK, SPITTER, SCREAMER }
+enum ZombieType { WALKER, RUNNER, TANK, SPITTER, SCREAMER, BOSS }
+
+## Paleta canónica (ART_BIBLE.md): BLOOD #b52b20, BLOOD_BRIGHT #e8563c.
+const BOSS_BAR_WIDTH: float = 48.0
+const BOSS_BAR_PHASE_1: Color = Color(0.71, 0.169, 0.125, 1.0)
+const BOSS_BAR_PHASE_2: Color = Color(0.91, 0.337, 0.235, 1.0)
 
 func _ready() -> void:
 	_setup_animations()
@@ -172,10 +182,32 @@ func set_type(type: int) -> void:
 			animated_sprite.modulate = Color(1.0, 0.5, 1.0, 1.0)  # Tinte magenta
 			frames.set_animation_speed("walk", 9)
 			frames.set_animation_speed("run", 14)
+		ZombieType.BOSS:
+			# "Tanque Alfa": corpulento, acero con sangre y animación más pesada.
+			animated_sprite.scale = Vector2(0.95, 0.95)
+			animated_sprite.modulate = Color(0.85, 0.75, 0.75, 1.0)
+			frames.set_animation_speed("walk", 4)
+			frames.set_animation_speed("run", 6)
+
+	# La barra solo existe visualmente para el jefe; el resto la mantiene oculta.
+	if boss_bar != null:
+		boss_bar.visible = (type == ZombieType.BOSS)
+	if type == ZombieType.BOSS:
+		update_boss_health(1.0, false)
 
 	# Cada arquetipo define la escala/tinte base sobre la que vuelven los FX.
 	_base_scale = animated_sprite.scale
 	_base_modulate = animated_sprite.modulate
+
+## La barra del jefe se actualiza desde Zombie con el ratio hp/max_hp real.
+## En fase 2 (enraged) cambia a BLOOD_BRIGHT para señalar el cambio de patrón.
+func update_boss_health(ratio: float, enraged: bool = false) -> void:
+	if boss_bar == null or boss_health == null:
+		return
+	boss_bar.visible = not _is_dying
+	boss_health.offset_right = -24.0 + BOSS_BAR_WIDTH * clampf(ratio, 0.0, 1.0)
+	boss_health.color = BOSS_BAR_PHASE_2 if enraged else BOSS_BAR_PHASE_1
+
 
 func update_state(velocity: Vector2, is_chasing: bool, target_direction: Vector2, is_crawling: bool = false) -> void:
 	if _is_attacking or _is_dying:
@@ -242,7 +274,8 @@ func punch_scale(amount: float = 0.88, duration: float = 0.12) -> void:
 
 ## Telegrafía por arquetipo (kind coincide con Zombie.Kind / ZombieType).
 ## TANK: aura roja + tamaño. SPITTER: inflado previo. SCREAMER: onda pulsante.
-## WALKER/RUNNER: aviso sutil. Todo se hace sobre el sprite, nunca hitboxes.
+## BOSS: dos pulsos rojos anchos (carga/slam). WALKER/RUNNER: aviso sutil.
+## Todo se hace sobre el sprite, nunca hitboxes.
 func telegraph(kind: int) -> void:
 	if _is_dying:
 		return
@@ -266,6 +299,11 @@ func telegraph(kind: int) -> void:
 			tint = Color(1.0, 0.70, 1.0, 1.0)
 			hold = 0.06
 			pulses = 3
+		5:  # BOSS "Tanque Alfa" - dos pulsos rojos anchos antes de la carga
+			factor = 1.28
+			tint = BOSS_BAR_PHASE_2  # BLOOD_BRIGHT, paleta canónica
+			hold = 0.14
+			pulses = 2
 		1:  # RUNNER - aviso breve
 			factor = 1.07
 			tint = Color(1.0, 0.82, 0.82, 1.0)
@@ -304,6 +342,8 @@ func play_hit() -> void:
 
 func play_death() -> void:
 	_is_dying = true
+	if boss_bar != null:
+		boss_bar.visible = false
 	animated_sprite.play("death")
 
 func play_crawl() -> void:

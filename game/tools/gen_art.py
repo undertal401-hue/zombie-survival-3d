@@ -255,6 +255,10 @@ ZOMBIE_TRIPLES = {
     "tank":     ("SHADOW_GREEN", "STEEL_DARK", "STEEL_LIGHT"),
     "spitter":  ("OLIVE_DARK", "OLIVE_LIGHT", "OLIVE_HI"),
     "screamer": ("BLOOD_DARK", "BLOOD", "BLOOD_BRIGHT"),
+    # CAPA 2 / ÍTEM 12: "Tanque Alfa". Acero con sombra de sangre seca y un
+    # núcleo de sangre canónica; se distingue del tank por las hombreras
+    # punteadas y el pecho encendido (misma semilla y paleta de 16 colores).
+    "boss":     ("BLOOD_DARK", "STEEL_DARK", "STEEL_LIGHT"),
 }
 
 
@@ -382,6 +386,16 @@ def draw_humanoid(c: Canvas, frame: int, action: str, flesh, cloth,
             # Armoured plates on the shoulders.
             c.rect(6, arm_y - 1 + swing, 11, arm_y + 2 + swing, "STEEL_LIGHT")
             c.rect(21, arm_y - 1 - swing, 26, arm_y + 2 - swing, "STEEL_LIGHT")
+        if kind == "boss":
+            # Hombreras de jefe con pinchos hueso y núcleo de sangre (#b52b20).
+            # Todo sale de la paleta canónica y respeta el outline 1 px de blit.
+            c.rect(5, arm_y - 2 + swing, 11, arm_y + 1 + swing, "STEEL_LIGHT")
+            c.rect(21, arm_y - 2 - swing, 27, arm_y + 1 - swing, "STEEL_LIGHT")
+            for (x, y) in [(6, arm_y - 3 + swing), (9, arm_y - 4 + swing),
+                           (26, arm_y - 3 - swing), (23, arm_y - 4 - swing)]:
+                c.set(x, y, IDX["BONE"])
+            stamp(c, disc_mask(16, torso_cy, 3), "BLOOD")
+            c.set(16, torso_cy, IDX["BLOOD_BRIGHT"])
 
     # Hit feedback: red speckles, deterministic positions.
     if action in ("hit", "hurt"):
@@ -535,9 +549,10 @@ def build_all():
             c, f, a, ZOMBIE_TRIPLES[kind], ZOMBIE_TRIPLES[kind],
             survivor=False, kind=kind)
 
-    for kind in ("walker", "runner", "tank", "spitter", "screamer"):
-        outputs["zombie_%s.png" % kind] = make_actor_sheet(
-            ZOMBIE_ANIMS, zombie_draw(kind))
+    for kind in ("walker", "runner", "tank", "spitter", "screamer", "boss"):
+        # El jefe usa el nombre canónico `boss_sheet.png` (no zombie_boss.png).
+        name = "boss_sheet.png" if kind == "boss" else "zombie_%s.png" % kind
+        outputs[name] = make_actor_sheet(ZOMBIE_ANIMS, zombie_draw(kind))
 
     effect_frames = []
     for f in range(8):
@@ -564,7 +579,7 @@ def do_check() -> int:
     expected = [name for name in (
         "player_sheet.png",
         "zombie_walker.png", "zombie_runner.png", "zombie_tank.png",
-        "zombie_spitter.png", "zombie_screamer.png",
+        "zombie_spitter.png", "zombie_screamer.png", "boss_sheet.png",
         "effects.png", "tiles.png",
     )]
     ok = True

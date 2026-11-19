@@ -11,6 +11,8 @@ signal stat_changed(key: StringName, value: float)
 # Capa de compatibilidad para QA/HUD: instantánea auditable y oleadas.
 signal state_changed(data: Dictionary)
 signal wave_changed(wave: int)
+# ÍTEM 10: el multiplicador de combo cambia con cada baja y con el timeout.
+signal combo_changed(value: float, count: int)
 
 # Fases permitidas. Se usan StringName para no depender de enum compartidos.
 const PHASE_BOOT := &"boot"
@@ -43,6 +45,15 @@ const DIFFICULTY_DISTANCE_RATE: float = 0.000015
 const DIFFICULTY_EVENT_RATE: float = 0.02
 const DIFFICULTY_EMIT_EPSILON: float = 0.001
 
+# ÍTEM 10 — combo de combate. Cada baja suma un paso; headshot y melee suman
+# uno extra. El multiplicador se corta en x3.0 (MAX_COMBO) y vuelve a 1.0 tras
+# COMBO_WINDOW segundos sin registrar una baja (ventana deslizante real).
+const COMBO_WINDOW: float = 2.5
+const MAX_COMBO: float = 3.0
+const COMBO_KILL_STEP: float = 0.25
+const COMBO_HEADSHOT_STEP: float = 0.5
+const COMBO_MELEE_STEP: float = 0.35
+
 var _phase: StringName = PHASE_BOOT
 var _pre_pause_phase: StringName = PHASE_EXPLORE
 var _difficulty: float = 0.0
@@ -57,6 +68,16 @@ var _game_over: bool = false
 var _victory: bool = false
 var _state_change_queued: bool = false
 
+# Estado del combo (ÍTEM 10). `combo_multiplier` es la fachada pública que
+# consume el HUD; el temporizador se alimenta del delta de _process.
+var combo_multiplier: float = 1.0
+var combo_count: int = 0
+var _combo_timer: float = 0.0
+var _combo_melee_armed: bool = false
+# Reloj de la partida para el HUD (requisito del arnés de tensión). Se cachea
+# aquí para que el HUD no tenga que escanear el árbol en cada frame.
+var run_clock: float = 0.0
+
 func _init() -> void:
 	# Debe seguir evaluando la pausa aunque el árbol esté detenido.
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -68,8 +89,18 @@ func _ready() -> void:
 	# Las oleadas son estado, no lógica de Main: se contabilizan aquí.
 	EventBus.wave_started.connect(_on_wave_started)
 	EventBus.horde_started.connect(_on_horde_started)
+	# ÍTEM 10: toda baja real del bus alimenta el combo. La sonda de melee se
+	# conecta diferida porque el jugador aún no existe cuando arranca el autoload.
+	if EventBus.has_signal("zombie_died") and not EventBus.is_connected(
+			"zombie_died", Callable(self, "_on_zombie_died_combo")):
+		EventBus.zombie_died.connect(_on_zombie_died_combo)
+	call_deferred("_connect_melee_probe")
 
 func _process(delta: float) -> void:
+	# Reloj y combo avanzan aunque el árbol esté detenido (process_mode ALWAYS).
+	_tick_combo(delta)
+	if not get_tree().paused and not _game_over and not _victory:
+		run_clock += maxf(delta, 0.0)
 	var paused: bool = get_tree().paused
 	if paused:
 		if _phase != PHASE_PAUSED and _phase != PHASE_DEATH and _phase != PHASE_VICTORY:
@@ -222,12 +253,132 @@ func reset_session(seed_value: int = MASTER_SEED) -> void:
 	_difficulty = 0.0
 	_difficulty_emitted = 0.0
 	_pre_pause_phase = PHASE_EXPLORE
+	# ÍTEM 10 / reloj: una run nueva empieza sin combo y con el cronómetro a 0.
+	combo_multiplier = 1.0
+	combo_count = 0
+	_combo_timer = 0.0
+	_combo_melee_armed = false
+	run_clock = 0.0
+	combo_changed.emit(combo_multiplier, combo_count)
 	set_phase(PHASE_BOOT)
 
 ## Fuerza una semilla distinta para todos los flujos (utilizable por QA).
 func reset_rngs(seed_value: int = MASTER_SEED) -> void:
 	_master_seed = seed_value
 	_rngs.clear()
+
+# ---------------------------------------------------------------------------
+# ÍTEM 10 — sistema de combos
+# ---------------------------------------------------------------------------
+
+## Registra una baja. `headshot` y `melee` escalan el paso; `kind` admite
+## "headshot", "melee" o "kill". El multiplicador NUNCA supera x3.0
+## (MAX_COMBO) y emite combo_changed solo cuando cambia de verdad.
+func register_combo(kind: String = "kill", headshot: bool = false, melee: bool = false) -> void:
+	var step: float = COMBO_KILL_STEP
+	if headshot or kind == "headshot":
+		step += COMBO_HEADSHOT_STEP
+	if melee or kind == "melee":
+		step += COMBO_MELEE_STEP
+	var previous: float = combo_multiplier
+	combo_multiplier = clampf(combo_multiplier + step, 1.0, MAX_COMBO)
+	combo_count += 1
+	_combo_timer = COMBO_WINDOW
+	if not is_equal_approx(previous, combo_multiplier):
+		combo_changed.emit(combo_multiplier, combo_count)
+
+
+## Tiempo que falta para que el combo vuelva a x1.0 (HUD ligero, sin escaneos).
+func combo_time_left() -> float:
+	return maxf(_combo_timer, 0.0)
+
+
+## Puente real desde EventBus.zombie_died: detecta headshot y melee a partir del
+## estado de combate existente (sin editar Player ni Zombie).
+func _on_zombie_died_combo(zombie = null) -> void:
+	if _phase == PHASE_DEATH or _phase == PHASE_VICTORY:
+		return
+	var headshot: bool = _kill_is_headshot(zombie)
+	var melee: bool = _kill_is_melee(zombie)
+	var kind: String = "headshot" if headshot else ("melee" if melee else "kill")
+	register_combo(kind, headshot, melee)
+	_combo_melee_armed = false
+
+
+## Melee real: WeaponController expone `melee_attack`; se arma el siguiente
+## registro de baja (o se confirma leyendo el arma equipada en el momento).
+func _connect_melee_probe() -> void:
+	var player_node: Node = _player_node()
+	if player_node == null:
+		return
+	var controller: Node = player_node.get_node_or_null("WeaponController")
+	if controller == null or not controller.has_signal("melee_attack"):
+		return
+	var callback := Callable(self, "_on_melee_attack")
+	if not controller.is_connected("melee_attack", callback):
+		controller.connect("melee_attack", callback)
+
+
+func _on_melee_attack(_weapon = null, _direction = null) -> void:
+	_combo_melee_armed = true
+
+
+func _kill_is_melee(zombie) -> bool:
+	if zombie != null:
+		for prop: String in ["killed_by_melee", "last_hit_melee", "is_melee_kill"]:
+			var flag: Variant = zombie.get(prop)
+			if flag is bool and bool(flag):
+				return true
+	var player_node: Node = _player_node()
+	if player_node != null:
+		var controller: Node = player_node.get_node_or_null("WeaponController")
+		if controller != null:
+			var weapon: Variant = controller.get("current_weapon")
+			if weapon != null:
+				var category: Variant = weapon.get("category")
+				# Weapon.Category.MELEE == 0 (evita depender del enum aquí).
+				if category != null and int(category) == 0:
+					return true
+	return _combo_melee_armed
+
+
+## Headshot real: el marcador canónico es el "!" que DamageNumber.gd escribe en
+## su etiqueta (setup(amount, headshot, pos)). Se consulta por baja, no por frame.
+func _kill_is_headshot(zombie) -> bool:
+	if zombie != null:
+		for prop: String in ["killed_by_headshot", "last_hit_headshot", "is_headshot"]:
+			var flag: Variant = zombie.get(prop)
+			if flag is bool and bool(flag):
+				return true
+	if not is_inside_tree():
+		return false
+	var origin: Vector2 = Vector2.ZERO
+	var have_origin: bool = zombie is Node2D
+	if have_origin:
+		origin = (zombie as Node2D).global_position
+	for node in get_tree().get_nodes_in_group("damage_numbers"):
+		if not is_instance_valid(node):
+			continue
+		var number_label: Label = (node as Node).get_node_or_null("Label") as Label
+		if number_label == null or not number_label.text.ends_with("!"):
+			continue
+		if have_origin and node is Node2D \
+				and (node as Node2D).global_position.distance_to(origin) > 96.0:
+			continue
+		return true
+	return false
+
+
+func _tick_combo(delta: float) -> void:
+	if delta <= 0.0 or combo_multiplier <= 1.0:
+		return
+	_combo_timer -= delta
+	if _combo_timer > 0.0:
+		return
+	combo_multiplier = 1.0
+	combo_count = 0
+	_combo_melee_armed = false
+	combo_changed.emit(combo_multiplier, combo_count)
 
 # ---------------------------------------------------------------------------
 # Capa de compatibilidad (QA check 46). Son fachadas: no duplican la lógica,

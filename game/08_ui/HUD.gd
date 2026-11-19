@@ -19,9 +19,17 @@ const DAMAGE_FLASH_SHADER: Shader = preload("res://assets/shaders/DamageFlash.gd
 @onready var end_title: Label = $EndOverlay/EndPanel/EndTitle
 @onready var end_text: Label = $EndOverlay/EndPanel/EndText
 @onready var end_hint: Label = $EndOverlay/EndPanel/EndHint
+# ÍTEM 10: multiplicador de combo con barra acotada a MAX_COMBO (x3.0).
+@onready var combo_mult_label: Label = $Status/Margin/VBox/ComboMultLabel
+@onready var combo_bar: ProgressBar = $Status/Margin/VBox/ComboBar
+# Requisito del arnés de tensión: oleadas + reloj cacheados (sin escaneos/frame).
+@onready var wave_clock_label: Label = $Status/Margin/VBox/WaveClockLabel
 
 var player: Node2D
 var _weapon_controller: WeaponController
+var wave: int = 0
+var clock: float = 0.0
+var _last_clock_second: int = -1
 
 var _ended: bool = false
 var _toast_timer: float = 0.0
@@ -48,6 +56,16 @@ func _ready() -> void:
 	EventBus.game_over.connect(_on_game_over)
 	EventBus.victory.connect(_on_victory)
 	Inventory.inventory_changed.connect(_refresh_resources)
+
+	# ÍTEM 10 + tensión: el HUD solo consume cachés del estado central.
+	if GameState.has_signal("combo_changed"):
+		GameState.combo_changed.connect(_on_combo_changed)
+	if GameState.has_signal("wave_changed"):
+		GameState.wave_changed.connect(_on_wave_changed)
+	wave = GameState.get_wave()
+	clock = GameState.run_clock
+	_refresh_wave_clock()
+	_on_combo_changed(GameState.combo_multiplier, GameState.combo_count)
 
 	if player != null:
 		_weapon_controller = player.get_node_or_null("WeaponController") as WeaponController
@@ -81,6 +99,12 @@ func _ready() -> void:
 		)
 
 func _process(delta: float) -> void:
+	# Reloj cacheado del GameState: sin find_children/get_nodes por frame.
+	clock = GameState.run_clock
+	var whole_second: int = int(clock)
+	if whole_second != _last_clock_second:
+		_last_clock_second = whole_second
+		_refresh_wave_clock()
 	if _toast_timer > 0.0:
 		_toast_timer = maxf(_toast_timer - delta, 0.0)
 		if _toast_timer <= 0.0:
@@ -267,6 +291,34 @@ func _refresh_resources() -> void:
 	else:
 		objective_label.text = "Consigue %d/3 bidones de combustible y extrae." % fuel
 		objective_label.modulate = Color(1.0, 0.85, 0.5)
+
+## ÍTEM 10: pinta el multiplicador de combo y su barra con la paleta canónica
+## (AMBER/BONE/BLOOD_BRIGHT de ART_BIBLE.md). Estilo pixel: sin esquinas redondeadas.
+func _on_combo_changed(value: float, count: int) -> void:
+	var multiplier: float = clampf(value, 1.0, 3.0)
+	combo_mult_label.text = "COMBO x%.1f" % multiplier
+	combo_bar.max_value = 3.0
+	combo_bar.value = multiplier
+	var color: Color = Color(0.937, 0.894, 0.741, 1)  # BONE #efe4bd
+	if multiplier >= 2.5:
+		color = Color(0.910, 0.337, 0.235, 1)  # BLOOD_BRIGHT #e8563c
+	elif multiplier >= 1.5:
+		color = Color(0.824, 0.659, 0.404, 1)  # AMBER #d2a867
+	combo_mult_label.add_theme_color_override("font_color", color)
+	combo_mult_label.visible = multiplier > 1.0 or count > 0
+	combo_bar.visible = combo_mult_label.visible
+
+
+func _on_wave_changed(value: int) -> void:
+	wave = maxi(0, value)
+	_refresh_wave_clock()
+
+
+func _refresh_wave_clock() -> void:
+	var total: int = maxi(0, int(clock))
+	wave_clock_label.text = "OLEADA %d  ·  RELOJ %02d:%02d" % [
+		wave, (total / 60) % 100, total % 60
+	]
 
 func _on_game_over() -> void:
 	_end_game("HAS CAÍDO", "No sobreviviste. Reintenta y prepara mejor tu próxima salida.", Color(1.0, 0.4, 0.4))

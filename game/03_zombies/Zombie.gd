@@ -1,11 +1,18 @@
 extends CharacterBody2D
 
-enum Kind { WALKER, RUNNER, TANK, SPITTER, SCREAMER }
+enum Kind { WALKER, RUNNER, TANK, SPITTER, SCREAMER, BOSS }
 enum State { PATROL, INVESTIGATE, CHASE, ATTACK, STUNNED, DEAD }
 
 const HIT_TORSO: int = 0
 const HIT_HEAD: int = 1
 const HIT_LEG: int = 2
+
+## CAPA 2 / ÍTEM 12 — "Tanque Alfa". Dos fases: la 1 carga telegrafiada y la
+## 2 (enraged, al 50 % de vida) añade un golpe de area y acorta los cooldowns.
+const BOSS_PHASE_2_HP: float = 0.5
+const BOSS_CHARGE_RANGE: float = 260.0
+const BOSS_SLAM_RANGE: float = 130.0
+const BOSS_SLAM_COOLDOWN: float = 3.2
 
 const ATTACK_RANGE := 34.0
 const SEPARATION_RADIUS := 26.0
@@ -33,6 +40,13 @@ const ALERT_TIME := 5.0
 @export var charge_speed: float = 250.0
 @export var charge_cooldown: float = 5.0
 
+## Jefe (kind == Kind.BOSS). `phase`/`enraged` son el estado de las dos fases;
+## `is_boss` permite a otros sistemas preguntar sin depender del enum.
+@export var is_boss: bool = false
+@export var phase: int = 1
+@export var enraged: bool = false
+@export var boss_slam_cooldown: float = BOSS_SLAM_COOLDOWN
+
 ## Percepcion / IA
 @export var vision_half_angle_degrees: float = 100.0
 @export var close_sense_radius: float = 105.0
@@ -56,6 +70,8 @@ var _charge_timer: float = 0.0
 var _charge_duration: float = 0.0
 var _is_charging: bool = false
 var _charge_direction: Vector2 = Vector2.ZERO
+var _boss_slam_timer: float = 0.0
+var _boss_charge_hit: bool = false
 
 @onready var agent: NavigationAgent2D = $NavigationAgent2D
 @onready var separation_area: Area2D = $SeparationArea
@@ -149,6 +165,7 @@ func _physics_process(delta: float) -> void:
 	_spit_timer = maxf(_spit_timer - delta, 0.0)
 	_scream_timer = maxf(_scream_timer - delta, 0.0)
 	_charge_timer = maxf(_charge_timer - delta, 0.0)
+	_boss_slam_timer = maxf(_boss_slam_timer - delta, 0.0)
 
 	if _is_charging:
 		# La duración es independiente del cooldown: si se reutilizara
@@ -174,12 +191,21 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 
+	# El jefe impacta una sola vez por carga telegrafiada (boss_attack).
+	if is_boss and _is_charging and not _boss_charge_hit and _target_valid():
+		if global_position.distance_to(target.global_position) <= ATTACK_RANGE * 1.25:
+			_boss_charge_hit = true
+			_boss_impact_damage()
+
 	# Actualizar visual
 	if zombie_visual != null and not _dead:
 		var target_dir: Vector2 = Vector2.ZERO
 		if target != null and is_instance_valid(target):
 			target_dir = (target.global_position - global_position).normalized()
 		zombie_visual.update_state(velocity, _alert_timer > 0.0, target_dir, _is_crawling)
+		if is_boss:
+			zombie_visual.update_boss_health(
+				clampf(hp / maxf(max_hp, 1.0), 0.0, 1.0), phase == 2)
 
 	alert_label.visible = _alert_timer > 0.0 and not _dead
 
@@ -259,6 +285,18 @@ func _pursue(delta: float) -> void:
 	elif kind == Kind.SCREAMER and scream_radius > 0.0:
 		if _scream_timer <= 0.0 and distance <= scream_radius:
 			_scream_attack()
+	elif kind == Kind.BOSS:
+		# Fase 1: carga telegrafiada. Fase 2: además un slam de área más cercano.
+		if phase == 2 and distance <= BOSS_SLAM_RANGE and _boss_slam_timer <= 0.0 and sees:
+			state = State.CHASE
+			_boss_attack()
+			velocity = Vector2.ZERO
+			return
+		if distance <= BOSS_CHARGE_RANGE and distance > ATTACK_RANGE and _charge_timer <= 0.0 and sees:
+			state = State.CHASE
+			_start_boss_charge(target.global_position)
+			velocity = _charge_direction * charge_speed
+			return
 	elif kind == Kind.TANK and charge_speed > 0.0:
 		if distance <= 200.0 and distance > ATTACK_RANGE and _charge_timer <= 0.0 and sees:
 			state = State.CHASE
@@ -528,6 +566,10 @@ func take_damage(amount: float, from: Node2D = null, hit_zone: int = HIT_TORSO) 
 
 	if hp <= 0.0:
 		_die()
+		return
+	# Cruce del 50 % de vida: el jefe entra en fase 2 y cambia de patrón.
+	if is_boss and phase == 1 and hp <= max_hp * BOSS_PHASE_2_HP:
+		_enter_phase_2()
 
 
 ## Variante con punto de impacto: los sistemas de combate pueden pasar la
@@ -646,6 +688,76 @@ func _start_charge(target_pos: Vector2) -> void:
 		ParticleManager.instance.spawn_impact_concrete(global_position, _charge_direction)
 
 
+# --- Jefe "Tanque Alfa" (CAPA 2 / ÍTEM 12) ---------------------------------
+
+## Fase 2: al caer por debajo del 50 % de vida el patrón se acelera y se añade
+## un ataque de área. No reasigna `kind`, así que el arte y la barra se mantienen.
+func _enter_phase_2() -> void:
+	if not is_boss or phase == 2:
+		return
+	phase = 2
+	enraged = true
+	speed *= 1.28
+	attack_damage *= 1.30
+	attack_cooldown_time = maxf(attack_cooldown_time * 0.75, 0.4)
+	charge_speed *= 1.20
+	charge_cooldown = maxf(charge_cooldown * 0.65, 1.0)
+	boss_slam_cooldown = maxf(boss_slam_cooldown * 0.75, 1.2)
+	detect_radius *= 1.15
+	_boss_slam_timer = 0.0
+	_charge_timer = minf(_charge_timer, 0.4)
+	alert_label.text = "!!!"
+	_telegraph(Kind.BOSS)
+	if ParticleManager.instance != null:
+		ParticleManager.instance.spawn_impact_flesh(global_position, Vector2.ZERO)
+
+
+## Carga telegrafiada del jefe (boss_attack, fase 1 y 2). Reutiliza el mismo
+## aviso visual/sonoro de Capa 1 (`_telegraph`) con el kind del boss.
+func _start_boss_charge(target_pos: Vector2) -> void:
+	if _charge_timer > 0.0:
+		return
+	_charge_timer = charge_cooldown * (0.7 if phase == 2 else 1.0)
+	_charge_duration = 1.2 if phase == 2 else 1.0
+	_is_charging = true
+	_boss_charge_hit = false
+	_charge_direction = (target_pos - global_position).normalized()
+	_telegraph(Kind.BOSS)
+	if zombie_visual != null:
+		zombie_visual.play_attack()
+	if ParticleManager.instance != null:
+		ParticleManager.instance.spawn_impact_concrete(global_position, _charge_direction)
+
+
+## Ataque adicional exclusivo de la fase 2: golpe de área telegrafiado.
+func _boss_attack() -> void:
+	if _boss_slam_timer > 0.0 or not _target_valid():
+		return
+	_boss_slam_timer = boss_slam_cooldown
+	_telegraph(Kind.BOSS)
+	if zombie_visual != null:
+		zombie_visual.play_attack()
+	if ParticleManager.instance != null:
+		ParticleManager.instance.spawn_impact_flesh(global_position, Vector2.ZERO)
+	if global_position.distance_to(target.global_position) > BOSS_SLAM_RANGE:
+		return
+	if target.has_method("receive_damage"):
+		var damage: float = attack_damage * 0.65 * float(_difficulty.get("damage", 1.0))
+		target.call("receive_damage", damage)
+
+
+## Daño único al conectar la carga; la fase 2 pega más fuerte.
+func _boss_impact_damage() -> void:
+	if not _target_valid():
+		return
+	if target.has_method("receive_damage"):
+		var damage: float = attack_damage * (1.15 if phase == 2 else 0.9)
+		damage *= float(_difficulty.get("damage", 1.0))
+		target.call("receive_damage", damage)
+	if ParticleManager.instance != null:
+		ParticleManager.instance.spawn_impact_flesh(global_position, _charge_direction)
+
+
 # ---------------------------------------------------------------------------
 # Navegacion y movement
 # ---------------------------------------------------------------------------
@@ -723,6 +835,12 @@ func _update_flash(delta: float) -> void:
 # ---------------------------------------------------------------------------
 
 func _apply_kind() -> void:
+	# Sincronizado aquí (no solo en _ready) porque las pruebas y el spawner
+	# pueden asignar `kind` antes o después de la instanciación.
+	is_boss = (kind == Kind.BOSS)
+	if not is_boss:
+		phase = 1
+		enraged = false
 	match kind:
 		Kind.WALKER:
 			speed = 80.0
@@ -834,6 +952,35 @@ func _apply_kind() -> void:
 				zombie_visual.set_type(ZombieVisual.ZombieType.SCREAMER)
 			alert_label.text = "~~"
 
+		Kind.BOSS:
+			# "Tanque Alfa": vida alta, velocidad media, daño alto y detección
+			# amplia. Parte en fase 1; el 50 % de vida dispara la fase 2.
+			speed = 110.0
+			max_hp = 800.0
+			attack_damage = 32.0
+			attack_cooldown_time = 1.1
+			detect_radius = 700.0
+			lose_radius = 1000.0
+			body_visual.color = Color(0.431, 0.09, 0.071)   # BLOOD_DARK
+			nose.color = Color(0.604, 0.671, 0.714)          # STEEL_LIGHT
+			body_visual.scale = Vector2(1.9, 1.9)
+			nose.scale = Vector2(1.9, 1.9)
+			spit_range = 0.0
+			spit_damage = 0.0
+			spit_cooldown = 0.0
+			scream_radius = 0.0
+			scream_cooldown = 0.0
+			charge_speed = 330.0
+			charge_cooldown = 4.5
+			boss_slam_cooldown = BOSS_SLAM_COOLDOWN
+			phase = 1
+			enraged = false
+			_boss_slam_timer = 0.0
+			_boss_charge_hit = false
+			if zombie_visual != null:
+				zombie_visual.set_type(ZombieVisual.ZombieType.BOSS)
+			alert_label.text = "!!"
+
 	# Perfil táctico por arquetipo (independiente del aspecto visual).
 	match kind:
 		Kind.WALKER:
@@ -856,6 +1003,10 @@ func _apply_kind() -> void:
 			flank_strength = 0.30
 			preferred_range = 0.0
 			separation_scale = 1.1
+		Kind.BOSS:
+			flank_strength = 0.0
+			preferred_range = 0.0
+			separation_scale = 2.2
 
 	_base_max_hp = max_hp
 	hp = max_hp
@@ -874,6 +1025,10 @@ func _drop_loot() -> void:
 		Kind.TANK:
 			item_id = "scrap"
 			amount = rng.randi_range(2, 3)
+		Kind.BOSS:
+			# El jefe asegura una recompensa proporcional a su riesgo.
+			item_id = "scrap"
+			amount = rng.randi_range(5, 8)
 		Kind.SPITTER:
 			item_id = "cloth"
 			amount = rng.randi_range(1, 2)

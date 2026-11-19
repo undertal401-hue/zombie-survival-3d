@@ -68,3 +68,31 @@ z_index = 5
 z_index = -1
 modulate = Color(0.04, 0.05, 0.04, 0.5)
 polygon = PackedVector2Array(-11, 8, 11, 8, 8, 13, -8, 13)
+
+[node name="boss_bar" type="Node2D" parent="ZombieVisual"]
+position = Vector2(0, -46)
+visible = false
+
+[node name="boss_bar_bg" type="ColorRect" parent="ZombieVisual/boss_bar"]
+offset_left = -27.0
+offset_top = -5.0
+offset_right = 27.0
+offset_bottom = 5.0
+color = Color(0.043, 0.051, 0.043, 0.94)
+
+[node name="boss_health" type="ColorRect" parent="ZombieVisual/boss_bar"]
+offset_left = -24.0
+offset_top = -2.0
+offset_right = 24.0
+offset_bottom = 2.0
+color = Color(0.71, 0.169, 0.125, 1.0)
+
+[node name="boss_label" type="Label" parent="ZombieVisual/boss_bar"]
+offset_left = -40.0
+offset_top = -17.0
+offset_right = 40.0
+offset_bottom = -5.0
+theme_override_colors/font_color = Color(0.937, 0.894, 0.741, 1.0)
+theme_override_font_sizes/font_size = 8
+text = "TANQUE ALFA"
+horizontal_alignment = 1
