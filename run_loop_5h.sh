@@ -6,7 +6,7 @@
 # consolida, verifica con Godot headless y escribe en la bitácora de Obsidian.
 #
 # Configurable por entorno:
-#   ROUNDS=25 PAUSE_SECONDS=600 ROUND_TIMEOUT=900 ./run_loop_5h.sh
+#   ROUNDS=25 PAUSE_SECONDS=600 ROUND_TIMEOUT=1800 ./run_loop_5h.sh
 # Parar limpiamente: crear el archivo loop.stop (ver STOP_FILE).
 
 set -u
