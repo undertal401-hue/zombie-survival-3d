@@ -561,11 +561,22 @@ func _speed_multiplier() -> float:
 	return clampf(wound_slow * float(_difficulty.get("speed", 1.0)), 0.1, 2.5)
 
 
+## Aviso visual + sonoro justo antes de una acción ofensiva. El kind coincide
+## con ZombieVisual.ZombieType; AudioDirector elige un SFX distinto por tipo.
+func _telegraph(kind_to_announce: int) -> void:
+	if zombie_visual != null:
+		zombie_visual.telegraph(kind_to_announce)
+	var audio: Node = get_tree().get_first_node_in_group("audio_director")
+	if audio != null and audio.has_method("play_telegraph"):
+		audio.call("play_telegraph", kind_to_announce, global_position)
+
+
 func _attack() -> void:
 	if attack_cooldown > 0.0 or target == null or state == State.STUNNED:
 		return
 	attack_cooldown = attack_cooldown_time
 
+	_telegraph(kind)
 	if zombie_visual != null:
 		zombie_visual.play_attack()
 
@@ -579,6 +590,7 @@ func _spit_attack() -> void:
 		return
 	_spit_timer = spit_cooldown
 
+	_telegraph(kind)
 	if zombie_visual != null:
 		zombie_visual.play_attack()
 
@@ -601,6 +613,7 @@ func _scream_attack() -> void:
 		return
 	_scream_timer = scream_cooldown
 
+	_telegraph(kind)
 	if zombie_visual != null:
 		zombie_visual.play_attack()
 
@@ -625,6 +638,7 @@ func _start_charge(target_pos: Vector2) -> void:
 	var direction: Vector2 = (target_pos - global_position).normalized()
 	_charge_direction = direction
 
+	_telegraph(kind)
 	if zombie_visual != null:
 		zombie_visual.play_attack()
 

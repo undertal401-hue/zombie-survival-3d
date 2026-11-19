@@ -27,6 +27,12 @@ var _hit_flash_timer: float = 0.0
 var _hit_flash_duration: float = 0.1
 @onready var _hit_flash_material: ShaderMaterial = preload("res://assets/shaders/HitFlashMaterial.tres")
 
+## Squash / stretch (ADR game feel): solo escala el AnimatedSprite2D. El
+## CollisionShape2D del Player es hermano de este nodo, así que las hitboxes
+## nunca se tocan. La escala base la fija Player.tscn (1.15, 1.15).
+var _base_scale: Vector2 = Vector2.ONE
+var _squash_tween: Tween
+
 ## Estados de animación
 enum AnimState {
 	IDLE, WALK, RUN, 
@@ -37,6 +43,8 @@ enum AnimState {
 
 func _ready() -> void:
 	_setup_animations()
+	# La escala del sprite sale del .tscn: se captura antes de cualquier tween.
+	_base_scale = animated_sprite.scale
 	# Pixel art: muestreo puntual, sin interpolación (ADR-001).
 	animated_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if animated_sprite.material is CanvasItemMaterial:
@@ -184,7 +192,40 @@ func update_from_player(player: Node2D, velocity: Vector2, weapon_controller: No
 		_current_state = new_state
 		animated_sprite.play(new_state)
 
+## Devuelve el sprite a su escala base y cancela cualquier FX previo.
+func _reset_fx() -> void:
+	if _squash_tween != null and _squash_tween.is_valid():
+		_squash_tween.kill()
+	_squash_tween = null
+	animated_sprite.scale = _base_scale
+
+
+## Aplastamiento: ancho extra, alto reducido, vuelta a la base.
+func squash(amount: float = 0.85, duration: float = 0.12) -> void:
+	_reset_fx()
+	var factor: float = clampf(amount, 0.5, 1.0)
+	var target: Vector2 = Vector2(_base_scale.x / factor, _base_scale.y * factor)
+	_squash_tween = create_tween()
+	_squash_tween.tween_property(animated_sprite, "scale", target, duration * 0.4)
+	_squash_tween.tween_property(animated_sprite, "scale", _base_scale, duration * 0.6)
+
+
+## Estiramiento: estrecho y alto, vuelta a la base. Es el "punch" del ataque.
+func stretch(amount: float = 0.88, duration: float = 0.12) -> void:
+	_reset_fx()
+	var factor: float = clampf(amount, 0.5, 1.0)
+	var target: Vector2 = Vector2(_base_scale.x * factor, _base_scale.y / factor)
+	_squash_tween = create_tween()
+	_squash_tween.tween_property(animated_sprite, "scale", target, duration * 0.4)
+	_squash_tween.tween_property(animated_sprite, "scale", _base_scale, duration * 0.6)
+
+
+func punch_scale(amount: float = 0.88, duration: float = 0.12) -> void:
+	stretch(amount, duration)
+
+
 func play_attack(weapon_category: int) -> void:
+	punch_scale()
 	_is_attacking = true
 	var anim_name: String
 	match weapon_category:
@@ -211,6 +252,7 @@ func play_reload(weapon_category: int) -> void:
 	_attack_timer = 0.9
 
 func play_hurt() -> void:
+	squash(0.8, 0.16)
 	animated_sprite.play("hurt")
 	# Trigger hit flash
 	_hit_flash_timer = _hit_flash_duration

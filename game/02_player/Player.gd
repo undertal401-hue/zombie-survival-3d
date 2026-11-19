@@ -34,6 +34,10 @@ const STARVATION_DAMAGE := 2.0
 ## y detiene el proyectil incluso con armas penetrantes.
 const VEHICLE_DAMAGE_SCALE := 0.55
 
+## Feedback de daño flotante (ÍTEM 8). El número se parentea a la escena
+## actual, no al jugador, para que no gire con él ni sobreviva a un reload.
+const DAMAGE_NUMBER_SCENE: PackedScene = preload("res://08_ui/DamageNumber.tscn")
+
 ## Ajustables desde el inspector o por código. Con 0.2/s una barra llena
 ## dura unos 8 minutos; la comida recupera 35 puntos.
 @export var max_hunger: float = 100.0
@@ -281,8 +285,10 @@ func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announ
 			# El hitbox del zombie mide 16x16 centrado (y-8 .. y+8): la cabeza
 			# es el cuarto superior y las piernas el cuarto inferior.
 			var zombie: CharacterBody2D = collider as CharacterBody2D
+			var is_headshot: bool = false
 			if zombie != null:
 				if hit_pos.y < zombie.global_position.y - 4.0:
+					is_headshot = true
 					damage *= weapon.headshot_multiplier
 				elif hit_pos.y > zombie.global_position.y + 4.0:
 					damage *= weapon.limb_multiplier
@@ -291,6 +297,7 @@ func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announ
 				damage *= pow(0.75, walls_pierced)
 			collider.call("take_damage", damage, self)
 			CombatTelemetry.record(self, "damage", damage)
+			_spawn_damage_number(hit_pos, damage, is_headshot)
 			if announce:
 				EventBus.notification.emit("Impacto!")
 			if ParticleManager.instance != null:
@@ -306,6 +313,21 @@ func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announ
 					ParticleManager.instance.palette_color(&"steel_dark"))
 		break
 	# El destello lo genera WeaponController/ParticleManager en coordenadas del mundo.
+
+## Número flotante + SFX diferenciado. El headshot suena más agudo y se
+## muestra en ámbar; el impacto normal usa el tono de impacto y color claro.
+func _spawn_damage_number(hit_pos: Vector2, damage: float, headshot: bool) -> void:
+	var parent: Node = get_tree().current_scene
+	if parent == null:
+		parent = get_tree().root
+	var number: Node = DAMAGE_NUMBER_SCENE.instantiate()
+	parent.add_child(number)
+	number.call("setup", damage, headshot, hit_pos)
+
+	var audio: Node = get_tree().get_first_node_in_group("audio_director")
+	if audio != null and audio.has_method("play_damage_number"):
+		audio.call("play_damage_number", headshot, hit_pos)
+
 
 func _is_vehicle(collider: Object) -> bool:
 	if collider == null:

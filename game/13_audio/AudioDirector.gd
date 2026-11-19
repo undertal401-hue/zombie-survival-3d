@@ -43,6 +43,17 @@ const ALIASES: Dictionary = {
 	"night": "night_loop", "tension": "tension_loop", "forest": "forest_loop",
 }
 
+## Telegrafía por arquetipo (kind = Zombie.Kind). Cada tipo usa un effects
+## distinto y un pitch propio: no se crean assets nuevos, solo síntesis ya
+## existente reutilizada con otro tono (ADR game feel, ÍTEM 7).
+const TELEGRAPH_SFX: Dictionary = {
+	0: {"id": "footstep", "pitch": 0.85},        # WALKER: paso sordo
+	1: {"id": "zombie_alert", "pitch": 1.35},    # RUNNER: jadeo agudo
+	2: {"id": "horn", "pitch": 0.62},            # TANK: corneta grave
+	3: {"id": "zombie_hurt", "pitch": 1.55},     # SPITTER: burbujeo
+	4: {"id": "horde_alert", "pitch": 1.20},     # SCREAMER: alarma
+}
+
 const UI_IDS: Dictionary = {
 	"ui_click": true, "ui_confirm": true, "ui_cancel": true, "notification": true,
 }
@@ -169,7 +180,27 @@ func play_sfx(id, position = null) -> bool:
 	return _play_one_shot(canonical, pos)
 
 
-func _play_one_shot(canonical: String, pos: Variant) -> bool:
+## Reproduce un efecto con pitch propio (reutiliza la síntesis existente).
+func play_sfx_pitched(id, position = null, pitch: float = 1.0) -> bool:
+	var raw: String = String(id).to_lower()
+	return _play_one_shot(_canonical(raw), _as_position(position), clampf(pitch, 0.1, 4.0))
+
+
+## Aviso sonoro de telegrafía: un effects distinto por arquetipo de zombi.
+func play_telegraph(kind: int, position = null) -> bool:
+	var preset: Dictionary = TELEGRAPH_SFX.get(kind, TELEGRAPH_SFX[0])
+	return play_sfx_pitched(String(preset.get("id", "footstep")), position,
+		float(preset.get("pitch", 1.0)))
+
+
+## Número de daño flotante: el headshot suena más agudo que un impacto normal.
+func play_damage_number(headshot: bool, position = null) -> bool:
+	if headshot:
+		return play_sfx_pitched("ui_confirm", position, 1.65)
+	return play_sfx_pitched("bullet_impact", position, 1.15)
+
+
+func _play_one_shot(canonical: String, pos: Variant, pitch: float = 1.0) -> bool:
 	if not is_inside_tree():
 		return false
 	if AudioServer.get_bus_index(MASTER_BUS) < 0:
@@ -200,6 +231,7 @@ func _play_one_shot(canonical: String, pos: Variant) -> bool:
 		flat.bus = bus_name
 		player = flat
 	add_child(player)
+	player.pitch_scale = pitch
 	player.call("play")
 	_register_voice(player)
 	return true

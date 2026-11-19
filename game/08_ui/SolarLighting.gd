@@ -318,12 +318,18 @@ class PixelShadowController extends Node2D:
 		var offset: Vector2 = dir * lerpf(OFFSET_LOW_SUN, OFFSET_HIGH_SUN, sun)
 		var alpha: float = minf(ALPHA_BASE + sun * ALPHA_PER_SUN, ALPHA_MAX)
 		for entry in _entries:
-			var node := entry["node"] as Node2D
-			var parent := entry["parent"] as Node2D
-			if not is_instance_valid(node) or not is_instance_valid(parent):
+			# Un zombi puede liberarse entre el recache y este frame. Hacer el
+			# cast `as Node2D` sobre un objeto ya liberado dispara
+			# "Trying to cast a freed object", así que se valida el Variant
+			# ANTES de cualquier conversión de tipo.
+			var node_obj: Variant = entry.get("node")
+			var parent_obj: Variant = entry.get("parent")
+			if not is_instance_valid(node_obj) or not is_instance_valid(parent_obj):
 				continue
+			var node: Node2D = node_obj
+			var parent: Node2D = parent_obj
 			node.global_position = parent.global_position + offset
-			var base: Color = entry["color"]
+			var base: Color = entry.get("color", Color.WHITE)
 			node.modulate = Color(base.r, base.g, base.b, alpha)
 
 	func _recache() -> void:

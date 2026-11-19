@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://02_player/InputHandler.gd" id="1"]
 [ext_resource type="Script" path="res://02_player/Player.gd" id="2"]
 [ext_resource type="Script" path="res://02_player/weapons/WeaponController.gd" id="3"]
 [ext_resource type="Script" path="res://02_player/PlayerVisual.gd" id="4"]
+[ext_resource type="Script" path="res://02_player/CameraController.gd" id="5"]
 
 [sub_resource type="RectangleShape2D" id="1_rect"]
 size = Vector2(24, 24)
@@ -50,6 +51,7 @@ occluder = SubResource("1_occluder")
 
 [node name="Camera2D" type="Camera2D" parent="."]
 current = true
+script = ExtResource("5")
 zoom = Vector2(1, 1)
 limit_left = -2400
 limit_top = -1500

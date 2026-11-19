@@ -131,6 +131,8 @@ jobs:
 
           run_suite "10_review/ArtAnimTest.tscn"    "ART_ANIM_TEST failures=0"
           run_suite "10_review/FxDecalTest.tscn"    "FX_DECAL_TEST failures=0"
+          run_suite "10_review/HitStopTest.tscn"    "HIT_STOP_TEST failures=0"
+          run_suite "10_review/GameFeelTest.tscn"   "GAME_FEEL_TEST failures=0"
           run_suite "10_review/TestFixes.tscn"      "HARD_GATE failures=0"
           run_suite "10_review/SeparationTest.tscn" "SEPARATION_TEST failures=0"
           run_suite "10_review/ArsenalTest.tscn"    "ARSENAL_TEST failures=0"

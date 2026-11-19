@@ -29,6 +29,14 @@ var _current_state: String = "idle"
 var _is_attacking: bool = false
 var _is_dying: bool = false
 
+## Game feel: squash/stretch y telegrafía comparten un único tween para que
+## nunca peleen por animated_sprite.scale. Solo se anima el sprite: las
+## hitboxes del Zombie son hermanas de este nodo y permanecen intactas.
+var _base_scale: Vector2 = Vector2.ONE
+var _base_modulate: Color = Color.WHITE
+var _fx_tween: Tween
+var _is_telegraphing: bool = false
+
 ## Zombie.tscn no asigna sprite_frames y este script no añade frames: las siete
 ## animaciones quedan vacías, así que animation_finished nunca se emite. El
 ## fallback temporal es lo único que desbloquea update_state() (PlayerVisual sí
@@ -41,6 +49,9 @@ enum ZombieType { WALKER, RUNNER, TANK, SPITTER, SCREAMER }
 
 func _ready() -> void:
 	_setup_animations()
+	# Base antes de set_type(): este último la recalcula por arquetipo.
+	_base_scale = animated_sprite.scale
+	_base_modulate = animated_sprite.modulate
 	# Pixel art: muestreo puntual, sin interpolación (ADR-001).
 	animated_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if animated_sprite.material is CanvasItemMaterial:
@@ -162,6 +173,10 @@ func set_type(type: int) -> void:
 			frames.set_animation_speed("walk", 9)
 			frames.set_animation_speed("run", 14)
 
+	# Cada arquetipo define la escala/tinte base sobre la que vuelven los FX.
+	_base_scale = animated_sprite.scale
+	_base_modulate = animated_sprite.modulate
+
 func update_state(velocity: Vector2, is_chasing: bool, target_direction: Vector2, is_crawling: bool = false) -> void:
 	if _is_attacking or _is_dying:
 		return
@@ -186,7 +201,96 @@ func update_state(velocity: Vector2, is_chasing: bool, target_direction: Vector2
 		_current_state = new_state
 		animated_sprite.play(new_state)
 
+## Cancela FX anteriores y deja el sprite exactamente en su estado base.
+func _reset_fx() -> void:
+	if _fx_tween != null and _fx_tween.is_valid():
+		_fx_tween.kill()
+	_fx_tween = null
+	_is_telegraphing = false
+	animated_sprite.scale = _base_scale
+	animated_sprite.modulate = _base_modulate
+
+func _on_fx_finished() -> void:
+	_is_telegraphing = false
+	animated_sprite.scale = _base_scale
+	animated_sprite.modulate = _base_modulate
+	_fx_tween = null
+
+## Aplastamiento al recibir daño: ancho extra y alto reducido.
+func squash(amount: float = 0.85, duration: float = 0.12) -> void:
+	_reset_fx()
+	var factor: float = clampf(amount, 0.5, 1.0)
+	var target: Vector2 = Vector2(_base_scale.x / factor, _base_scale.y * factor)
+	_fx_tween = create_tween()
+	_fx_tween.tween_property(animated_sprite, "scale", target, duration * 0.4)
+	_fx_tween.tween_property(animated_sprite, "scale", _base_scale, duration * 0.6)
+	_fx_tween.finished.connect(_on_fx_finished)
+
+## Estiramiento al atacar: estrecho y alto, como un resorte.
+func stretch(amount: float = 0.88, duration: float = 0.12) -> void:
+	_reset_fx()
+	var factor: float = clampf(amount, 0.5, 1.0)
+	var target: Vector2 = Vector2(_base_scale.x * factor, _base_scale.y / factor)
+	_fx_tween = create_tween()
+	_fx_tween.tween_property(animated_sprite, "scale", target, duration * 0.4)
+	_fx_tween.tween_property(animated_sprite, "scale", _base_scale, duration * 0.6)
+	_fx_tween.finished.connect(_on_fx_finished)
+
+func punch_scale(amount: float = 0.88, duration: float = 0.12) -> void:
+	stretch(amount, duration)
+
+
+## Telegrafía por arquetipo (kind coincide con Zombie.Kind / ZombieType).
+## TANK: aura roja + tamaño. SPITTER: inflado previo. SCREAMER: onda pulsante.
+## WALKER/RUNNER: aviso sutil. Todo se hace sobre el sprite, nunca hitboxes.
+func telegraph(kind: int) -> void:
+	if _is_dying:
+		return
+	_reset_fx()
+	_is_telegraphing = true
+	var factor: float = 1.05
+	var tint: Color = _base_modulate
+	var hold: float = 0.07
+	var pulses: int = 1
+	match kind:
+		2:  # TANK - aura roja y ensanchamiento antes de la carga
+			factor = 1.18
+			tint = Color(1.0, 0.30, 0.30, 1.0)
+			hold = 0.12
+		3:  # SPITTER - se infla antes de escupir
+			factor = 1.34
+			tint = Color(0.65, 1.0, 0.60, 1.0)
+			hold = 0.10
+		4:  # SCREAMER - onda expansiva (tres pulsos)
+			factor = 1.10
+			tint = Color(1.0, 0.70, 1.0, 1.0)
+			hold = 0.06
+			pulses = 3
+		1:  # RUNNER - aviso breve
+			factor = 1.07
+			tint = Color(1.0, 0.82, 0.82, 1.0)
+			hold = 0.04
+		_:  # WALKER - aviso mínimo
+			factor = 1.04
+			tint = Color(1.0, 0.92, 0.92, 1.0)
+			hold = 0.04
+	_fx_tween = create_tween()
+	for _pulse in range(pulses):
+		_fx_tween.set_parallel(true)
+		_fx_tween.tween_property(animated_sprite, "scale", _base_scale * factor, 0.07)
+		_fx_tween.tween_property(animated_sprite, "modulate", tint, 0.07)
+		_fx_tween.set_parallel(false)
+		_fx_tween.tween_interval(hold)
+		_fx_tween.set_parallel(true)
+		_fx_tween.tween_property(animated_sprite, "scale", _base_scale, 0.10)
+		_fx_tween.tween_property(animated_sprite, "modulate", _base_modulate, 0.10)
+		_fx_tween.set_parallel(false)
+	_fx_tween.finished.connect(_on_fx_finished)
+
 func play_attack() -> void:
+	# Si hay telegrafía en curso, ella ya está animando la escala: no la corta.
+	if not _is_telegraphing:
+		punch_scale()
 	_is_attacking = true
 	_attack_timer = ATTACK_FALLBACK
 	animated_sprite.play("attack")
@@ -194,6 +298,7 @@ func play_attack() -> void:
 func play_hit() -> void:
 	if _is_dying:
 		return
+	squash(0.78, 0.14)
 	animated_sprite.play("hit")
 	_current_state = ""
 

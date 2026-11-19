@@ -19,6 +19,10 @@ signal dry_fire(weapon: Weapon)
 ## Debe coincidir con Player.MELEE_COST: es el coste que Player descuenta.
 const MELEE_STAMINA_MIN: float = 20.0
 
+## ADR-002: micro-congelamiento SOLO en kills/headshots letales. 60 ms está
+## dentro del rango 50-80 ms acordado; nunca se aplica a disparos normales.
+const HIT_STOP_SECONDS: float = 0.06
+
 ## Loadout data-driven: los cuatro .tres son recursos reales (no Weapon.new()
 ## con campos copiados a mano). Su resource_path es válido: save/load funciona.
 const RES_MACHETE: Weapon = preload("res://02_player/weapons/Machete.tres")
@@ -49,6 +53,10 @@ var _shake_timer: Timer
 var _shake_camera: Camera2D
 var _shake_base_offset: Vector2 = Vector2.ZERO
 
+## Timer no escalado del hit-stop (ADR-002). Se guarda la referencia para
+## poder liberarlo limpiamente al salir del árbol.
+var _hit_stop_timer: SceneTreeTimer
+
 func _ready() -> void:
 	# El arma comparte el ciclo de vida del mundo: al pausar, morir o abrir el
 	# inventario deja de procesar input, recargas y ráfagas.
@@ -70,6 +78,48 @@ func _ready() -> void:
 	
 	# Conectar señales de inventario
 	Inventory.inventory_changed.connect(_on_inventory_changed)
+
+	# ADR-002: el hit-stop dispara al morir un zombi (zombie_died / is_dead),
+	# nunca desde _fire_shot(). El event bus es la única fuente de la muerte.
+	if EventBus.has_signal("zombie_died") and not EventBus.zombie_died.is_connected(_on_zombie_died):
+		EventBus.zombie_died.connect(_on_zombie_died)
+
+
+func _exit_tree() -> void:
+	# Red de seguridad: ninguna salida anómala (o --quit-after) debe dejar el
+	# mundo ralentizado. La restauración normal la hace el timeout del timer.
+	Engine.time_scale = 1.0
+	if _hit_stop_timer != null and is_instance_valid(_hit_stop_timer):
+		if _hit_stop_timer.timeout.is_connected(_restore_time_scale):
+			_hit_stop_timer.timeout.disconnect(_restore_time_scale)
+	_hit_stop_timer = null
+
+
+## Callback del timer no escalado: devuelve el mundo a velocidad normal.
+func _restore_time_scale() -> void:
+	Engine.time_scale = 1.0
+	_hit_stop_timer = null
+
+
+## Hit-stop: se llama ÚNICAMENTE desde _on_zombie_died (muerte o headshot
+## letal confirmado por el evento zombie_died). Nunca desde un disparo normal.
+func hit_stop(seconds: float = HIT_STOP_SECONDS) -> void:
+	# process_always = true e ignore_time_scale = true -> el temporizador sigue
+	# corriendo aunque Engine.time_scale = 0.05 y aunque el árbol esté pausado.
+	# Firma Godot 4: create_timer(time, process_always, process_in_physics,
+	# ignore_time_scale) = create_timer(seconds, true, false, true).
+	if _hit_stop_timer != null and is_instance_valid(_hit_stop_timer):
+		if _hit_stop_timer.timeout.is_connected(_restore_time_scale):
+			_hit_stop_timer.timeout.disconnect(_restore_time_scale)
+	Engine.time_scale = 0.05
+	_hit_stop_timer = get_tree().create_timer(seconds, true, false, true)
+	_hit_stop_timer.timeout.connect(_restore_time_scale)
+
+
+## Puente entre la muerte confirmada y el hit-stop. `is_dead` ya es verdad en
+## el zombie que emite zombie_died; no hay hit-stop en impactos no letales.
+func _on_zombie_died(_zombie: Node2D) -> void:
+	hit_stop()
 
 ## El combate solo está activo mientras la partida corre y el jugador puede actuar.
 func _gameplay_blocked() -> bool:
