@@ -10,6 +10,7 @@ class_name SolarLighting
 
 @onready var canvas_modulate: CanvasModulate = $CanvasModulate
 @onready var sun_light: DirectionalLight2D = $SunLight
+@onready var glare_rect: ColorRect = $GlareLayer/GlareRect
 
 ## Parámetros ajustables (expuestos en inspector)
 @export_group("Ambiente Base")
@@ -78,6 +79,23 @@ func _apply_lighting() -> void:
 		ambient_energy
 	)
 	sun_light.energy = sun_energy
+	_update_glare()
+
+## El resplandor era un shader huérfano. Ahora sigue al sol en pantalla y
+## se apaga con la energía solar, sin coste cuando no hay luz directa.
+func _update_glare() -> void:
+	if glare_rect == null or glare_rect.material == null:
+		return
+	var mat: Material = glare_rect.material
+	if not (mat is ShaderMaterial):
+		return
+	var shader_mat: ShaderMaterial = mat as ShaderMaterial
+	var sun_uv: Vector2 = Vector2(
+		0.5 + cos(solar_angle) * 0.45,
+		0.5 + sin(solar_angle) * 0.35
+	)
+	shader_mat.set_shader_parameter("sun_screen_pos", sun_uv)
+	shader_mat.set_shader_parameter("glare_intensity", clampf(sun_energy * 0.9, 0.0, 0.30))
 
 func _update_sun_position() -> void:
 	# DirectionalLight2D en Godot 4 usa rotación para definir la dirección

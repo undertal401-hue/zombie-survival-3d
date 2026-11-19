@@ -42,6 +42,15 @@ signal zombie_alerted(world_position: Vector2, radius: float, source: Node)
 @export var hearing_vehicle_radius: float = 560.0
 @export var alert_propagation_radius: float = 420.0
 
+## Perfil táctico por arquetipo (lo fija _apply_kind).
+## flank_strength: desvío lateral al perseguir para no llegar en línea recta.
+## preferred_range: distancia que intenta mantener; 0 = cuerpo a cuerpo.
+## separation_scale: cuánto empuje ejerce en la separación vecinal.
+@export var flank_strength: float = 0.0
+@export var preferred_range: float = 0.0
+@export var separation_scale: float = 1.0
+var _flank_side: float = 1.0
+
 var _spit_timer: float = 0.0
 var _scream_timer: float = 0.0
 var _charge_timer: float = 0.0
@@ -50,6 +59,7 @@ var _is_charging: bool = false
 var _charge_direction: Vector2 = Vector2.ZERO
 
 @onready var agent: NavigationAgent2D = $NavigationAgent2D
+@onready var separation_area: Area2D = $SeparationArea
 @onready var body_visual: Polygon2D = $Body
 @onready var nose: Polygon2D = $Nose
 @onready var alert_label: Label = $Alert
@@ -73,8 +83,9 @@ var _knockback: Vector2 = Vector2.ZERO
 var _dead: bool = false
 var _repath_timer: float = 0.0
 var _last_destination: Vector2 = Vector2.INF
-var _separation_cache: Array = []
-var _separation_refresh: float = 0.0
+## Vecinos cercanos detectados por el Area2D local (solo zombis en radio SEPARATION_RADIUS).
+## Sustituye al antiguo _separation_cache que contenía TODOS los zombis del grupo.
+var _separation_neighbors: Array[Node2D] = []
 var _facing_angle: float = 0.0
 
 # Oido / alerta en grupo
@@ -97,8 +108,15 @@ var _difficulty_refresh: float = 0.0
 
 func _ready() -> void:
 	add_to_group("zombies")
+	# Separación local: el Area2D solo detecta cuerpos en la capa 2 (zombis).
+	# Filtramos por grupo en el callback para ignorar sondas de test en esa capa.
+	if separation_area != null:
+		separation_area.body_entered.connect(_on_separation_body_entered)
+		separation_area.body_exited.connect(_on_separation_body_exited)
 	_spawn_position = global_position
 	_last_known = _spawn_position
+	# Lado de flanqueo estable por individuo y determinista por partida.
+	_flank_side = 1.0 if GameState.rng(&"ai").randf() > 0.5 else -1.0
 	_facing_angle = body_visual.rotation
 	_refresh_difficulty()
 	_apply_kind()
@@ -119,7 +137,6 @@ func _physics_process(delta: float) -> void:
 	_noise_cooldown = maxf(_noise_cooldown - delta, 0.0)
 	_propagate_cooldown = maxf(_propagate_cooldown - delta, 0.0)
 	_receive_cooldown = maxf(_receive_cooldown - delta, 0.0)
-	_separation_refresh -= delta
 	_difficulty_refresh -= delta
 	_hearing_refresh -= delta
 	if _difficulty_refresh <= 0.0:
@@ -127,9 +144,6 @@ func _physics_process(delta: float) -> void:
 	if _hearing_refresh <= 0.0:
 		_connect_hearing_sources()
 		_hearing_refresh = 2.0
-	if _separation_refresh <= 0.0:
-		_separation_cache = get_tree().get_nodes_in_group("zombies")
-		_separation_refresh = 0.2
 	_update_flash(delta)
 
 	# Timers para habilidades especiales
@@ -261,6 +275,16 @@ func _pursue(delta: float) -> void:
 
 	state = State.CHASE if sees else State.INVESTIGATE
 	var destination: Vector2 = target.global_position if sees else _last_known
+	if sees and distance > ATTACK_RANGE * 1.5:
+		# Flanqueo: acercarse por un lado en vez de empujar en línea recta.
+		if flank_strength > 0.0:
+			var to_player: Vector2 = (target.global_position - global_position).normalized()
+			var side: Vector2 = Vector2(-to_player.y, to_player.x) * _flank_side
+			destination += side * (70.0 * flank_strength)
+		# Kiting del escupidor / grito: si está demasiado cerca se retira.
+		if preferred_range > 0.0 and distance < preferred_range * 0.7:
+			var away: Vector2 = (global_position - target.global_position).normalized()
+			destination = global_position + away * 120.0
 	_navigate_to(destination, move_speed)
 	if not sees and _reached(_last_known):
 		_settle_investigation(delta)
@@ -646,20 +670,35 @@ func _pick_wander_target() -> void:
 	_wander_timer = randf_range(2.5, 5.0)
 
 
+## Callbacks del Area2D: mantienen un conjunto local de vecinos, sin escanear
+## el grupo "zombies" completo. El Area2D usa la capa 2, así que el filtro por
+## grupo evita contar sondas de test u otros cuerpos que compartan la capa.
+func _on_separation_body_entered(body: Node2D) -> void:
+	if body == null or body == self or not body.is_in_group("zombies"):
+		return
+	if not _separation_neighbors.has(body):
+		_separation_neighbors.append(body)
+
+
+func _on_separation_body_exited(body: Node2D) -> void:
+	_separation_neighbors.erase(body)
+
+
 func _apply_separation() -> void:
+	if _separation_neighbors.is_empty():
+		return
+	# Misma fórmula que antes; solo cambia la fuente de vecinos (locales, no globales).
 	var separation: Vector2 = Vector2.ZERO
-	for other in _separation_cache:
+	var my_position: Vector2 = global_position
+	for other in _separation_neighbors:
 		if other == self or not is_instance_valid(other):
 			continue
-		var other_2d := other as Node2D
-		if other_2d == null:
-			continue
-		var away: Vector2 = global_position - other_2d.global_position
+		var away: Vector2 = my_position - other.global_position
 		var gap_sq: float = away.length_squared()
 		if gap_sq > 0.0001 and gap_sq < SEPARATION_RADIUS * SEPARATION_RADIUS:
 			var gap: float = sqrt(gap_sq)
 			separation += (away / gap) * (1.0 - gap / SEPARATION_RADIUS)
-	velocity += separation * SEPARATION_FORCE
+	velocity += separation * SEPARATION_FORCE * separation_scale
 
 
 func _update_flash(delta: float) -> void:
@@ -786,8 +825,57 @@ func _apply_kind() -> void:
 				zombie_visual.set_type(ZombieVisual.ZombieType.SCREAMER)
 			alert_label.text = "~~"
 
+	# Perfil táctico por arquetipo (independiente del aspecto visual).
+	match kind:
+		Kind.WALKER:
+			flank_strength = 0.18
+			preferred_range = 0.0
+			separation_scale = 1.0
+		Kind.RUNNER:
+			flank_strength = 0.42
+			preferred_range = 0.0
+			separation_scale = 0.9
+		Kind.TANK:
+			flank_strength = 0.0
+			preferred_range = 0.0
+			separation_scale = 1.7
+		Kind.SPITTER:
+			flank_strength = 0.55
+			preferred_range = 210.0
+			separation_scale = 1.2
+		Kind.SCREAMER:
+			flank_strength = 0.30
+			preferred_range = 0.0
+			separation_scale = 1.1
+
 	_base_max_hp = max_hp
 	hp = max_hp
+
+
+## Recompensa por riesgo: tanques sueltan chatarra, escupidores tela y el
+## resto tiene una probabilidad pequeña. Usa el flujo 'loot' para que el botín
+## siga siendo determinista dentro de la misma partida.
+func _drop_loot() -> void:
+	if not is_instance_valid(Inventory):
+		return
+	var rng: RandomNumberGenerator = GameState.rng(&"loot")
+	var item_id: String = ""
+	var amount: int = 1
+	match kind:
+		Kind.TANK:
+			item_id = "scrap"
+			amount = rng.randi_range(2, 3)
+		Kind.SPITTER:
+			item_id = "cloth"
+			amount = rng.randi_range(1, 2)
+		_:
+			if rng.randf() < 0.18:
+				item_id = "scrap" if rng.randf() < 0.6 else "cloth"
+	if item_id == "":
+		return
+	var added: int = Inventory.add_item(item_id, amount, true)
+	if added > 0:
+		EventBus.notification.emit("Botín: %s +%d" % [Inventory.display_name(item_id), added])
 
 
 ## Consume GameState.difficulty() de forma defensiva. Acepta numero, texto o
@@ -806,6 +894,21 @@ func _refresh_difficulty() -> void:
 		provider = Engine.get_singleton("GameState")
 	if provider == null or not provider.has_method("difficulty"):
 		_difficulty = profile
+		return
+
+	# Fuente canónica: GameState.multiplier sustituye a los tres mapeadores
+	# incompatibles. El bloque defensivo de abajo queda solo como fallback.
+	if provider.has_method("multiplier"):
+		profile["speed"] = provider.call("multiplier", &"zombie", &"speed")
+		profile["perception"] = provider.call("multiplier", &"zombie", &"perception")
+		profile["damage"] = provider.call("multiplier", &"zombie", &"damage")
+		profile["health"] = provider.call("multiplier", &"zombie", &"health")
+		var canonical_health: float = float(profile["health"])
+		_difficulty = profile
+		if _base_max_hp > 0.0 and not is_equal_approx(old_health, canonical_health) and hp > 0.0:
+			var ratio: float = canonical_health / maxf(old_health, 0.001)
+			max_hp = _base_max_hp * canonical_health
+			hp = clampf(hp * ratio, 1.0, max_hp)
 		return
 
 	var raw: Variant = provider.call("difficulty")
@@ -860,11 +963,17 @@ func _die() -> void:
 	_dead = true
 	state = State.DEAD
 	remove_from_group("zombies")
+	# Al quitar la capa 2, los Area2D ajenos reciben body_exited y nos descartan.
+	# Aquí además dejamos de monitorizar y liberamos nuestras propias referencias.
+	_separation_neighbors.clear()
+	if separation_area != null:
+		separation_area.monitoring = false
 	collision_layer = 0
 	collision_mask = 0
 	set_physics_process(false)
 	alert_label.visible = false
 	EventBus.zombie_died.emit(self)
+	_drop_loot()
 
 	if zombie_visual != null:
 		zombie_visual.play_death()

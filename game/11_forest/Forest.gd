@@ -880,7 +880,9 @@ func respawn_forest_loot() -> int:
 			if not bool(old_node.get("_looted")):
 				continue
 			record["node"] = null
-			old_node.free()
+			# free() inmediato dejaba IDs colgantes en referencias del minimapa;
+			# el resto del proyecto usa borrado diferido.
+			old_node.queue_free()
 		var parent: Node2D = record.get("parent") as Node2D
 		if parent == null or not is_instance_valid(parent):
 			continue

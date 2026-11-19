@@ -19,6 +19,13 @@ signal dry_fire(weapon: Weapon)
 ## Debe coincidir con Player.MELEE_COST: es el coste que Player descuenta.
 const MELEE_STAMINA_MIN: float = 20.0
 
+## Loadout data-driven: los cuatro .tres son recursos reales (no Weapon.new()
+## con campos copiados a mano). Su resource_path es válido: save/load funciona.
+const RES_MACHETE: Weapon = preload("res://02_player/weapons/Machete.tres")
+const RES_PISTOL: Weapon = preload("res://02_player/weapons/Pistol9mm.tres")
+const RES_SHOTGUN: Weapon = preload("res://02_player/weapons/Shotgun12ga.tres")
+const RES_RIFLE: Weapon = preload("res://02_player/weapons/Rifle556.tres")
+
 @onready var player: CharacterBody2D = get_parent()
 
 ## Armas equipadas (slot -> Weapon instance)
@@ -176,19 +183,34 @@ func _handle_weapon_switch() -> void:
 	for i in range(5):
 		var action: String = "weapon_slot_%d" % (i + 1)
 		if Input.is_action_just_pressed(action):
-			_equip_slot(i)
+			if i < weapons.size() and weapons[i] != null:
+				_equip_slot(i)
+			else:
+				EventBus.notification.emit("Ranura %d vacía" % (i + 1))
 			return
 	
 	# Scroll (si configurado) - usar action strength para wheel
 	var scroll_up: bool = Input.is_action_just_pressed("wheel_up")
 	var scroll_down: bool = Input.is_action_just_pressed("wheel_down")
 	if scroll_up or scroll_down:
-		var new_slot: int = current_slot
-		if scroll_up:
-			new_slot = (current_slot + 1) % weapons.size()
-		else:
-			new_slot = (current_slot - 1 + weapons.size()) % weapons.size()
-		_equip_slot(new_slot)
+		var new_slot: int = _next_filled_slot(1 if scroll_up else -1)
+		if new_slot >= 0:
+			_equip_slot(new_slot)
+		elif weapons.is_empty():
+			EventBus.notification.emit("Sin armas equipadas")
+
+## Siguiente ranura ocupada en dirección `step` (+1/-1), o -1 si no hay ninguna.
+## Evita el módulo por cero con loadouts vacíos y salta ranuras sin arma.
+func _next_filled_slot(step: int) -> int:
+	if weapons.is_empty():
+		return -1
+	var count: int = weapons.size()
+	var start: int = current_slot if current_slot >= 0 else 0
+	for i in range(1, count + 1):
+		var idx: int = ((start + step * i) % count + count) % count
+		if weapons[idx] != null:
+			return idx
+	return -1
 
 func _try_fire() -> void:
 	if current_weapon == null:
@@ -527,123 +549,61 @@ func _on_shake_timeout() -> void:
 	_shake_camera = null
 
 func _load_default_loadout() -> void:
-	# Slot 0: Melee (siempre) - Machete
-	var machete: Weapon = Weapon.new()
-	machete.weapon_name = "Machete"
-	machete.description = "Arma cuerpo a cuerpo brutal. Sin munición, silenciosa, cansada."
-	machete.category = Weapon.Category.MELEE
-	machete.slot_index = 0
-	machete.base_damage = 50.0
-	# En píxeles, coherente con Player.MELEE_RANGE (46) y con el arco dibujado.
-	machete.melee_range = 46.0
-	machete.melee_arc = 1.3
-	machete.melee_knockback = 300.0
-	machete.melee_cooldown = 0.7
-	machete.melee_hit_stop = 0.1
-	machete.camera_shake_magnitude = 3.0
-	machete.camera_shake_duration = 0.12
-	machete.recoil_per_shot = 0.0
-	machete.recoil_camera_kick = 0.5
-	machete.stamina_cost = 0.0
-	machete.condition_item_id = "Machete"
-	machete.ammo_type = ""
-	machete.magazine_size = 0
-	machete._initialize_state()
-	add_weapon(machete, 0)
-	
-	# Slot 1: Pistola - Pistola 9mm
-	var pistol: Weapon = Weapon.new()
-	pistol.weapon_name = "Pistola 9mm"
-	pistol.description = "Arma lateral estándar. Fiable, precisa, munición común."
-	pistol.category = Weapon.Category.PISTOL
-	pistol.slot_index = 1
-	pistol.base_damage = 25.0
-	pistol.damage_falloff_start = 30.0
-	pistol.damage_falloff_end = 80.0
-	pistol.min_damage = 8.0
-	pistol.headshot_multiplier = 2.5
-	pistol.limb_multiplier = 0.8
-	pistol.range = 500.0
-	pistol.spread = 0.02
-	# Bloom y retroceso: con recuperación lenta se acumulan en ráfaga y se
-	# disipan en ~1.4s al soltar el gatillo (antes la recuperación era tan
-	# rápida que el bloom nunca llegaba a notarse).
-	pistol.spread_per_shot = 0.02
-	pistol.max_spread = 0.14
-	pistol.spread_recovery = 0.10
-	pistol.recoil_per_shot = 0.024
-	pistol.max_recoil = 0.11
-	pistol.recoil_recovery = 0.10
-	pistol.recoil_camera_kick = 1.0
-	pistol.stamina_cost = 3.0
-	pistol.condition_item_id = "Pistola 9mm"
-	pistol.wear_per_shot = 0.004
-	pistol.fire_rate = 450.0
-	pistol.burst_count = 1
-	pistol.is_automatic = false
-	pistol.ammo_type = "pistol_ammo"
-	pistol.magazine_size = 12
-	pistol.move_speed_multiplier = 0.72
-	pistol.ammo_per_shot = 1
-	pistol.start_with_full_mag = true
-	pistol.reload_time = 1.8
-	pistol.reload_time_empty = 2.2
-	pistol.chambered_round = true
-	pistol.muzzle_flash_offset = Vector2(14, 0)
-	pistol.muzzle_flash_scale = 0.8
-	pistol.shell_eject_offset = Vector2(-3, -1)
-	pistol.shell_eject_force = 120.0
-	pistol.tracer_chance = 0.1
-	pistol.camera_shake_magnitude = 1.5
-	pistol.camera_shake_duration = 0.08
-	pistol.penetration = 1
-	pistol._initialize_state()
-	add_weapon(pistol, 1)
-	
-	# Slots 2-4 vacíos por ahora
+	# Cuatro recursos reales en sus ranuras naturales; la quinta queda libre.
+	# add_weapon() duplica el recurso y reinicia su estado: cada slot conserva
+	# su propia munición, bloom y desgaste sin compartir referencias.
+	add_weapon(RES_MACHETE, 0)
+	add_weapon(RES_PISTOL, 1)
+	add_weapon(RES_SHOTGUN, 2)
+	add_weapon(RES_RIFLE, 3)
 	weapons.resize(5)
 
 ## API pública para save/load
+## Las instancias son duplicate() de los .tres y no conservan resource_path,
+## así que se serializa el nombre y se resuelve contra las plantillas reales.
+func _template_by_name(weapon_name: String) -> Weapon:
+	for template: Weapon in [RES_MACHETE, RES_PISTOL, RES_SHOTGUN, RES_RIFLE]:
+		if template != null and template.weapon_name == weapon_name:
+			return template
+	return null
+
 func get_save_data() -> Dictionary:
 	var data: Dictionary = {}
 	data["current_slot"] = current_slot
-	data["weapons"] = []
-	
+	var entries: Array = []
 	for w in weapons:
-		if w != null:
-			data["weapons"].append({
-				"resource_path": w.resource_path,
+		if w == null:
+			entries.append(null)
+		else:
+			entries.append({
+				"weapon_name": w.weapon_name,
 				"slot": weapons.find(w),
 				"state": w.get_state_dict(),
 			})
-		else:
-			data["weapons"].append(null)
-	
+	data["weapons"] = entries
 	return data
 
 func load_save_data(data: Dictionary) -> void:
-	current_slot = data.get("current_slot", 0)
+	var saved_slot: int = int(data.get("current_slot", 0))
 	var weapons_data: Array = data.get("weapons", [])
-	
 	weapons.clear()
 	weapons.resize(5)
-	
 	for entry in weapons_data:
 		if entry == null:
 			continue
-		var res: Weapon = load(entry.resource_path)
-		if res == null:
+		var template: Weapon = _template_by_name(String(entry.get("weapon_name", "")))
+		if template == null:
 			continue
-		var instance: Weapon = res.duplicate()
-		instance.load_state_dict(entry.state)
-		var slot: int = entry.slot
+		var instance: Weapon = template.duplicate()
+		instance.load_state_dict(entry.get("state", {}))
+		var slot: int = int(entry.get("slot", -1))
 		if slot >= 0 and slot < weapons.size():
 			weapons[slot] = instance
-	
-	if current_slot >= 0 and current_slot < weapons.size() and weapons[current_slot] != null:
-		current_weapon = weapons[current_slot]
+	current_slot = -1
+	current_weapon = null
+	if saved_slot >= 0 and saved_slot < weapons.size() and weapons[saved_slot] != null:
+		_equip_slot(saved_slot)
 	else:
-		# Fallback
 		for i in range(weapons.size()):
 			if weapons[i] != null:
 				_equip_slot(i)

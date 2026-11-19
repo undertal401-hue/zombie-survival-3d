@@ -819,11 +819,46 @@ func _ready() -> void:
 		new_systems_ok
 	])
 
+	# --- COMPUERTA DURA PARA CI -------------------------------------------
+	# Las comprobaciones 46-54 son informativas (PENDING/PARTIAL). Estas otras
+	# sí son invariantes: si fallan, el proceso termina con codigo 1.
+	var hard_failures: Array[String] = []
+	# Las pruebas de arriba mutan el mundo (slot 2, crafting, inventario), así
+	# que la compuerta se evalúa sobre una partida recién creada.
+	main.queue_free()
+	for i in range(3):
+		await get_tree().process_frame
+	var gate_main: Node = load("res://07_house/Main.tscn").instantiate()
+	get_tree().root.add_child(gate_main)
+	for i in range(8):
+		await get_tree().process_frame
+	if get_tree().get_first_node_in_group("hud") == null:
+		hard_failures.append("HUD ausente")
+	if gate_main.get_node_or_null("WaveManager") == null:
+		hard_failures.append("WaveManager ausente")
+	var gate_player: Node = gate_main.get_node_or_null("Player")
+	var gate_wc: WeaponController = null
+	if gate_player != null:
+		gate_wc = gate_player.get_node_or_null("WeaponController") as WeaponController
+	if gate_wc == null or gate_wc.weapons.size() != 5:
+		hard_failures.append("loadout de 5 ranuras ausente")
+	else:
+		for slot: int in range(4):
+			if gate_wc.get_weapon_in_slot(slot) == null:
+				hard_failures.append("ranura de arma %d vacia" % slot)
+	if Inventory.count("Machete") <= 0:
+		hard_failures.append("condicion de armas no inicializada")
+	if not EventBus.has_signal("victory") or not EventBus.has_signal("game_over"):
+		hard_failures.append("EventBus sin senales de fin de partida")
+	print("HARD_GATE failures=%d" % hard_failures.size())
+	for f in hard_failures:
+		print("  - " + f)
+
 	print("=== TEST COMPLETE ===")
 	
 	for i in range(4):
 		await get_tree().process_frame
-	get_tree().quit(0)
+	get_tree().quit(1 if not hard_failures.is_empty() else 0)
 
 func _has_prop(obj: Object, prop: String) -> bool:
 	for p in obj.get_property_list():

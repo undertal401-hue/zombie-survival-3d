@@ -1,6 +1,9 @@
-[gd_resource type="Weapon" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="Weapon" load_steps=2 format=3]
+
+[ext_resource type="Script" uid="uid://crftr2oeat4vj" path="res://02_player/weapons/Weapon.gd" id="1_weapon"]
 
 [resource]
+script = ExtResource("1_weapon")
 weapon_name = "Escopeta 12ga"
 description = "Devastadora a corta distancia. Recarga cartucho a cartucho."
 category = 2
@@ -29,6 +32,7 @@ is_automatic = false
 ammo_type = "shotgun_ammo"
 magazine_size = 6
 ammo_per_shot = 1
+pellets_per_shot = 8
 start_with_full_mag = true
 reload_time = 0.5
 reload_time_empty = 0.5

@@ -17,6 +17,15 @@ const COL_VEHICLE_LOW: Color = Color(1.0, 0.3, 0.25, 1.0)
 var _player: Node2D
 var _objective: Node2D
 
+## Igual que el minimapa: caché de grupos y repintado solo cuando hay movimiento.
+const CACHE_INTERVAL: float = 0.25
+var _cache_timer: float = 0.0
+var _dirty: bool = true
+var _last_ppos: Vector2 = Vector2.INF
+var _last_rotation: float = INF
+var _nodes_extraction: Array = []
+var _nodes_vehicles: Array = []
+
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_player = get_tree().get_first_node_in_group("player") as Node2D
@@ -24,8 +33,31 @@ func _ready() -> void:
 	if not targets.is_empty():
 		_objective = targets[0] as Node2D
 
-func _process(_delta: float) -> void:
-	queue_redraw()
+func _process(delta: float) -> void:
+	_cache_timer -= delta
+	if _cache_timer <= 0.0:
+		_cache_timer = CACHE_INTERVAL
+		_refresh_caches()
+		_dirty = true
+	if _player == null or not is_instance_valid(_player):
+		return
+	var ppos: Vector2 = _player.global_position
+	if ppos.distance_squared_to(_last_ppos) > 16.0 or absf(_player.global_rotation - _last_rotation) > 0.04:
+		_last_ppos = ppos
+		_last_rotation = _player.global_rotation
+		_dirty = true
+	if _dirty:
+		_dirty = false
+		queue_redraw()
+
+
+func _refresh_caches() -> void:
+	if _player == null or not is_instance_valid(_player):
+		_player = get_tree().get_first_node_in_group("player") as Node2D
+	_nodes_extraction = get_tree().get_nodes_in_group("extraction")
+	_nodes_vehicles = get_tree().get_nodes_in_group("player_vehicle")
+	if not _nodes_extraction.is_empty():
+		_objective = _nodes_extraction[0] as Node2D
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), COL_BG, true)
@@ -74,7 +106,7 @@ func _draw_vehicle_bearing(center_x: float, bearing: float, half: float,
 		usable: float) -> void:
 	var nearest: Node2D = null
 	var nearest_dist: float = INF
-	for node in get_tree().get_nodes_in_group("player_vehicle"):
+	for node in _nodes_vehicles:
 		if not (node is Node2D) or not is_instance_valid(node):
 			continue
 		var vehicle: Node2D = node as Node2D

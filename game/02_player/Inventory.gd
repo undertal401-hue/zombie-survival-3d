@@ -29,6 +29,12 @@ const ITEM_DEFS: Dictionary = {
 	"comida": {"name": "Comida enlatada", "category": CAT_FOOD, "stack": 30, "weight": 0.6},
 	"medkit": {"name": "Botiquín", "category": CAT_MEDICAL, "stack": 12, "weight": 0.8},
 	"pistol_ammo": {"name": "Cartucho 9mm (12 balas)", "category": CAT_AMMO, "stack": 240, "weight": 0.02},
+	"rifle_ammo": {"name": "Cartucho 5.56mm (30 balas)", "category": CAT_AMMO, "stack": 300, "weight": 0.02},
+	"shotgun_ammo": {"name": "Cartucho 12ga (6 balas)", "category": CAT_AMMO, "stack": 120, "weight": 0.04},
+	"Machete": {"name": "Machete", "category": CAT_MISC, "stack": 1, "weight": 1.2},
+	"Pistola 9mm": {"name": "Pistola 9mm", "category": CAT_MISC, "stack": 1, "weight": 1.0},
+	"Escopeta 12ga": {"name": "Escopeta 12ga", "category": CAT_MISC, "stack": 1, "weight": 3.2},
+	"Fusil 5.56mm": {"name": "Fusil 5.56mm", "category": CAT_MISC, "stack": 1, "weight": 3.5},
 	"combustible": {"name": "Bidón de combustible", "category": CAT_FUEL, "stack": 12, "weight": 5.0},
 	"scrap": {"name": "Chatarra", "category": CAT_MATERIAL, "stack": 60, "weight": 0.4},
 	"cloth": {"name": "Tela", "category": CAT_MATERIAL, "stack": 60, "weight": 0.15},
@@ -41,6 +47,8 @@ const ITEM_DEFS: Dictionary = {
 const RECIPES: Dictionary = {
 	"medkit": {"output": "medkit", "amount": 1, "cost": {"cloth": 2, "scrap": 1}},
 	"pistol_ammo": {"output": "pistol_ammo", "amount": 12, "cost": {"scrap": 2, "cloth": 1}},
+	"rifle_ammo": {"output": "rifle_ammo", "amount": 30, "cost": {"scrap": 3, "cloth": 2}},
+	"shotgun_ammo": {"output": "shotgun_ammo", "amount": 6, "cost": {"scrap": 2, "cloth": 1}},
 	"vehicle_fuel": {"output": "vehicle_fuel", "amount": 1, "cost": {"scrap": 2, "cloth": 1}},
 }
 
@@ -52,18 +60,24 @@ const LOOT_TABLES: Dictionary = {
 		{"id": "cloth", "min": 1, "max": 3, "weight": 34},
 		{"id": "comida", "min": 1, "max": 1, "weight": 14},
 		{"id": "pistol_ammo", "min": 6, "max": 12, "weight": 10},
+		{"id": "shotgun_ammo", "min": 4, "max": 8, "weight": 8},
+		{"id": "rifle_ammo", "min": 8, "max": 16, "weight": 8},
 	],
 	"uncommon": [
 		{"id": "scrap", "min": 2, "max": 4, "weight": 30},
 		{"id": "cloth", "min": 2, "max": 4, "weight": 25},
 		{"id": "medkit", "min": 1, "max": 1, "weight": 20},
 		{"id": "pistol_ammo", "min": 12, "max": 24, "weight": 20},
+		{"id": "shotgun_ammo", "min": 8, "max": 14, "weight": 10},
+		{"id": "rifle_ammo", "min": 16, "max": 28, "weight": 10},
 		{"id": "vehicle_fuel", "min": 1, "max": 1, "weight": 5},
 	],
 	"rare": [
 		{"id": "vehicle_fuel", "min": 1, "max": 1, "weight": 40},
 		{"id": "medkit", "min": 1, "max": 2, "weight": 35},
 		{"id": "pistol_ammo", "min": 24, "max": 36, "weight": 25},
+		{"id": "shotgun_ammo", "min": 12, "max": 20, "weight": 14},
+		{"id": "rifle_ammo", "min": 28, "max": 42, "weight": 14},
 	],
 }
 

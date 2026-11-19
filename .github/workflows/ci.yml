@@ -12,6 +12,7 @@ concurrency:
 
 env:
   GODOT_VERSION: "4.7.2-stable"
+  GODOT_BIN: "./Godot_v4.7.2-stable_linux.x86_64"
 
 jobs:
   boot:
@@ -24,12 +25,12 @@ jobs:
         run: |
           curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
           unzip -q godot.zip
-          chmod +x Godot_v${GODOT_VERSION}_linux.x86_64
+          chmod +x $GODOT_BIN
 
       - name: "import project"
         run: |
           set +e
-          ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --import > import.log 2>&1
+          $GODOT_BIN --headless --path game --import > import.log 2>&1
           status=$?
           set -e
           cat import.log
@@ -45,7 +46,7 @@ jobs:
       - name: "boot main scene"
         run: |
           set +e
-          timeout 20 ./Godot_v${GODOT_VERSION}_linux.x86_64 --headless --path game --quit > boot.log 2>&1
+          timeout 20 $GODOT_BIN --headless --path game --quit > boot.log 2>&1
           status=$?
           set -e
           cat boot.log
@@ -61,3 +62,79 @@ jobs:
             echo "::error::Errores de script o carga al arrancar la escena principal"
             exit 1
           fi
+
+  regression:
+    name: "headless regression gates"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "download godot"
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q godot.zip
+          chmod +x $GODOT_BIN
+
+      - name: "import project"
+        run: |
+          set +e
+          $GODOT_BIN --headless --path game --import > import.log 2>&1
+          status=$?
+          set -e
+          cat import.log
+          if [ $status -ne 0 ] || grep -qiE "SCRIPT ERROR|Parse Error|Failed to load|ERROR:" import.log; then
+            echo "::error::La importacion fallo"
+            exit 1
+          fi
+
+      - name: "run regression suites"
+        shell: bash
+        run: |
+          run_suite() {
+            local scene="$1"
+            local expected="$2"
+            local logfile="test-${scene##*/}.log"
+            echo "=== $scene ==="
+            timeout 120 $GODOT_BIN --headless --path game "res://$scene" --quit-after 700 > "$logfile" 2>&1
+            local status=$?
+            cat "$logfile"
+            if [ $status -eq 124 ]; then
+              echo "::error::Timeout ejecutando $scene"
+              exit 1
+            fi
+            if [ $status -ne 0 ]; then
+              echo "::error::$scene termino con codigo $status"
+              exit $status
+            fi
+            if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load|ERROR:" "$logfile"; then
+              echo "::error::Errores de script en $scene"
+              exit 1
+            fi
+            if grep -q "FAIL " "$logfile"; then
+              echo "::error::Hay comprobaciones fallidas en $scene"
+              exit 1
+            fi
+            if ! grep -q "$expected" "$logfile"; then
+              echo "::error::$scene no imprimio '$expected' (no se ejecuto o cambio de contrato)"
+              exit 1
+            fi
+          }
+
+          run_suite "10_review/TestFixes.tscn"      "HARD_GATE failures=0"
+          run_suite "10_review/SeparationTest.tscn" "SEPARATION_TEST failures=0"
+          run_suite "10_review/ArsenalTest.tscn"    "ARSENAL_TEST failures=0"
+          run_suite "10_review/AiWaveTest.tscn"     "AI_WAVE_TEST failures=0"
+
+          echo "=== QA mechanics ==="
+          QA_MODE=mechanics timeout 120 $GODOT_BIN --headless --path game res://09_tests/QA.tscn --quit-after 700 > test-qa-mechanics.log 2>&1
+          status=$?
+          cat test-qa-mechanics.log
+          if [ $status -ne 0 ]; then
+            echo "::error::QA mechanics termino con codigo $status"
+            exit $status
+          fi
+          if ! grep -q "MECHANICS_READY 5/5" test-qa-mechanics.log; then
+            echo "::error::QA mechanics no alcanzo 5/5"
+            exit 1
+          fi
+          echo "Todas las compuertas pasaron."

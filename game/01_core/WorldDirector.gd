@@ -27,6 +27,7 @@ const WEATHER_TINTS: Array[Color] = [
 ]
 const EVENT_NAMES: Array[String] = ["convoy", "campamento", "ruido"]
 const HORDE_KINDS: Array[int] = [0, 0, 1, 2, 3]
+const HORDE_EARLY_KINDS: Array[int] = [0, 1]
 
 const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
 const LOOT_SCENE: PackedScene = preload("res://04_items/LootContainer.tscn")
@@ -323,6 +324,25 @@ func _horde_count() -> int:
 	return clampi(mini(wanted, horde_max_alive - alive), 0, 6)
 
 
+## Composición de la horda según la oleada. Las primeras son solo
+## caminantes/corredores; a partir de la 2 aparecen tanques y desde la 3
+## escupidores y gritones. Determinista: usa el RNG 'world' del director.
+func _horde_kind_for(index: int) -> int:
+	if _horde_wave <= 1:
+		return HORDE_EARLY_KINDS[index % HORDE_EARLY_KINDS.size()]
+	var roll: float = _rng.randf()
+	if _horde_wave >= 3:
+		if roll < 0.10:
+			return 4  # SCREAMER
+		if roll < 0.22:
+			return 3  # SPITTER
+		if roll < 0.38:
+			return 2  # TANK
+	elif roll < 0.20:
+		return 2      # TANK
+	return HORDE_EARLY_KINDS[index % HORDE_EARLY_KINDS.size()]
+
+
 func _spawn_horde(count: int) -> void:
 	if count <= 0 or _forest == null or not is_instance_valid(_forest):
 		return
@@ -339,7 +359,7 @@ func _spawn_horde(count: int) -> void:
 			continue
 		zombie.name = "HordeZombie_w%d_%d" % [_horde_wave, i]
 		zombie.set_meta("horde_zombie", true)
-		zombie.set("kind", HORDE_KINDS[i % HORDE_KINDS.size()])
+		zombie.set("kind", _horde_kind_for(i))
 		# Hijo del director, nunca de Level: no entra en "nav_obstacles".
 		add_child(zombie)
 		zombie.global_position = point
@@ -384,6 +404,10 @@ func _difficulty() -> float:
 	var gs: Node = get_node_or_null("/root/GameState")
 	if gs == null or not is_instance_valid(gs) or not gs.has_method("difficulty"):
 		return 1.0
+	# Un único mapeador para hordas y zombies (antes aquí se calculaba 1+t*0.8
+	# y en Zombie.gd otro distinto con los mismos datos).
+	if gs.has_method("multiplier"):
+		return clampf(float(gs.call("multiplier", &"horde")), 0.5, 3.0)
 	var value: Variant = gs.call("difficulty")
 	if value is float or value is int:
 		# GameState.difficulty() está normalizado [0,1]: 0 = partida fácil,

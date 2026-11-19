@@ -19,7 +19,7 @@ const MAX_CALLABLE_ARGS: int = 4
 
 const ALIASES: Dictionary = {
 	"fired": "pistol", "fire": "pistol", "shoot": "pistol", "gunshot": "pistol",
-	"pistol_shot": "pistol", "rifle": "pistol", "rifle_shot": "pistol",
+	"pistol_shot": "pistol", "rifle": "rifle", "rifle_shot": "rifle",
 	"shotgun_shot": "shotgun", "blast": "shotgun",
 	"impact": "bullet_impact", "bullet_hit": "bullet_impact", "hit_wall": "bullet_impact",
 	"melee": "melee_hit", "punch": "melee_hit", "slash": "melee_hit", "swing": "melee_hit",
@@ -659,6 +659,8 @@ func _weapon_sfx_id(weapon: Variant) -> String:
 	var ammo: String = String(weapon.get("ammo_type")).to_lower()
 	if ammo.contains("shotgun") or ammo.contains("shell"):
 		return "shotgun"
+	if ammo.contains("rifle") or ammo.contains("5.56"):
+		return "rifle"
 	return "pistol"
 
 
@@ -883,6 +885,7 @@ func _stream_for(canonical: String) -> AudioStream:
 	match canonical:
 		"pistol": buf = _fx_pistol(rng)
 		"shotgun": buf = _fx_shotgun(rng)
+		"rifle": buf = _fx_rifle(rng)
 		"bullet_impact": buf = _fx_impact(rng)
 		"melee_hit": buf = _fx_melee(rng)
 		"zombie_hurt": buf = _fx_zombie_hurt(rng)
@@ -933,6 +936,17 @@ func _fx_shotgun(rng: RandomNumberGenerator) -> PackedFloat32Array:
 	_add_burst(buf, 1.1, 0.0, 0.09, rng, 34.0)
 	_add_burst(buf, 0.45, 0.04, 0.30, rng, 12.0)
 	_lowpass_in_place(buf, 3000.0)
+	return buf
+
+
+## Fusil 5.56: crack más seco y agudo que la pistola, con cola metálica corta.
+func _fx_rifle(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var buf: PackedFloat32Array = _buffer(0.32)
+	_add_sweep(buf, 2100.0, 320.0, 0.62, 0.0, 0.09, "sine", 0.001)
+	_add_sweep(buf, 330.0, 80.0, 0.40, 0.0, 0.20, "saw", 0.002)
+	_add_burst(buf, 1.0, 0.0, 0.045, rng, 72.0)
+	_add_burst(buf, 0.35, 0.02, 0.18, rng, 30.0)
+	_lowpass_in_place(buf, 5600.0)
 	return buf
 
 

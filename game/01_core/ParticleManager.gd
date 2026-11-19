@@ -83,6 +83,8 @@ func _get_muzzle() -> GPUParticles2D:
 
 func spawn_blood(position: Vector2, direction: Vector2 = Vector2.ZERO, count: int = 20) -> void:
 	var p: GPUParticles2D = _get_blood()
+	if p == null:
+		return
 	p.global_position = position
 	if direction != Vector2.ZERO:
 		p.rotation = direction.angle()
@@ -94,6 +96,8 @@ func spawn_blood_burst(position: Vector2, direction: Vector2, count: int = 10) -
 
 func spawn_wall_blood(position: Vector2, normal: Vector2, count: int = 15) -> void:
 	var p: GPUParticles2D = _get_blood()
+	if p == null:
+		return
 	p.global_position = position
 	p.rotation = normal.angle() - PI/2
 	p.amount = count
@@ -101,6 +105,8 @@ func spawn_wall_blood(position: Vector2, normal: Vector2, count: int = 15) -> vo
 
 func spawn_impact(position: Vector2, direction: Vector2, surface: int = 1) -> void:
 	var p: GPUParticles2D = _get_impact()
+	if p == null:
+		return
 	p.global_position = position
 	if direction != Vector2.ZERO:
 		p.rotation = direction.angle()
@@ -123,6 +129,8 @@ func spawn_impact_dirt(position: Vector2, direction: Vector2) -> void:
 
 func spawn_muzzle_flash(position: Vector2, direction: Vector2, weapon_type: int = 0) -> void:
 	var p: GPUParticles2D = _get_muzzle()
+	if p == null:
+		return
 	p.global_position = position
 	p.rotation = direction.angle()
 	p.emit_at(position, direction, weapon_type)

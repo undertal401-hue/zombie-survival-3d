@@ -67,8 +67,13 @@ func _ready() -> void:
 
 	Inventory.clear()
 	Inventory.add_item("medkit", 1)
-	# Sin munición de regalo: el cargador inicial de la pistola es lo único
-	# disponible hasta encontrar cartuchos (12 balas cada uno) en el mapa.
+	# Las armas también son objetos: Inventory es la única fuente de verdad de
+	# su condición y desgaste (Weapon._read_condition). Sin estas entradas los
+	# cuatro .tres equipados no se gastarían nunca.
+	for weapon_id: String in ["Machete", "Pistola 9mm", "Escopeta 12ga", "Fusil 5.56mm"]:
+		Inventory.add_item(weapon_id, 1)
+	# Sin munición de reserva de regalo: cada arma arranca solo con su cargador.
+	# Los cartuchos (9mm/12ga/5.56) aparecen en botín y se pueden fabricar.
 	_configure_world()
 	# El director de mundo se conecta aquí, tras configurar el mundo y antes de
 	# poblarlo, para que pueda aplicar clima/luz y programar su primera horda.

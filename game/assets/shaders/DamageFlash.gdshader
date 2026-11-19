@@ -1,19 +1,11 @@
 shader_type canvas_item;
+render_mode unshaded;
 
+// Flash de daño a pantalla completa. No muestrea TEXTURE: se aplica sobre un
+// ColorRect y la intensidad la controla HUD.gd desde el uniform.
 uniform float damage_flash : hint_range(0.0, 1.0) = 0.0;
-uniform vec4 flash_color : source_color = vec4(1.0, 0.3, 0.2, 1.0);
+uniform vec4 flash_color : source_color = vec4(0.75, 0.0, 0.0, 1.0);
 
 void fragment() {
-	vec4 tex_color = texture(TEXTURE, UV);
-	
-	// Flash de daño rojo
-	float flash = damage_flash;
-	vec3 flash_rgb = flash_color.rgb * flash;
-	
-	// Aplicar flash
-	COLOR = vec4(tex_color.rgb + flash_rgb, tex_color.a);
-	
-	if (tex_color.a == 0.0) {
-		discard;
-	}
+	COLOR = vec4(flash_color.rgb, flash_color.a * damage_flash);
 }

@@ -87,7 +87,8 @@ func _ready() -> void:
 	weapon_controller.fire_requested.connect(_on_fire_requested)
 	weapon_controller.melee_attack.connect(_on_melee_attack)
 	weapon_controller.weapon_changed.connect(_on_weapon_changed)
-	weapon_controller.ammo_changed.connect(_on_ammo_changed)
+	# ammo_changed la consumen HUD e InventoryMenu directamente; conectar aquí
+	# un handler vacío solo generaba churn de señales en cada disparo.
 	
 	# Conectar señales visuales
 	weapon_controller.fire_requested.connect(_on_fire_visual)
@@ -119,11 +120,11 @@ func _physics_process(delta: float) -> void:
 	if _swing_time > 0.0:
 		_swing_time = maxf(_swing_time - delta, 0.0)
 		queue_redraw()
-	var move: Vector2 = input_handler.get_move_vector()
 	var direction: Vector2 = Vector2.ZERO
-	
+	# Una sola lectura de entrada por frame (antes se leía dos veces y la
+	# primera se descartaba).
 	if not inventory_open:
-		move = input_handler.get_move_vector()
+		var move: Vector2 = input_handler.get_move_vector()
 		direction = Vector2(move.x, -move.y)
 		if direction.length() > 0.0:
 			direction = direction.normalized()
@@ -186,7 +187,7 @@ func _on_fire_requested(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> v
 		return
 	
 	# Doble check de aguante: WeaponController ya filtra antes de consumir bala,
-	# aquí se cobra el coste real solo si el disparo llega a ejecutarse.
+	# aquí se cobra el coste real una sola vez por gatillazo (no por perdigón).
 	var cost: float = maxf(FIRE_STAMINA_MIN, weapon.get_stamina_cost())
 	if stamina + 0.0001 < cost:
 		return
@@ -195,15 +196,20 @@ func _on_fire_requested(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> v
 	_mark_combat()
 	_emit_stamina_if_changed()
 	
-	var direction: Vector2 = (to_pos - from_pos).normalized()
-	
-	# Dispersión aleatoria (rng('combat') si GameState está disponible) más el
-	# retroceso acumulado: un sesgo fijo que abre la ráfaga hacia un lado.
-	var roll: float = CombatTelemetry.random(self) * 2.0 - 1.0
-	var spread: float = roll * weapon.get_effective_spread()
-	direction = direction.rotated(spread)
-	direction = direction.rotated(weapon.get_recoil_angle())
-	
+	# El retroceso sesga el disparo completo; la dispersión se aplica por
+	# perdigón para que la escopeta abra un cono real y la pistola siga precisa.
+	var base_direction: Vector2 = (to_pos - from_pos).normalized()
+	base_direction = base_direction.rotated(weapon.get_recoil_angle())
+	var pellets: int = maxi(weapon.pellets_per_shot, 1)
+	for pellet_index in range(pellets):
+		var roll: float = CombatTelemetry.random(self) * 2.0 - 1.0
+		var direction: Vector2 = base_direction.rotated(roll * weapon.get_effective_spread())
+		_fire_hitscan(weapon, from_pos, direction, pellet_index == 0)
+
+
+## Un rayo hitscan. `announce` evita spam de notificaciones cuando la escopeta
+## dispara ocho perdigones a la vez; el feedback visual/sonoro sí es por perdigón.
+func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announce: bool) -> void:
 	var end_pos: Vector2 = from_pos + direction * weapon.range
 	var origin: Vector2 = from_pos
 	var excluded: Array[RID] = [get_rid()]
@@ -220,7 +226,7 @@ func _on_fire_requested(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> v
 		var query := PhysicsRayQueryParameters2D.create(origin, end_pos, 3, excluded)
 		var result := get_world_2d().direct_space_state.intersect_ray(query)
 		if result.is_empty():
-			if _i == 0:
+			if _i == 0 and announce and weapon.pellets_per_shot <= 1:
 				EventBus.notification.emit("Sin objetivo")
 			break
 		var hit_pos: Vector2 = result.position
@@ -240,7 +246,8 @@ func _on_fire_requested(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> v
 			if collider.has_method("apply_damage"):
 				collider.call("apply_damage", vehicle_damage)
 			CombatTelemetry.record(self, "damage", vehicle_damage)
-			EventBus.notification.emit("Impacto en vehículo")
+			if announce:
+				EventBus.notification.emit("Impacto en vehículo")
 			if ParticleManager.instance != null:
 				ParticleManager.instance.spawn_impact(hit_pos, direction,
 					ImpactParticles.SurfaceType.METAL)
@@ -268,8 +275,7 @@ func _on_fire_requested(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> v
 						(weapon.damage_falloff_end - weapon.damage_falloff_start), 0.0, 1.0)
 					damage = lerpf(weapon.base_damage, weapon.min_damage, t)
 			# El hitbox del zombie mide 16x16 centrado (y-8 .. y+8): la cabeza
-			# es el cuarto superior y las piernas el cuarto inferior. El umbral
-			# anterior (y-10) estaba fuera del hitbox y hacía imposible el headshot.
+			# es el cuarto superior y las piernas el cuarto inferior.
 			var zombie: CharacterBody2D = collider as CharacterBody2D
 			if zombie != null:
 				if hit_pos.y < zombie.global_position.y - 4.0:
@@ -280,18 +286,18 @@ func _on_fire_requested(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> v
 			if walls_pierced > 0:
 				damage *= pow(0.75, walls_pierced)
 			collider.call("take_damage", damage, self)
-			# Daño real (ya con headshot/limb/falloff/penetración) a telemetría.
 			CombatTelemetry.record(self, "damage", damage)
-			EventBus.notification.emit("Impacto!")
+			if announce:
+				EventBus.notification.emit("Impacto!")
 			if ParticleManager.instance != null:
 				ParticleManager.instance.spawn_blood(hit_pos, direction, 15)
 		else:
-			EventBus.notification.emit("Impacto en obstáculo")
+			if announce:
+				EventBus.notification.emit("Impacto en obstáculo")
 			if ParticleManager.instance != null:
 				ParticleManager.instance.spawn_impact(hit_pos, direction, _get_surface_type(collider))
 		break
 	# El destello lo genera WeaponController/ParticleManager en coordenadas del mundo.
-	# No se dibuja aquí: si fuera hijo del jugador, se movería con él.
 
 func _is_vehicle(collider: Object) -> bool:
 	if collider == null:
@@ -370,10 +376,6 @@ func _on_weapon_changed(weapon: Weapon) -> void:
 	# Cambiar de arma rompe el combo: no se puede rematar con otra herramienta.
 	_reset_combo()
 	# Actualizar HUD u otros sistemas
-	pass
-
-func _on_ammo_changed(current: int, total: int, in_chamber: int) -> void:
-	# HUD se actualiza via señal
 	pass
 
 ## Handlers visuales

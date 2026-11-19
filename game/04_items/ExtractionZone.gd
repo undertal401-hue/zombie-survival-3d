@@ -13,7 +13,14 @@ func _ready() -> void:
 	add_to_group("extraction")
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
+	# Si el jugador consigue el tercer bidón mientras ya está dentro del círculo
+	# (recompensa de misión o loot cercano), body_entered no volverá a dispararse.
+	Inventory.inventory_changed.connect(_on_inventory_changed)
 	_update_title()
+
+func _on_inventory_changed() -> void:
+	if _player_inside != null and is_instance_valid(_player_inside):
+		_check_extraction(_player_inside)
 
 func _on_body_entered(body: Node2D) -> void:
 	if not body.is_in_group("player"):

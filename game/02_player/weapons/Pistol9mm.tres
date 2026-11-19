@@ -1,6 +1,9 @@
-[gd_resource type="Weapon" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="Weapon" load_steps=2 format=3]
+
+[ext_resource type="Script" uid="uid://crftr2oeat4vj" path="res://02_player/weapons/Weapon.gd" id="1_weapon"]
 
 [resource]
+script = ExtResource("1_weapon")
 weapon_name = "Pistola 9mm"
 description = "Arma lateral estándar. Fiable, precisa, munición común."
 category = 1

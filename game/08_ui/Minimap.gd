@@ -32,6 +32,20 @@ var _in_forest: bool = false
 var _density_image: Image = null
 var _density_forest: Node = null
 
+## Redibujado sucio: los grupos se consultan 4 veces por segundo y el radar
+## solo se repinta cuando el jugador se mueve o cambia de rumbo. Antes era
+## queue_redraw() incondicional con 5 escaneos de grupo por frame.
+const CACHE_INTERVAL: float = 0.25
+var _cache_timer: float = 0.0
+var _dirty: bool = true
+var _last_ppos: Vector2 = Vector2.INF
+var _last_rotation: float = INF
+var _nodes_extraction: Array = []
+var _nodes_loot: Array = []
+var _nodes_pickups: Array = []
+var _nodes_zombies: Array = []
+var _nodes_vehicles: Array = []
+
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_player = get_tree().get_first_node_in_group("player") as Node2D
@@ -44,8 +58,32 @@ func _ready() -> void:
 		if not bus.is_connected("forest_exited", exited):
 			bus.connect("forest_exited", exited)
 
-func _process(_delta: float) -> void:
-	queue_redraw()
+func _process(delta: float) -> void:
+	_cache_timer -= delta
+	if _cache_timer <= 0.0:
+		_cache_timer = CACHE_INTERVAL
+		_refresh_caches()
+		_dirty = true
+	if _player == null or not is_instance_valid(_player):
+		return
+	var ppos: Vector2 = _player.global_position
+	if ppos.distance_squared_to(_last_ppos) > 16.0 or absf(_player.global_rotation - _last_rotation) > 0.04:
+		_last_ppos = ppos
+		_last_rotation = _player.global_rotation
+		_dirty = true
+	if _dirty:
+		_dirty = false
+		queue_redraw()
+
+
+func _refresh_caches() -> void:
+	if _player == null or not is_instance_valid(_player):
+		_player = get_tree().get_first_node_in_group("player") as Node2D
+	_nodes_extraction = get_tree().get_nodes_in_group("extraction")
+	_nodes_loot = get_tree().get_nodes_in_group("loot")
+	_nodes_pickups = get_tree().get_nodes_in_group("pickups")
+	_nodes_zombies = get_tree().get_nodes_in_group("zombies")
+	_nodes_vehicles = get_tree().get_nodes_in_group("player_vehicle")
 
 func _draw() -> void:
 	var center: Vector2 = size * 0.5
@@ -67,25 +105,25 @@ func _draw() -> void:
 	var ppos: Vector2 = _player.global_position
 
 	# Extracción: anillo azul (se marca en el borde si está fuera de rango).
-	for node in get_tree().get_nodes_in_group("extraction"):
+	for node in _nodes_extraction:
 		if node is Node2D:
 			_draw_marker(center, radius, scale, ppos, (node as Node2D).global_position, COL_EXTRACTION, 6.0, true)
 
 	# Objetos saqueables.
-	for group_name: String in ["loot", "pickups"]:
-		for node in get_tree().get_nodes_in_group(group_name):
-			if node is Node2D:
+	for group_nodes: Array in [_nodes_loot, _nodes_pickups]:
+		for node in group_nodes:
+			if node is Node2D and is_instance_valid(node):
 				_draw_marker(center, radius, scale, ppos, (node as Node2D).global_position, COL_LOOT, 2.5, false)
 
 	# Zombis.
-	for node in get_tree().get_nodes_in_group("zombies"):
+	for node in _nodes_zombies:
 		if node is Node2D:
 			_draw_marker(center, radius, scale, ppos, (node as Node2D).global_position, COL_ZOMBIE, 3.0, false)
 
 	# Vehículos: icono orientado, barras de chasis/fuel y ruta al más cercano.
 	var nearest: Node2D = null
 	var nearest_dist: float = INF
-	for node in get_tree().get_nodes_in_group("player_vehicle"):
+	for node in _nodes_vehicles:
 		if not (node is Node2D) or not is_instance_valid(node):
 			continue
 		var vehicle: Node2D = node as Node2D
@@ -163,9 +201,11 @@ func _ratio(node: Node, value_prop: String, max_prop: String) -> float:
 
 func _on_forest_entered() -> void:
 	_in_forest = true
+	_dirty = true
 
 func _on_forest_exited() -> void:
 	_in_forest = false
+	_dirty = true
 
 ## Hasta 40 muestras de densidad, siempre dentro del circulo del radar.
 func _draw_forest_density(center: Vector2, radius: float, ppos: Vector2) -> void:

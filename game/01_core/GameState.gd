@@ -112,6 +112,24 @@ func set_phase(value) -> void:
 func difficulty() -> float:
 	return _difficulty
 
+## Único mapeador de dificultad del proyecto. `difficulty()` sigue siendo el
+## float canónico; hordas y zombies dejaron de reimplementar estos coeficientes.
+## Los valores conservan el balance previo (speed +22%, damage +45%, etc.).
+func multiplier(scope: StringName, key: StringName = &"") -> float:
+	var t: float = clampf(_difficulty, 0.0, 1.0)
+	if scope == &"horde":
+		return 1.0 + t * 0.8
+	if scope == &"zombie":
+		var table: Dictionary = {
+			&"speed": Vector2(1.0, 0.22),
+			&"perception": Vector2(1.0, 0.28),
+			&"damage": Vector2(1.0, 0.45),
+			&"health": Vector2(1.0, 0.40),
+		}
+		var range_pair: Vector2 = table.get(key, Vector2.ONE)
+		return clampf(range_pair.x + t * range_pair.y, 0.1, 3.0)
+	return 1.0
+
 ## Fija la dificultad base; el paso del tiempo y las estadísticas siguen sumando.
 func set_difficulty(value) -> void:
 	var next: float = clampf(float(value), 0.0, 1.0)

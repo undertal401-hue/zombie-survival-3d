@@ -1,5 +1,7 @@
 extends CanvasLayer
 
+const DAMAGE_FLASH_SHADER: Shader = preload("res://assets/shaders/DamageFlash.gdshader")
+
 @onready var hp_label: Label = $Status/Margin/VBox/HPLabel
 @onready var hp_bar: ProgressBar = $Status/Margin/VBox/HPBar
 @onready var stamina_label: Label = $Status/Margin/VBox/StaminaLabel
@@ -61,6 +63,10 @@ func _ready() -> void:
 	prompt.text = ""
 	toast.text = ""
 	end_overlay.visible = false
+	# El flash usa el shader real en vez de animar el alpha del ColorRect.
+	var flash_material := ShaderMaterial.new()
+	flash_material.shader = DAMAGE_FLASH_SHADER
+	damage_flash.material = flash_material
 	damage_flash.color = Color(0.75, 0.0, 0.0, 0.0)
 	reload_label.visible = false
 	reload_bar.visible = false
@@ -83,7 +89,11 @@ func _process(delta: float) -> void:
 
 	if _flash_timer > 0.0:
 		_flash_timer = maxf(_flash_timer - delta, 0.0)
-		damage_flash.color = Color(0.75, 0.0, 0.0, _flash_timer / 0.3 * 0.25)
+		var intensity: float = _flash_timer / 0.3 * 0.25
+		if damage_flash.material is ShaderMaterial:
+			(damage_flash.material as ShaderMaterial).set_shader_parameter("damage_flash", intensity)
+		else:
+			damage_flash.color = Color(0.75, 0.0, 0.0, intensity)
 
 	if _pulse_timer > 0.0 and _pulse_target != null and is_instance_valid(_pulse_target):
 		_pulse_timer = maxf(_pulse_timer - delta, 0.0)
@@ -234,6 +244,21 @@ func _refresh_resources() -> void:
 			base_text, weapon.get_total_ammo(), weapon.get_max_ammo(), Inventory.count(ammo_key)]
 	else:
 		resources_label.text = base_text
+
+	# Aviso de munición baja por color de fuente (no por modulate: _pulse_label
+	# ya anima modulate al recargar y se pisaría). Los tests comparan el texto.
+	if wc != null and wc.current_weapon != null and wc.current_weapon.category != Weapon.Category.MELEE:
+		var weapon: Weapon = wc.current_weapon
+		var capacity: int = maxi(weapon.get_max_ammo(), 1)
+		var reserve: int = Inventory.count(weapon.ammo_type)
+		if weapon.get_total_ammo() * 4 <= capacity and reserve == 0:
+			resources_label.add_theme_color_override("font_color", Color(1.0, 0.42, 0.34))
+		elif weapon.get_total_ammo() * 4 <= capacity:
+			resources_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.35))
+		else:
+			resources_label.add_theme_color_override("font_color", Color.WHITE)
+	else:
+		resources_label.add_theme_color_override("font_color", Color.WHITE)
 
 	# Objetivo dinámico según progreso
 	if fuel >= 3:

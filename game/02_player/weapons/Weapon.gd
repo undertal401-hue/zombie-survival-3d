@@ -67,6 +67,9 @@ var condition: float:
 @export var ammo_type: String = "pistol_ammo"      # key en Inventory
 @export var magazine_size: int = 12
 @export var ammo_per_shot: int = 1
+## Perdigones por disparo (escopeta): cada uno es un raycast propio con su
+## dispersión, pero el cargador paga una sola munición por gatillazo.
+@export var pellets_per_shot: int = 1
 @export var start_with_full_mag: bool = true
 
 ## --- Recarga ---
