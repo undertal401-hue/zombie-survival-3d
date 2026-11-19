@@ -17,7 +17,6 @@ config/features=PackedStringArray("4.7")
 [autoload]
 
 EventBus="*res://01_core/EventBus.gd"
-GameClock="*res://01_core/GameClock.gd"
 GameState="*res://01_core/GameState.gd"
 Inventory="*res://02_player/Inventory.gd"
 ParticleManager="*res://01_core/ParticleManager.gd"

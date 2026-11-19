@@ -630,10 +630,12 @@ func _read_difficulty() -> float:
 func _clock_now() -> float:
 	if not is_inside_tree():
 		return 0.0
-	var clock: Node = get_tree().root.get_node_or_null("GameClock")
-	if clock == null:
-		return 0.0
-	return maxf(0.0, _number(clock.get("elapsed"), 0.0))
+	# Reloj monotónico en segundos desde el arranque del motor. Sustituye al
+	# autoload GameClock vestigial; conserva la semántica de "ahora" creciente
+	# que _clock_start/_elapsed_seconds() diferencian. Time.get_ticks_msec() es
+	# la API no obsoleta de Godot 4 (OS.get_ticks_msec() está deprecado) y ya se
+	# usa en otras zonas del proyecto.
+	return Time.get_ticks_msec() / 1000.0
 
 
 func _elapsed_seconds() -> float:

@@ -3,6 +3,11 @@ extends Node2D
 const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
 const NAV_INSET := 42.0
 
+# Huecos de muro compartidos por paredes y puertas (valor unico).
+const WALL_GAP_X: float = 1200.0
+const WALL_GAP_WEST_Y: float = -600.0
+const WALL_GAP_WIDTH: float = 200.0
+
 # Umbrales de fase con histéresis: entrar en combate es rápido, salir requiere
 # que no queden zombies cerca durante un rato (evita parpadeos de estado).
 const COMBAT_ENTER_RADIUS: float = 300.0
@@ -252,9 +257,9 @@ func _configure_world() -> void:
 
 	# Tres huecos de 200 px fuera de las rutas que verifican los tests:
 	# WallTop x=1200, WallLeft y=-600, WallBottom x=1200. WallRight sigue solido.
-	_configure_wall($Level/WallTop, Vector2(0.0, -half.y + 20.0), Vector2(total.x, 40.0), 1200.0, 200.0)
-	_configure_wall($Level/WallBottom, Vector2(0.0, half.y - 20.0), Vector2(total.x, 40.0), 1200.0, 200.0)
-	_configure_wall($Level/WallLeft, Vector2(-half.x + 20.0, 0.0), Vector2(40.0, total.y), -600.0, 200.0)
+	_configure_wall($Level/WallTop, Vector2(0.0, -half.y + 20.0), Vector2(total.x, 40.0), WALL_GAP_X, WALL_GAP_WIDTH)
+	_configure_wall($Level/WallBottom, Vector2(0.0, half.y - 20.0), Vector2(total.x, 40.0), WALL_GAP_X, WALL_GAP_WIDTH)
+	_configure_wall($Level/WallLeft, Vector2(-half.x + 20.0, 0.0), Vector2(40.0, total.y), WALL_GAP_WEST_Y, WALL_GAP_WIDTH)
 	_configure_wall($Level/WallRight, Vector2(half.x - 20.0, 0.0), Vector2(40.0, total.y))
 
 	player.position = neighborhood.start_position()
@@ -346,9 +351,9 @@ func _create_forest_gates() -> void:
 	gates.name = "ForestGates"
 	add_child(gates)
 
-	_make_gate(gates, "GateNorth", Vector2(1200.0, -_town_half.y + 20.0), Vector2(200.0, 140.0))
-	_make_gate(gates, "GateWest", Vector2(-_town_half.x + 20.0, -600.0), Vector2(140.0, 200.0))
-	_make_gate(gates, "GateSouth", Vector2(1200.0, _town_half.y - 20.0), Vector2(200.0, 140.0))
+	_make_gate(gates, "GateNorth", Vector2(WALL_GAP_X, -_town_half.y + 20.0), Vector2(WALL_GAP_WIDTH, 140.0))
+	_make_gate(gates, "GateWest", Vector2(-_town_half.x + 20.0, WALL_GAP_WEST_Y), Vector2(140.0, WALL_GAP_WIDTH))
+	_make_gate(gates, "GateSouth", Vector2(WALL_GAP_X, _town_half.y - 20.0), Vector2(WALL_GAP_WIDTH, 140.0))
 
 func _make_gate(parent: Node2D, gate_name: String, pos: Vector2, size: Vector2) -> void:
 	var area := Area2D.new()

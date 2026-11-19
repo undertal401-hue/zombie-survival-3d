@@ -7,7 +7,6 @@ extends Node2D
 
 const HOUSE_SCENE: PackedScene = preload("res://05_house/House.tscn")
 const LOOT_SCENE: PackedScene = preload("res://04_items/LootContainer.tscn")
-const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
 const GROUND_TILEMAP_SCENE: PackedScene = preload("res://05_house/GroundTileMap.tscn")
 
 ## Fuente unica del numero de puntos de spawn del barrio. Main hereda este
