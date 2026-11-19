@@ -40,6 +40,113 @@ var _pulse_timer: float = 0.0
 var _pulse_color: Color = Color(1, 1, 1, 1)
 var _pulse_target: CanvasItem
 
+# ---------------------------------------------------------------------------
+# ÍTEM 17 — tutorial contextual, ligero y NO bloqueante.
+# Solo se muestra en la primera partida: el estado se persiste en
+# user://zombie_tutorial.cfg y nunca se reabre en partidas posteriores.
+# Tres pistas: "E para saquear (interact)", "Tab inventario (inventory)" y
+# "R para recargar (reload)". Cada una se oculta al cumplir la acción real.
+# Esto no abre el menú de objetos ni detiene el árbol: es solo una etiqueta.
+# ---------------------------------------------------------------------------
+const TUTORIAL_SAVE_PATH: String = "user://zombie_tutorial.cfg"
+const TUTORIAL_SAVE_SECTION: String = "tutorial"
+const TUTORIAL_SAVE_KEY: String = "completed"
+
+var _tutorial_hint: Label
+var _tutorial_steps: Dictionary = {}
+var _tutorial_enabled: bool = false
+
+func _init_tutorial() -> void:
+	var save := ConfigFile.new()
+	var seen: bool = save.load(TUTORIAL_SAVE_PATH) == OK \
+		and bool(save.get_value(TUTORIAL_SAVE_SECTION, TUTORIAL_SAVE_KEY, false))
+	_tutorial_enabled = not seen
+	_tutorial_hint = Label.new()
+	_tutorial_hint.name = "TutorialHint"
+	_tutorial_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tutorial_hint.anchor_left = 0.5
+	_tutorial_hint.anchor_right = 0.5
+	_tutorial_hint.anchor_top = 0.0
+	_tutorial_hint.anchor_bottom = 0.0
+	_tutorial_hint.offset_left = -360.0
+	_tutorial_hint.offset_right = 360.0
+	_tutorial_hint.offset_top = 92.0
+	_tutorial_hint.offset_bottom = 136.0
+	_tutorial_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_tutorial_hint.add_theme_color_override("font_color", Color(0.937, 0.894, 0.741, 1))
+	_tutorial_hint.add_theme_color_override("font_outline_color", Color(0.043, 0.051, 0.043, 1))
+	_tutorial_hint.add_theme_constant_override("outline_size", 4)
+	_tutorial_hint.add_theme_font_size_override("font_size", 15)
+	add_child(_tutorial_hint)
+	if not _tutorial_enabled:
+		_tutorial_hint.visible = false
+		return
+	_tutorial_steps = {"loot": false, "bag": false, "reload": false}
+	var interact_cb := Callable(self, "_tutorial_on_interact")
+	if not EventBus.interaction_prompt.is_connected(interact_cb):
+		EventBus.interaction_prompt.connect(interact_cb)
+	if _weapon_controller != null and _weapon_controller.has_signal("reloading_started"):
+		var reload_cb := Callable(self, "_tutorial_on_reload")
+		if not _weapon_controller.reloading_started.is_connected(reload_cb):
+			_weapon_controller.reloading_started.connect(reload_cb)
+	_refresh_tutorial()
+
+
+func _refresh_tutorial() -> void:
+	if not _tutorial_enabled or _tutorial_hint == null:
+		return
+	var lines: Array[String] = []
+	if not bool(_tutorial_steps.get("loot", false)):
+		lines.append("E para saquear (interact)")
+	if not bool(_tutorial_steps.get("bag", false)):
+		lines.append("Tab inventario (inventory)")
+	if not bool(_tutorial_steps.get("reload", false)):
+		lines.append("R para recargar (reload)")
+	if lines.is_empty():
+		_tutorial_finish()
+		return
+	var text: String = "TUTORIAL  ·  "
+	for i in range(lines.size()):
+		if i > 0:
+			text += "   |   "
+		text += lines[i]
+	_tutorial_hint.text = text
+	_tutorial_hint.visible = true
+
+
+func _tutorial_mark(step: String) -> void:
+	if not _tutorial_enabled or not _tutorial_steps.has(step):
+		return
+	if bool(_tutorial_steps[step]):
+		return
+	_tutorial_steps[step] = true
+	_refresh_tutorial()
+
+
+func _tutorial_on_interact(_text: String) -> void:
+	_tutorial_mark("loot")
+
+
+func _tutorial_on_reload(_weapon: Weapon, _duration: float) -> void:
+	_tutorial_mark("reload")
+
+
+func _tutorial_on_input(event: InputEvent) -> void:
+	if not _tutorial_enabled or event.echo:
+		return
+	if event.is_action_pressed("inventory"):
+		_tutorial_mark("bag")
+
+
+func _tutorial_finish() -> void:
+	if _tutorial_hint != null:
+		_tutorial_hint.hide()
+		_tutorial_hint.visible = false
+	var save := ConfigFile.new()
+	save.set_value(TUTORIAL_SAVE_SECTION, TUTORIAL_SAVE_KEY, true)
+	save.save(TUTORIAL_SAVE_PATH)
+	_tutorial_enabled = false
+
 func _ready() -> void:
 	player = get_tree().get_first_node_in_group("player") as Node2D
 	add_to_group("hud")
@@ -77,6 +184,9 @@ func _ready() -> void:
 			_weapon_controller.reloading_started.connect(_on_reload_started)
 			_weapon_controller.reloading_finished.connect(_on_reload_finished)
 			_weapon_controller.dry_fire.connect(_on_dry_fire)
+
+	# ÍTEM 17: el tutorial se configura tras tener el control de arma.
+	_init_tutorial()
 
 	prompt.text = ""
 	toast.text = ""
@@ -137,6 +247,8 @@ func _process(delta: float) -> void:
 			reload_label.text = "RECARGANDO %s %d%%" % [w.weapon_name, int(progress * 100.0)]
 
 func _unhandled_input(event: InputEvent) -> void:
+	# El tutorial solo observa la entrada: no la consume ni pausa el árbol.
+	_tutorial_on_input(event)
 	if not _ended or not event.is_action_pressed("restart") or event.echo:
 		return
 	get_viewport().set_input_as_handled()

@@ -1,6 +1,10 @@
 extends Node2D
 
 const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
+# ÍTEM 15: pantallas ligeras. Se instancian desde código para no tocar Main.tscn
+# (los arneses de Capas 0-2 cargan esa escena y la comparan byte a byte).
+const MAIN_MENU_SCENE: PackedScene = preload("res://08_ui/MainMenu.tscn")
+const GAME_OVER_SCENE: PackedScene = preload("res://08_ui/GameOver.tscn")
 const NAV_INSET := 42.0
 
 ## CAPA 2 / ÍTEM 12: índice de Zombie.Kind.BOSS y oleada a partir de la cual
@@ -26,6 +30,11 @@ const MAX_FRAME_DISTANCE: float = 64.0
 @export var zombie_count: int = Neighborhood.ZOMBIE_SPAWN_COUNT
 
 var bake_ms: int = 0
+
+# ÍTEM 15: referencias a las pantallas de menú y de fin de partida.
+var main_menu: CanvasLayer = null
+var game_over_screen: CanvasLayer = null
+var _menu_shown: bool = false
 
 # Hook del nodo `world`: el WorldDirector se inyecta desde fuera (ronda 2).
 # Aquí solo se guarda la referencia; este archivo nunca lo crea.
@@ -107,8 +116,103 @@ func _ready() -> void:
 
 	_last_player_position = player.global_position
 	_was_driving = bool(player.get("is_driving"))
-	# Mundo listo: el arranque termina y empieza la exploración.
-	GameState.set_phase(&"drive" if _was_driving else &"explore")
+
+	# ÍTEM 15: el menú precede a la exploración en escritorio. En headless los
+	# arneses instancian Main.tscn directamente y exigen mechanics_ready=OK
+	# active=5/5 sin intervención: allí el menú se omite y se entra en juego.
+	_install_ui_screens()
+	if _headless():
+		skip_menu()
+	else:
+		show_main_menu()
+
+# --- ÍTEM 15: flujo de menú principal y pantalla de fin -----------------------
+
+## True en ejecuciones sin ventana. El menú NUNCA bloquea los arneses headless:
+## se omite y la fase de juego se alcanza directamente.
+func _headless() -> bool:
+	return DisplayServer.get_name() == "headless"
+
+
+func _gameplay_phase() -> StringName:
+	return &"drive" if _was_driving else &"explore"
+
+
+## API pública: arranque sin menú (útil para integraciones y QA).
+func skip_menu() -> void:
+	_menu_shown = false
+	if main_menu != null and is_instance_valid(main_menu):
+		main_menu.call("hide_menu")
+	if game_over_screen != null and is_instance_valid(game_over_screen):
+		game_over_screen.call("hide_result")
+	GameState.set_phase(_gameplay_phase())
+
+
+func show_main_menu() -> void:
+	_menu_shown = true
+	if main_menu != null and is_instance_valid(main_menu):
+		main_menu.call("show_menu")
+	GameState.set_phase(&"menu")
+
+
+func start_game() -> void:
+	_menu_shown = false
+	if main_menu != null and is_instance_valid(main_menu):
+		main_menu.call("hide_menu")
+	GameState.set_phase(_gameplay_phase())
+
+
+func _install_ui_screens() -> void:
+	main_menu = MAIN_MENU_SCENE.instantiate() as CanvasLayer
+	if main_menu != null:
+		add_child(main_menu)
+		main_menu.connect("start_pressed", Callable(self, "_on_start_pressed"))
+		main_menu.connect("continue_pressed", Callable(self, "_on_continue_pressed"))
+	game_over_screen = GAME_OVER_SCENE.instantiate() as CanvasLayer
+	if game_over_screen != null:
+		add_child(game_over_screen)
+		game_over_screen.connect("retry_pressed", Callable(self, "_on_game_over_retry"))
+		game_over_screen.connect("return_to_menu_pressed", Callable(self, "_on_game_over_return_to_menu"))
+
+
+func _on_start_pressed() -> void:
+	start_game()
+
+
+func _on_continue_pressed() -> void:
+	start_game()
+
+
+## Fin de partida: pantalla dedicada sobre el EndOverlay del HUD (compatible).
+func _on_show_game_over_screen() -> void:
+	_show_game_over_screen(false)
+
+
+func _on_show_victory_screen() -> void:
+	_show_game_over_screen(true)
+
+
+func _show_game_over_screen(won: bool) -> void:
+	if game_over_screen == null or not is_instance_valid(game_over_screen):
+		return
+	var snapshot: Dictionary = GameState.stats()
+	var kills: int = int(float(snapshot.get(&"kill", 0.0)) + float(snapshot.get(&"kills", 0.0)))
+	game_over_screen.visible = true
+	game_over_screen.call("show_result", won, GameState.get_wave(), kills, GameState.run_clock)
+
+
+func _on_game_over_retry() -> void:
+	if game_over_screen != null and is_instance_valid(game_over_screen):
+		game_over_screen.call("hide_result")
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+func _on_game_over_return_to_menu() -> void:
+	if game_over_screen != null and is_instance_valid(game_over_screen):
+		game_over_screen.call("hide_result")
+	get_tree().paused = false
+	show_main_menu()
 
 ## Conecta los eventos del juego con el estado central. Los subsistemas solo
 ## emiten; la contabilidad vive aquí para no repartir lógica por el proyecto.
@@ -127,6 +231,9 @@ func _connect_state_signals() -> void:
 	EventBus.forest_exited.connect(_on_forest_exited_for_state)
 	EventBus.victory.connect(_on_victory_for_state)
 	EventBus.game_over.connect(_on_game_over_for_state)
+	# ÍTEM 15: además de la contabilidad de estado, Show de la pantalla de fin.
+	EventBus.victory.connect(_on_show_victory_screen)
+	EventBus.game_over.connect(_on_show_game_over_screen)
 
 ## Punto de inyección del WorldDirector creado por el nodo `world`.
 func set_world_director(director: Node) -> void:
@@ -210,6 +317,9 @@ func spawn_boss(at_position: Vector2 = Vector2.ZERO) -> CharacterBody2D:
 
 func _process(delta: float) -> void:
 	if player == null or not is_instance_valid(player):
+		return
+	# Con el menú visible el mundo no avanza (pero el árbol NO se pausa).
+	if _menu_shown:
 		return
 	_update_travelled_distance(delta)
 	_update_driving_phase()

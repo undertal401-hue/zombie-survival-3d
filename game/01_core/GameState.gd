@@ -16,6 +16,8 @@ signal combo_changed(value: float, count: int)
 
 # Fases permitidas. Se usan StringName para no depender de enum compartidos.
 const PHASE_BOOT := &"boot"
+# ÍTEM 15: el arranque en escritorio pasa por el menú principal antes de explorar.
+const PHASE_MENU := &"menu"
 const PHASE_EXPLORE := &"explore"
 const PHASE_COMBAT := &"combat"
 const PHASE_LOOT := &"loot"
@@ -25,7 +27,7 @@ const PHASE_VICTORY := &"victory"
 const PHASE_DEATH := &"death"
 
 const ALL_PHASES: Array = [
-	PHASE_BOOT, PHASE_EXPLORE, PHASE_COMBAT, PHASE_LOOT,
+	PHASE_BOOT, PHASE_MENU, PHASE_EXPLORE, PHASE_COMBAT, PHASE_LOOT,
 	PHASE_DRIVE, PHASE_PAUSED, PHASE_VICTORY, PHASE_DEATH,
 ]
 
@@ -99,6 +101,9 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	# Reloj y combo avanzan aunque el árbol esté detenido (process_mode ALWAYS).
 	_tick_combo(delta)
+	# En el menú principal no avanza ni el reloj ni la dificultad de la partida.
+	if _phase == PHASE_MENU:
+		return
 	if not get_tree().paused and not _game_over and not _victory:
 		run_clock += maxf(delta, 0.0)
 	var paused: bool = get_tree().paused
