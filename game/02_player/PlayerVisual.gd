@@ -4,7 +4,7 @@ class_name PlayerVisual
 ## =============================================================================
 ## PLAYER VISUAL - AnimatedSprite2D con todas las animaciones
 ## =============================================================================
-## Maneja: idle, walk, run, attack_melee, attack_reload, hurt, death
+## Maneja: idle, walk, run, attack_* (melee/pistola/escopeta/fusil), reload_* (pistola/escopeta/fusil), hurt, death
 ## Se conecta a Player para recibir estado de movimiento/acción
 ## =============================================================================
 
@@ -91,7 +91,8 @@ func _setup_animations() -> void:
 			)
 			frames.add_frame(anim, atlas, 1.0, f)
 
-	# Configurar velocidades por defecto (se sobrescriben con sprites reales)
+	# Velocidades definitivas: la tira procedural es la única fuente de frames
+	# (los cargadores de sprites reales siguen sin implementar).
 	frames.set_animation_speed("idle", 8)
 	frames.set_animation_speed("walk", 10)
 	frames.set_animation_speed("run", 14)

@@ -395,19 +395,6 @@ func add_weapon(weapon_resource: Weapon, slot: int = -1) -> bool:
 	
 	return true
 
-func remove_weapon(slot: int) -> void:
-	if slot < 0 or slot >= weapons.size():
-		return
-	weapons[slot] = null
-	if slot == current_slot:
-		# Equipar siguiente disponible
-		for i in range(weapons.size()):
-			if weapons[i] != null:
-				_equip_slot(i)
-				return
-		current_weapon = null
-		current_slot = -1
-
 func get_weapon_in_slot(slot: int) -> Weapon:
 	if slot >= 0 and slot < weapons.size():
 		return weapons[slot]

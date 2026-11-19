@@ -39,7 +39,6 @@ const ALERT_TIME := 5.0
 @export var hearing_shot_radius: float = 950.0
 @export var hearing_impact_radius: float = 540.0
 @export var hearing_melee_radius: float = 250.0
-@export var hearing_vehicle_radius: float = 560.0
 @export var alert_propagation_radius: float = 420.0
 
 ## Perfil táctico por arquetipo (lo fija _apply_kind).

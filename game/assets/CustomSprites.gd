@@ -5,7 +5,7 @@ extends RefCounted
 ## No usa archivos de imagen: se genera una vez y se convierte en ImageTexture.
 ## El superviviente se dibuja desde arriba: coronilla, hombros, pañuelo, mochila
 ## y una única pose estática con la pistola a dos manos apuntando al frente (-Y).
-## Las cuatro regiones de survivor_sheet() son idénticas: no hay balanceo.
+## Las cuatro regiones de survivor_sheet() alternan brazos/hombros: hay balanceo sutil.
 
 const OUTLINE := Color(0.03, 0.045, 0.03, 1.0)
 const SKIN := Color(0.72, 0.55, 0.40, 1.0)
@@ -20,7 +20,7 @@ const FRAME: int = 48
 static func survivor_sheet() -> ImageTexture:
 	var img := Image.create(FRAME * 4, FRAME, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
-	# Cuatro regiones clavadas: mismo pose en todas para no reproducir movimiento.
+	# Cuatro regiones con balance alterno de brazos/hombros (_draw_survivor).
 	for f in range(4):
 		_draw_survivor(img, f * FRAME, f)
 	return ImageTexture.create_from_image(img)

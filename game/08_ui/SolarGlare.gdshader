@@ -8,7 +8,7 @@ uniform float glare_falloff : hint_range(0.5, 5.0) = 2.2;
 uniform vec2 sun_screen_pos = vec2(0.5, 0.3);
 
 void fragment() {
-	// Vector desde posición del sol a pixel actual (en UV 0-1).
+	// Vector desde el pixel actual hasta la posición del sol (en UV 0-1).
 	vec2 to_sun = sun_screen_pos - UV;
 	// Corregir aspecto del viewport para que el resplandor sea circular en
 	// pantallas no cuadradas. SCREEN_PIXEL_SIZE permite hacerlo solo desde el
