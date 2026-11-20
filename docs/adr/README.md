@@ -14,15 +14,19 @@ inmutable: para cambiar una decisión se crea un nuevo ADR que la reemplaza.
 | [ADR-004](0004-revert-presentation-and-real-lighting.md) | Reversión de la presentación e iluminación 2D real | accepted (parcialmente superseded por ADR-005) | 2026-11-20 |
 | [ADR-005](0005-hybrid-zombie-sprite-presentation.md) | Presentación híbrida de los zombis: skin de sprites para el rango bajo y cubo para los rangos altos | accepted (parcialmente superseded por ADR-006) | 2026-11-20 |
 | [ADR-006](0006-walker-only-roster-bounded-sun-shadows-and-detection.md) | Roster de un solo arquetipo, sombras solares acotadas y detección del jugador reforzada | accepted | 2026-11-20 |
+| [ADR-007](0007-zombie-skin-derived-from-real-sprite.md) | El skin del zombi se deriva del sprite cenital real del autor | accepted (enmienda ADR-005 §2) | 2026-11-20 |
 
 ## Notas de estado
 
 - **ADR-001** sigue vigente como **herramienta y fuente canónica**: se conservan
   `tools/gen_art.py`, `assets/art/ART_BIBLE.md`, las cinco hojas PNG del banco
   R3, dos mapas de luz, la máscara de sombra y su paso de CI. ADR-004 limitó su
-  uso en runtime; ADR-005 vuelve a aprovechar el humanoide cenital y la paleta
-  de 16 colores para generar el skin del WALKER, con un pack y una puerta de CI
-  separados.
+  uso en runtime; ADR-005 reutiliza su **paleta de 16 colores** para el skin
+  del WALKER, con un pack y una puerta de CI separados. **ADR-007 enmienda
+  ADR-005 §2**: el skin ya no se dibuja con el humanoide procedural de
+  `draw_humanoid`; sus píxeles se derivan del sprite cenital real
+  `tools/art_source/zoimbie1_hold.png`, con el mismo contrato de celda, ancla
+  y paleta.
 - **ADR-004** queda **parcialmente superseded por ADR-005** solo en la
   presentación de los zombis: el WALKER usa skin y los rangos altos conservan
   el cubo. La iluminación real, el faro, las sombras proyectadas y las demás
@@ -47,5 +51,12 @@ inmutable: para cambiar una decisión se crea un nuevo ADR que la reemplaza.
   FX y la puerta determinista del banco de arte.
   **La iluminación nocturna, el faro y sus sombras reales no cambian**: es la
   restricción que el usuario puso expresamente.
-- **ADR-002** y **ADR-003** no se ven afectados por ADR-004, ADR-005 ni
-  ADR-006: hit-stop y meta-árbol son mecánicas, no presentación.
+- **ADR-007** (R4) **enmienda ADR-005 §2 solo en la fuente de píxeles**. El
+  pack de 33 frames y 8 strips sigue cumpliendo celda 64×64, PPU 64, pivot
+  central, ancla global, paleta de 16 colores y fallback al cubo, pero ahora se
+  deriva del sprite cenital real `tools/art_source/zoimbie1_hold.png` (35×43,
+  SHA-256 fijado), no del humanoide procedural. El Unity de origen solo tiene
+  ese sprite: la animación es una derivación determinista documentada, no una
+  animación oficial.
+- **ADR-002** y **ADR-003** no se ven afectados por ADR-004, ADR-005, ADR-006
+  ni ADR-007: hit-stop y meta-árbol son mecánicas, no presentación.

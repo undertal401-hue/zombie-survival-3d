@@ -120,6 +120,15 @@ separada de las hojas canónicas de 32×32:
   frames ni entre animaciones.
 - La paleta es exactamente la misma paleta canónica de **16 colores** de la
   sección 2. No se permiten colores nuevos.
+- **Fuente (R4 / ADR-007).** Los píxeles no se redibujan con el humanoide
+  procedural: se derivan de `tools/art_source/zoimbie1_hold.png`, el sprite
+  cenital de **35×43** que el autor entregó. El generador fija su **SHA-256**
+  y falla si la fuente cambia. El original mira a la derecha; se rota **90° en
+  sentido antihorario** para que el eje local −Y sea «adelante», se le aplica
+  alpha binario (umbral 160) y la paleta de 16 colores (con un mapa explícito
+  para los tonos dominantes), y se escala a **60×49** con vecino más próximo.
+  La animación se deriva con transforms enteros sobre esa base: no hay frames
+  oficiales en el Unity de origen.
 
 Layout y mapa al runtime canónico:
 
@@ -135,9 +144,12 @@ Layout y mapa al runtime canónico:
 | `death` | 6 | `death` |
 
 `rise` representa un **arrastre continuo en el suelo** (la acción canónica
-`crawl`), no un levantamiento: el runtime lo reproduce en bucle. El clip usa
-un bob vertical lógico de `[0, -1, 0, 1, 0]` y no desplaza el sprite en
-horizontal.
+`crawl`), no un levantamiento: el runtime lo reproduce en bucle. El clip
+comprime la base al **55 %** de su altura y la ancla abajo, con un bob de
+±1 px; no desplaza el sprite en horizontal. Todos los frames de `rise` deben
+ser más bajos que todos los de `walk` y quedar en la mitad inferior del pack:
+es una condición que comprueban `gen_zombie_skin.py --check` y
+`skin_pack.py check`.
 
 El pack tiene su propia puerta de CI:
 
@@ -146,11 +158,11 @@ python3 tools/gen_zombie_skin.py            # genera/sobrescribe el pack
 python3 tools/gen_zombie_skin.py --check    # verifica; no escribe nada
 ```
 
-`gen_zombie_skin.py --check` regenera los 33 frames y 8 strips en memoria y
-compara dimensiones, píxeles y bytes PNG con el disco, además de validar el contrato
-estructural. Este pack queda **fuera del alcance de `gen_art.py --check`**:
-esa puerta valida las 5 hojas canónicas de 32×32, los 2 mapas de luz y la
-máscara de sombra (§8).
+`gen_zombie_skin.py --check` regenera los 33 frames y 8 strips en memoria
+**desde la fuente fijada por SHA-256** y compara dimensiones, píxeles y bytes
+PNG con el disco, además de validar el contrato estructural. Este pack queda
+**fuera del alcance de `gen_art.py --check`**: esa puerta valida las 5 hojas
+canónicas de 32×32, los 2 mapas de luz y la máscara de sombra (§8).
 
 `game/tools/skin_pack.py` audita e importa packs externos. El pack entregado
 por el autor (`~/zombie_sprites/`) es el ejemplo canónico de pack defectuoso:
@@ -158,7 +170,9 @@ contiene **4 frames vacíos y 29 tarjetas de color** sin silueta, tamaños
 variables y strips que no se pueden rebanar en celdas de 64 px. Los frames con
 contenido usan entre **1 y 42 colores RGB opacos** y el pack suma **84 colores
 fuera de la paleta canónica**. La importación exige un `--out` explícito y se
-niega a sobrescribir `assets/enemies/zombie/` sin `--force`.
+niega a sobrescribir `assets/enemies/zombie/` sin `--force`. El **único PNG
+válido** de ese material es `zoimbie1_hold.png` (35×43), que no forma parte de
+los 33 frames auditados: es la fuente del pack canónico (ADR-007).
 
 Además, `import` **rechaza** (código 2, sin escribir nada) cualquier pack con
 frames «tarjeta de color»: una tarjeta no tiene silueta y ninguna

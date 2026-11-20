@@ -109,15 +109,19 @@ def _unfilter(raw: bytes, width: int, height: int, bpp: int) -> bytearray:
 MAX_DIMENSION = 4096
 
 
-def read_png(path: str):
-    """Return (width, height, pixels RGBA) or raise ValueError.
+def read_png_bytes(data: bytes):
+    """Decodifica un PNG desde un buffer en memoria.
+
+    Return (width, height, pixels RGBA) or raise ValueError.
 
     Toda corrupcion del fichero se traduce a `ValueError`: el llamante
     muestra un diagnostico ("PNG invalido (...)") en vez de un traceback
     de `struct.error` o `zlib.error`.
+
+    Separar la decodificacion de la lectura permite verificar el hash y
+    decodificar EXACTAMENTE los mismos bytes (sin ventana TOCTOU entre dos
+    lecturas del fichero).
     """
-    with open(path, "rb") as f:
-        data = f.read()
     if not data.startswith(b"\x89PNG\r\n\x1a\n"):
         raise ValueError("bad PNG signature")
     pos = 8
@@ -217,6 +221,18 @@ def read_png(path: str):
             a = trns[idx] if idx < len(trns) else 255
         pixels[i * 4:i * 4 + 4] = bytes((r, g, b, a))
     return width, height, bytes(pixels)
+
+
+def read_png(path: str):
+    """Return (width, height, pixels RGBA) or raise ValueError.
+
+    Envoltorio de `read_png_bytes`: lee el fichero y lo decodifica. Quien
+    necesite verificar la integridad del contenido (hash) debe usar
+    `read_png_bytes` sobre el MISMO buffer que decodifica.
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    return read_png_bytes(data)
 
 
 # ---------------------------------------------------------------------------

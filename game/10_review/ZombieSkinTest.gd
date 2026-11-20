@@ -21,6 +21,18 @@ const ART_BIBLE: String = "res://assets/art/ART_BIBLE.md"
 const SKIN_DIR: String = "res://assets/enemies/zombie/"
 const GEN_ZOMBIE_SKIN: String = "res://tools/gen_zombie_skin.py"
 const SKIN_PACK_TOOL: String = "res://tools/skin_pack.py"
+## ADR-007: el pack se deriva del sprite cenital real que el autor entrego
+## (`zoimbie1_hold.png`), no de un humanoide procedural. La fuente se conserva
+## fuera del pack para que `skin_pack.py check` no la vea como PNG sobrante.
+const SKIN_SOURCE: String = "res://tools/art_source/zoimbie1_hold.png"
+const SKIN_SOURCE_SHA256: String = (
+	"61df3e84c18409b698b56273a0bd014f86a23dc5622380d5d10b82124afff84e"
+)
+const SKIN_SOURCE_SIZE: Vector2i = Vector2i(35, 43)
+const SKIN_SOURCE_MIN_OPAQUE: int = 900
+## Tope de tamano de la fuente: el sprite real ocupa 2.465 bytes. Evita que un
+## fichero sustituido agote la memoria del runner antes de ser rechazado.
+const SKIN_SOURCE_MAX_BYTES: int = 65536
 const ZOMBIE_VISUAL_SCRIPT: String = "res://03_zombies/ZombieVisual.gd"
 const CELL: int = 64
 
@@ -119,6 +131,7 @@ func _check(condition: bool, label: String) -> void:
 func _ready() -> void:
 	await get_tree().process_frame
 	_capture_skin_suite_state()
+	_source_asset_checks()
 	_pack_integrity_checks()
 	_generator_checks()
 	await _runtime_checks()
@@ -641,6 +654,67 @@ func _death_tint_check() -> void:
 ## ---------------------------------------------------------------------------
 ## A. Integridad del pack en disco.
 ## ---------------------------------------------------------------------------
+## ---------------------------------------------------------------------------
+## A-ter. Fuente real del pack (ADR-007).
+## ---------------------------------------------------------------------------
+## La puerta no puede conformarse con que «exista un pack»: el bug reportado
+## fue precisamente que el arte solicitado no se había aplicado. Se exige el
+## PNG original, su hash, sus dimensiones y que el generador lo lea, de modo
+## que sustituir la fuente o volver al humanoide procedural rompa el contrato.
+func _source_asset_checks() -> void:
+	_check(FileAccess.file_exists(SKIN_SOURCE),
+		"fuente: existe el sprite original %s" % SKIN_SOURCE)
+	if not FileAccess.file_exists(SKIN_SOURCE):
+		return
+	# Tope de tamano ANTES de leer: el sprite real ocupa 2.465 bytes. Un
+	# fichero sustituido no debe poder agotar la memoria del runner.
+	var size: int = FileAccess.get_size(SKIN_SOURCE)
+	_check(size > 0 and size <= SKIN_SOURCE_MAX_BYTES,
+		"fuente: tamano admitido (%d bytes, maximo %d)" % [
+			size, SKIN_SOURCE_MAX_BYTES])
+	if size <= 0 or size > SKIN_SOURCE_MAX_BYTES:
+		return
+	var bytes: PackedByteArray = FileAccess.get_file_as_bytes(SKIN_SOURCE)
+	var context := HashingContext.new()
+	context.start(HashingContext.HASH_SHA256)
+	context.update(bytes)
+	var digest: String = context.finish().hex_encode()
+	_check(digest == SKIN_SOURCE_SHA256,
+		"fuente: el SHA-256 del sprite coincide con el fijado (%s)" % digest)
+	# Si la integridad falla NO se decodifica el PNG: el contenido ya ha sido
+	# rechazado y no debe llegar al decodificador nativo.
+	if digest != SKIN_SOURCE_SHA256:
+		return
+
+	var image := Image.new()
+	var error: Error = image.load_png_from_buffer(bytes)
+	_check(error == OK, "fuente: el PNG del sprite se decodifica")
+	if error != OK:
+		return
+	_check(Vector2i(image.get_width(), image.get_height()) == SKIN_SOURCE_SIZE,
+		"fuente: el sprite mide %dx%d (actual %dx%d)" % [
+			SKIN_SOURCE_SIZE.x, SKIN_SOURCE_SIZE.y,
+			image.get_width(), image.get_height()])
+	if Vector2i(image.get_width(), image.get_height()) != SKIN_SOURCE_SIZE:
+		return
+	var opaque: int = 0
+	for y in range(image.get_height()):
+		for x in range(image.get_width()):
+			if image.get_pixel(x, y).a > 0.0:
+				opaque += 1
+	_check(opaque >= SKIN_SOURCE_MIN_OPAQUE,
+		"fuente: el sprite tiene silueta real (%d px opacos)" % opaque)
+
+	var generator: String = ""
+	if FileAccess.file_exists(GEN_ZOMBIE_SKIN):
+		generator = FileAccess.get_file_as_string(GEN_ZOMBIE_SKIN)
+	_check(generator.contains("art_source") and
+		generator.contains("zoimbie1_hold.png"),
+		"fuente: el generador lee zoimbie1_hold.png de art_source/")
+	_check(generator.contains(SKIN_SOURCE_SHA256),
+		"fuente: el generador fija el mismo SHA-256")
+
+
 func _pack_integrity_checks() -> void:
 	_check(DirAccess.dir_exists_absolute(SKIN_DIR),
 		"pack: existe la raíz %s" % SKIN_DIR)

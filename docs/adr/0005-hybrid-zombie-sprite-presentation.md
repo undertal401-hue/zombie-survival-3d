@@ -613,3 +613,31 @@ El arte final entra por el mismo contrato, sin cambiar el código de runtime:
 La sustitución solo es válida si conserva el contrato de celda, ancla y
 pivot. Un cambio de contrato requiere otro ADR, no un ajuste ad hoc del
 runtime.
+
+## Enmienda R4 — la fuente de píxeles es el sprite real (ADR-007)
+
+Esta sección **no reescribe** §2 ni el registro accepted: lo enmienda en un
+solo punto, la fuente de los píxeles. El pack sigue generándose con
+`game/tools/gen_zombie_skin.py` y sigue cumpliendo el contrato de celda
+64×64, PPU 64, pivot `(0.5, 0.5)`, ancla global de la unión, ocho clips,
+33 frames, ocho strips, paleta de 16 colores y fallback seguro al cubo.
+
+Lo que cambia es de dónde salen los píxeles. El humanoide procedural de
+`draw_humanoid` deja de ser la fuente: el pack se deriva de
+`game/tools/art_source/zoimbie1_hold.png`, el sprite cenital de 35×43 que el
+autor entregó en Descargas. El generador lo rota 90° en sentido antihorario
+(el original mira a la derecha; el runtime espera «adelante» en −Y), le aplica
+alpha binario y la paleta canónica, lo escala a 60×49 con vecino más próximo
+y deriva los 33 frames con transforms enteros (bob, balanceo, estocada,
+retroceso, derrumbe y arrastre). No hay frames oficiales que extraer: el
+Unity de origen solo contiene esa `Texture2D`/`Sprite`.
+
+La fuente queda fijada por SHA-256
+(`61df3e84c18409b698b56273a0bd014f86a23dc5622380d5d10b82124afff84e`) y el
+generador falla si cambia. `ZombieSkinTest._source_asset_checks()` exige el
+PNG, su hash, sus dimensiones, una silueta real y que el generador lea esa
+fuente. El resto de las puertas (`gen_zombie_skin.py --check`,
+`skin_pack.py check|selftest`) no cambian de contrato.
+
+La decisión completa, las alternativas descartadas y la nota de procedencia
+del asset están en [ADR-007](0007-zombie-skin-derived-from-real-sprite.md).
