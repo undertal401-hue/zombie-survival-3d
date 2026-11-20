@@ -1051,6 +1051,12 @@ func _die() -> void:
 		separation_area.monitoring = false
 	collision_layer = 0
 	collision_mask = 0
+	# El tinte rojo del golpe (flash de dano) lo restaura `_update_flash()`,
+	# que se llama desde `_physics_process`: al desactivar el proceso fisico,
+	# el cadaver se quedaba CONGELADO en rojo durante toda la animacion de
+	# muerte (0,86 s con skin). Se restaura ANTES de desactivar el proceso
+	# fisico y antes del desvanecido.
+	modulate = Color.WHITE
 	set_physics_process(false)
 	alert_label.visible = false
 	EventBus.zombie_died.emit(self)

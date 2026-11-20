@@ -144,10 +144,11 @@ máscara de sombra (§8).
 
 `game/tools/skin_pack.py` audita e importa packs externos. El pack entregado
 por el autor (`~/zombie_sprites/`) es el ejemplo canónico de pack defectuoso:
-contiene tarjetas de color sin silueta, cuatro frames vacíos, tamaños variables
-y strips que no se pueden rebanar en celdas de 64 px. La importación exige un
-`--out` explícito y se niega a sobrescribir `assets/enemies/zombie/` sin
-`--force`.
+contiene **4 frames vacíos y 29 tarjetas de color** sin silueta, tamaños
+variables y strips que no se pueden rebanar en celdas de 64 px. Los frames con
+contenido usan entre **1 y 42 colores RGB opacos** y el pack suma **84 colores
+fuera de la paleta canónica**. La importación exige un `--out` explícito y se
+niega a sobrescribir `assets/enemies/zombie/` sin `--force`.
 
 Además, `import` **rechaza** (código 2, sin escribir nada) cualquier pack con
 frames «tarjeta de color»: una tarjeta no tiene silueta y ninguna
@@ -180,13 +181,14 @@ celdas esperadas— son incidencias de pleno derecho: `audit` devuelve **rc=1**
 también con ellas (un directorio vacío es un pack inválido, no un pack «sin
 incidencias»).
 
-`selftest` es la puerta de CI del importador: monta un pack sintético y
+`selftest` es la puerta de CI del importador: monta packs sintéticos y
 comprueba, sin tocar el proyecto, que (1) un pack con una tarjeta de color se
 rechaza sin escribir nada, (2) un destino con enlaces simbólicos no permite
 escribir fuera, (3) un PNG corrupto produce un diagnóstico (`ValueError`) y no
-un *traceback*, y (4) `audit` de un pack inválido devuelve rc=1. También
-comprueba que un pack **válido** se importa con rc=0, para que los rechazos no
-sean verdes triviales.
+un *traceback*, (4) `audit` de un pack inválido devuelve rc=1, (5) un pack
+válido se importa con rc=0 y (6) `import --out` sobre el propio pack de origen
+se rechaza con **rc=2** sin modificarlo. La comparación de integridad usa
+**SHA-256**, no MD5.
 
 ## 8. Addendum — R3: máscara de sombra solar acotada (ADR-006)
 

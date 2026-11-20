@@ -28,7 +28,9 @@ inmutable: para cambiar una decisión se crea un nuevo ADR que la reemplaza.
   invariantes de ADR-004 no cambian.
 - **ADR-005** fija la presentación híbrida, el contrato de celda de 64×64 y el
   fallback seguro al cubo. `gen_art.py --check` conserva su alcance sobre las
-  nueve hojas canónicas; el skin tiene sus propias puertas de verificación.
+  cinco hojas canónicas del banco R3; el skin tiene sus propias puertas de
+  verificación. La enmienda R3-hotfix documenta sus correcciones de lock,
+  carga, tinte y auditoria sin reescribir el registro accepted.
 - **ADR-006** (R3) **supersede a ADR-005 en su §1 y en sus invariantes 2 y
   15**: el juego tiene un solo arquetipo de zombi (el caminante) y el jefe
   «Tanque Alfa» pasa a ser un perfil del mismo zombi, así que el cubo queda

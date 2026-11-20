@@ -2,6 +2,7 @@
 
 - **Status**: accepted
 - **Date**: 2026-11-20
+- **Amended**: 2026-11-20 (R2-hotfix, revisión adversarial; el registro original se conserva)
 - **Deciders**: Lead Orchestrator + subagentes ECC
 - **Technical Story**: Ronda R2 de integración de la presentación de zombis
 - **Supersedes (parcialmente)**: [ADR-004](0004-revert-presentation-and-real-lighting.md)
@@ -241,6 +242,104 @@ que el umbral anterior dejaba al zombi normal siempre en `run`. Con 120 px/s,
 el WALKER usa su animación de caminar y el RUNNER conserva `run`
 (`game/03_zombies/ZombieVisual.gd:114-115`,
 `game/03_zombies/ZombieVisual.gd:459-465`).
+
+## Enmienda R2-hotfix — revisión adversarial del contrato (2026-11-20)
+
+Esta enmienda se añade como sección nueva; **no reescribe en silencio** el
+apartado §5 ni la Invariante 13 del texto original. La revisión adversarial de
+R2 encontró dos afirmaciones falsas en este ADR, varias puertas que podían dar
+verde sin comprobar el comportamiento real y cuatro defectos de runtime. Esta
+sección registra la evidencia y hace exigible el contrato corregido.
+
+### Correcciones documentales
+
+**E1 — el `z_index` final del vehículo (corrige §3 y la Invariante 12).** El
+ADR decía que el vehículo vive en `z_index = 4`
+(`game/12_vehicles/DriveableVehicle.tscn:14`) y que un WALKER con sprite en
+`z = 5` se dibujaría «delante». En Godot 4.7.2, ese `4` pertenece al root
+`CharacterBody2D`, que no dibuja; el `Sprite2D` visible tiene `z_index = 1` y
+`z_as_relative = true`, por lo que su **z final es 5**. Con `z = 5` el WALKER
+**empataba** con el vehículo y el orden dependía del árbol, no del `z_index`.
+El valor elegido `SKIN_Z_INDEX = 0` sigue siendo correcto: queda detrás del
+vehículo (z final 5) y en la misma profundidad que el resto de zombis.
+
+**E2 — el lock de `hit` no era «el doble» (corrige §5).** El ADR decía que el
+lock literal de `0,2 s` era el doble de un clip de 2 frames a 10 fps. La
+duración del clip es exactamente `2 / 10 = 0,2 s`: el lock era **1×**, no 2×, y
+se agotaba en el mismo instante en que terminaba el clip. Si el `fps` bajaba a
+8, el lock cortaba la animación antes de tiempo.
+
+**E3 — datos reales del pack del autor (corrige §1).** La auditoría
+reproducible `python3 tools/skin_pack.py audit ~/zombie_sprites` devuelve 33
+frames: **4 vacíos y 29 tarjetas de color** con contenido. Los frames con
+contenido usan entre **1 y 42 colores RGB opacos** (los valores observados por
+frame son 1, 3, 6, 11, 16, 18, 20, 21, 22 y 42). El pack contiene **84 colores
+RGB fuera de la paleta canónica**. El valor «191» citado en la revisión no
+procede de un frame del pack: pertenece a `zoimbie1_hold.png`, un PNG suelto
+de 35×43 que no forma parte de la animación auditada.
+
+**E4 — las citas apuntaban al código equivocado (corrige §1).** La auditoría
+real está en `game/tools/skin_pack.py:533-664`; `check()` está en
+`:729-...`, `selftest()` en `:900-...` e `import_pack()` en `:1074-...`. Las
+citas anteriores al editor PNG y a las constantes no describían la auditoría.
+
+**E5 — `animation_finished` sí puede adelantar el desbloqueo (corrige §3.1).**
+`ZombieVisual._on_animation_finished()` pone `_is_attacking = false` y
+`_attack_timer = 0.0`. Por tanto, la afirmación de que el fin de la animación
+nunca adelanta el desbloqueo no estaba respaldada por el código. El lock de
+ataque sigue siendo el mecanismo de gameplay; esta enmienda no promete una
+garantía que el runtime no tiene.
+
+### Correcciones de runtime y de puertas
+
+- **C1 — lock derivado del pack.** Con skin, el lock es
+  `count / fps * HIT_LOCK_MARGIN`, con `HIT_LOCK_MARGIN = 1.5`; la fórmula
+  exigida es **`count / fps * 1.5`**. Se deriva de
+  `ZombieVisual.SKIN_ANIMATIONS` (`game/03_zombies/ZombieVisual.gd:102`,
+  `:862`). El fallback al cubo conserva `HIT_FALLBACK = 0,2 s`.
+  **Lock del cubo: `0.2 s`.** `ZombieSkinTest` exige el valor derivado y
+  prueba por separado el lock del cubo.
+- **C2 — reintento real de skin.** Un fallo de carga ya no deja al zombi ciego
+  para siempre. `ZombieVisual` recuerda el directorio intentado y lo reintenta
+  desde `_process()` (`game/03_zombies/ZombieVisual.gd:245`, `:315`) con un
+  cooldown y backoff **compartidos por ruta** (250 ms iniciales, máximo 5 s).
+  Una carga correcta borra la entrada; una horda no genera una estampida. Las
+  APIs públicas `skin_load_attempts()` y `skin_attempted_dir()` hacen el
+  contrato observable.
+- **C3 — el cadáver no queda congelado en rojo.** `Zombie.gd:_die()` restaura
+  `modulate = Color.WHITE` antes de desactivar `_physics_process`, de modo que
+  el tinte del golpe no queda congelado durante la muerte. `ZombieSkinTest`
+  comprueba el color con tolerancia `0.001`.
+- **C4 — el importador no puede destruir su entrada.** Si `out` y el pack
+  fuente son el mismo directorio, `import_pack()` devuelve **2**, no escribe
+  nada y conserva el origen. `skin_pack.py selftest` lo exige por código de
+  salida y compara una huella SHA-256 del árbol antes y después.
+- **C5 — la deriva de `fps` ya no es invisible.** `ZombieSkinTest` acota el
+  parser al bloque `SKIN_ANIMS` del generador, exige exactamente ocho clips y
+  ocho claves únicas y cruza `fps`, `count`, bucle y nombre canónico con
+  `ZombieVisual.SKIN_ANIMATIONS`. El mapa duplicado `CANONICAL_MAP` se elimina:
+  el nombre canónico vive en la propia tupla `SKIN_ANIMS`.
+- **C6 — la puerta del estilo visual deja de ser tautológica.**
+  `VisualStyleTest` ya no acepta que `ART_BIBLE.md` contenga la cadena suelta
+  `"32"`; exige `32×32`, `32 px` o `32x32` con su unidad.
+
+### Hallazgos aceptados sin cambio
+
+- `set_modulate_color()` y `get_sprite_rect()` se conservan como API pública
+  paralela a `PlayerVisual`; no tienen llamantes activos, pero retirarlos
+  ampliaría el alcance del hotfix.
+- No se abre deuda por el rollback de un `--force` sobre el pack canónico: el
+  pack es determinista y `gen_zombie_skin.py --check` lo regenera byte a byte;
+  `skin_pack.py check` detecta además una instalación incompleta.
+- `_is_dying` no se limpia porque hoy no existe un pool de zombis que reutilice
+  la instancia. Queda anotado para cuando ese pool exista.
+
+### Invariante añadida
+
+**Ninguna puerta puede depender de un valor que el arte pueda cambiar:** el
+lock del golpe se deriva del pack, la puerta de `fps` cruza generador y runtime,
+el importador no puede sobrescribir su propia entrada y el reintento de skin
+ocurre en el ciclo de vida real con backoff compartido.
 
 ### 6. Puertas de CI propias, sin ampliar el alcance del pipeline antiguo
 

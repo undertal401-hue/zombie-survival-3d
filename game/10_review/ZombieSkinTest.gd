@@ -80,6 +80,12 @@ const CANONICAL_LOOP: Dictionary = {
 	"crawl": true,
 }
 
+## Margen del lock del golpe sobre la duracion del clip. Es parte del
+## CONTRATO: el lock no puede ser un literal que se quede corto si el arte
+## cambia (la revision adversarial de R2 encontro exactamente eso).
+const HIT_LOCK_MARGIN: float = 1.5
+const HIT_FALLBACK: float = 0.2
+
 var _failures: Array[String] = []
 var _instances: Array[Node] = []
 
@@ -95,6 +101,7 @@ func _ready() -> void:
 	_pack_integrity_checks()
 	_generator_checks()
 	await _runtime_checks()
+	await _adversarial_contract_checks()
 	await _cleanup()
 	print("ZOMBIE_SKIN_TEST failures=%d" % _failures.size())
 	for failure in _failures:
@@ -102,6 +109,245 @@ func _ready() -> void:
 	# La salida queda fijada ANTES de los asserts opcionales.
 	get_tree().quit(1 if not _failures.is_empty() else 0)
 	_asserts()
+
+
+## ---------------------------------------------------------------------------
+## A-bis. Cierre de la revision adversarial de R2 (enmienda de ADR-005).
+## ---------------------------------------------------------------------------
+## Cuatro contratos que la revision encontro y que ninguna puerta exigia:
+##
+##   1. La tabla `fps`/`count` del GENERADOR (`gen_zombie_skin.py`) era
+##      metadato muerto: cambiarla no alteraba un byte del pack y ninguna
+##      puerta lo detectaba (la puerta de fps solo comparaba el runtime
+##      contra una tabla constante escrita aqui). Ahora se CRUZAN las dos
+##      tablas: generador y runtime deben coincidir en fps, count y bucle.
+##   2. El lock del golpe (`_hit_timer`) era un literal (0,2 s) que solo
+##      coincidia con la duracion del clip `hit` (2 frames a 10 fps) por
+##      casualidad: si el arte cambiaba, el lock podia cortar el clip. Ahora
+##      el lock se DERIVA de la tabla del pack y la puerta exige que coincida
+##      con el valor derivado.
+##   3. Un intento de carga fallido dejaba al zombi con el cubo PARA SIEMPRE
+##      (el latch `_skin_attempted`): ahora `_process()` reintenta el mismo
+##      directorio con cooldown y backoff compartidos por ruta.
+##   4. El cadaver se quedaba congelado en el tinte rojo del golpe: al morir,
+##      `_physics_process` se desactiva y `_update_flash()` ya no restaura el
+##      tinte blanco.
+func _adversarial_contract_checks() -> void:
+	await _generator_runtime_cross_check()
+	await _hit_lock_derivation_check()
+	await _failed_load_retry_check()
+	await _death_tint_check()
+
+
+## 1. Generador <-> runtime: la tabla del generador no puede quedar muerta.
+func _generator_runtime_cross_check() -> void:
+	var source: String = ""
+	if FileAccess.file_exists(GEN_ZOMBIE_SKIN):
+		source = FileAccess.get_file_as_string(GEN_ZOMBIE_SKIN)
+	_check(not source.is_empty(),
+		"contrato: se puede leer %s" % GEN_ZOMBIE_SKIN)
+	if source.is_empty():
+		return
+	# El parser se acota al BLOQUE `SKIN_ANIMS`: buscar en todo el fichero
+	# permitiría que otro diccionario con la misma forma contaminase la
+	# puerta. El bloque tiene que contener exactamente ocho clips y ocho
+	# claves únicas.
+	var block_start: int = source.find("SKIN_ANIMS = {")
+	var block_end: int = source.find("\n}\n", block_start)
+	_check(block_start >= 0 and block_end > block_start,
+		"contrato: el generador tiene un bloque SKIN_ANIMS delimitado")
+	if block_start < 0 or block_end <= block_start:
+		return
+	var skin_anims_block: String = source.substr(block_start, block_end - block_start)
+	var regex := RegEx.new()
+	# "walk": ("walk", (0, 1, 2, 3, 1), 8.0, True),
+	var compiled: Error = regex.compile(
+		"\"([a-z_]+)\"\\s*:\\s*\\(\"([a-z_]+)\"\\s*,\\s*\\(([^)]*)\\)\\s*,"
+		+ "\\s*([0-9]+(?:\\.[0-9]+)?)\\s*,\\s*(True|False)\\)")
+	_check(compiled == OK, "contrato: la tabla SKIN_ANIMS del generador es legible")
+	if compiled != OK:
+		return
+	var matches: Array[RegExMatch] = regex.search_all(skin_anims_block)
+	_check(matches.size() == 8,
+		"contrato: SKIN_ANIMS tiene exactamente 8 animaciones (%d)" % matches.size())
+	var unique_keys: Dictionary = {}
+	for match in matches:
+		unique_keys[match.get_string(1)] = true
+	_check(unique_keys.size() == 8,
+		"contrato: SKIN_ANIMS tiene exactamente 8 claves únicas (%d)" % unique_keys.size())
+	var runtime_table: Dictionary = ZombieVisual.SKIN_ANIMATIONS
+	var seen: Array[String] = []
+	for match in matches:
+		var pack_anim: String = match.get_string(1)
+		var canonical: String = match.get_string(2)
+		var poses: Array[String] = []
+		for pose: String in match.get_string(3).split(",", false):
+			var trimmed: String = pose.strip_edges()
+			if not trimmed.is_empty():
+				poses.append(trimmed)
+		var fps: float = float(match.get_string(4))
+		var loop: bool = match.get_string(5) == "True"
+		seen.append(pack_anim)
+		if not runtime_table.has(pack_anim):
+			_check(false, "contrato: el runtime no declara el clip '%s' del generador"
+				% pack_anim)
+			continue
+		var spec: Dictionary = runtime_table[pack_anim] as Dictionary
+		_check(String(spec.get("canonical", "")) == canonical,
+			"contrato: '%s' mapea a la misma animacion canonica (generador '%s' vs runtime '%s')"
+				% [pack_anim, canonical, String(spec.get("canonical", ""))])
+		_check(int(spec.get("count", -1)) == poses.size(),
+			"contrato: '%s' tiene los mismos frames (generador %d vs runtime %d)"
+				% [pack_anim, poses.size(), int(spec.get("count", -1))])
+		_check(is_equal_approx(float(spec.get("fps", -1.0)), fps),
+			"contrato: '%s' usa los mismos fps (generador %.1f vs runtime %.1f)"
+				% [pack_anim, fps, float(spec.get("fps", -1.0))])
+		_check(bool(spec.get("loop", not loop)) == loop,
+			"contrato: '%s' tiene el mismo bucle (generador %s vs runtime %s)"
+				% [pack_anim, str(loop), str(bool(spec.get("loop", false)))])
+	for pack_anim in runtime_table.keys():
+		_check(seen.has(String(pack_anim)),
+			"contrato: el generador declara el clip '%s' que usa el runtime"
+				% String(pack_anim))
+
+
+## 2. El lock del golpe se deriva del pack (no es un literal que puede quedar
+##    corto si el arte cambia).
+func _hit_lock_derivation_check() -> void:
+	var runtime_table: Dictionary = ZombieVisual.SKIN_ANIMATIONS
+	var hit_count: int = 0
+	var hit_fps: float = 0.0
+	for pack_anim in runtime_table.keys():
+		var spec: Dictionary = runtime_table[pack_anim] as Dictionary
+		if String(spec.get("canonical", "")) != "hit":
+			continue
+		hit_count = int(spec.get("count", 0))
+		hit_fps = float(spec.get("fps", 0.0))
+		break
+	_check(hit_count > 0 and hit_fps > 0.0,
+		"lock hit: la tabla del pack declara el clip 'hit' (%d frames a %.1f fps)"
+			% [hit_count, hit_fps])
+	if hit_count <= 0 or hit_fps <= 0.0:
+		return
+	var clip_duration: float = float(hit_count) / hit_fps
+	var expected: float = clip_duration * HIT_LOCK_MARGIN
+	var zombie: Node = await _instantiate_zombie()
+	if zombie == null:
+		_check(false, "lock hit: se puede instanciar un zombi")
+		return
+	var visual: Node = zombie.get_node_or_null("ZombieVisual")
+	if visual == null:
+		_check(false, "lock hit: el zombi tiene ZombieVisual")
+		return
+	var derived: float = -1.0
+	if visual.has_method("hit_lock_duration"):
+		derived = float(visual.call("hit_lock_duration"))
+	_check(is_equal_approx(derived, expected),
+		"lock hit: la duracion se DERIVA de la tabla (esperado %.3f s, obtenido %.3f s)"
+			% [expected, derived])
+	visual.call("play_hit")
+	var timer: float = float(visual.get("_hit_timer"))
+	# La puerta exige el lock DERIVADO (clip x margen), no solo que no sea
+	# menor que el clip: con un literal de exactamente la duracion del clip
+	# (0,2 s = 2 frames a 10 fps) el lock se agotaba EN EL MISMO INSTANTE
+	# que terminaba el clip y lo cortaba (revision adversarial de R2, B2).
+	# Con esta comprobacion, el literal 0,2 s falla.
+	_check(timer >= expected - 0.001,
+		"lock hit: el lock (%.3f s) cubre el clip con margen (%.3f s = %.3f s x %.1f)"
+			% [timer, expected, clip_duration, HIT_LOCK_MARGIN])
+
+	# El cubo no reproduce un clip de skin: conserva el lock corto historico.
+	# El lock derivado (0,3 s con el pack actual) solo pertenece a la ruta con
+	# skin; aplicarlo al cubo cambia su game feel sin necesidad.
+	var fallback_dir: String = "res://assets/enemies/NO_EXISTE_LOCK/"
+	visual.call("install_skin", fallback_dir)
+	_check(not bool(visual.call("uses_skin")),
+		"lock hit: la ruta de fallback usa el cubo")
+	visual.call("play_hit")
+	var cube_timer: float = float(visual.get("_hit_timer"))
+	_check(is_equal_approx(cube_timer, HIT_FALLBACK),
+		"lock hit: el cubo conserva HIT_FALLBACK=%.1f s (obtenido %.3f s)"
+			% [HIT_FALLBACK, cube_timer])
+
+
+## 3. Una carga fallida se reintenta en el ciclo de vida real, con cooldown
+##    compartido por directorio. No basta con que `set_type()` lo intente: esa
+##    llamada solo ocurre al aplicar el tipo y no vuelve durante el juego.
+func _failed_load_retry_check() -> void:
+	var zombie: Node = await _instantiate_zombie()
+	if zombie == null:
+		_check(false, "reintento: se puede instanciar un zombi")
+		return
+	var visual: Node = zombie.get_node_or_null("ZombieVisual")
+	if visual == null:
+		_check(false, "reintento: el zombi tiene ZombieVisual")
+		return
+	if not visual.has_method("skin_load_attempts") \
+			or not visual.has_method("skin_attempted_dir"):
+		_check(false, "reintento: ZombieVisual expone skin_load_attempts() y skin_attempted_dir()")
+		return
+
+	# Dos zombis usan la MISMA ruta rota. El cooldown es compartido por ruta:
+	# cuando venza, solo uno reclama el intento para no montar una estampida.
+	var second_zombie: Node = await _instantiate_zombie()
+	var second_visual: Node = null
+	if second_zombie != null:
+		second_visual = second_zombie.get_node_or_null("ZombieVisual")
+	if second_visual == null:
+		_check(false, "reintento: se puede instanciar un segundo zombi")
+		return
+	if not second_visual.has_method("skin_load_attempts") \
+			or not second_visual.has_method("skin_attempted_dir"):
+		_check(false, "reintento: el segundo ZombieVisual expone las APIs públicas")
+		return
+
+	var bad_dir: String = "res://assets/enemies/NO_EXISTE_R3/"
+	visual.call("install_skin", bad_dir)
+	second_visual.call("install_skin", bad_dir)
+	var first_before: int = int(visual.call("skin_load_attempts"))
+	var second_before: int = int(second_visual.call("skin_load_attempts"))
+	_check(first_before > 0 and second_before > 0,
+		"reintento: los intentos fallidos quedan registrados via API publica (%d, %d)"
+			% [first_before, second_before])
+	_check(String(visual.call("skin_attempted_dir")) == bad_dir
+			and String(second_visual.call("skin_attempted_dir")) == bad_dir,
+		"reintento: se conserva el directorio inyectado")
+
+	# NO se llama a `set_type()`: el reintento tiene que salir del ciclo de vida
+	# normal de `ZombieVisual._process()`.
+	await get_tree().create_timer(0.5).timeout
+	var first_after: int = int(visual.call("skin_load_attempts"))
+	var second_after: int = int(second_visual.call("skin_load_attempts"))
+	var delta: int = (first_after - first_before) + (second_after - second_before)
+	_check(delta == 1,
+		"reintento: _process reintenta automaticamente con cooldown compartido por ruta (delta=%d)"
+			% delta)
+	_check(String(visual.call("skin_attempted_dir")) == bad_dir
+			and String(second_visual.call("skin_attempted_dir")) == bad_dir,
+		"reintento: el directorio inyectado se conserva tras el reintento")
+
+	# Tras el intento, el backoff impide otra estampida en el frame siguiente.
+	await get_tree().process_frame
+	var first_next_frame: int = int(visual.call("skin_load_attempts"))
+	var second_next_frame: int = int(second_visual.call("skin_load_attempts"))
+	_check(first_next_frame == first_after and second_next_frame == second_after,
+		"reintento: el backoff evita repetir el intento en el frame siguiente")
+
+
+## 4. El cadaver no conserva el tinte rojo del golpe.
+func _death_tint_check() -> void:
+	var zombie: Node = await _instantiate_zombie()
+	if zombie == null:
+		_check(false, "cadaver: se puede instanciar un zombi")
+		return
+	var visual: Node = zombie.get_node_or_null("ZombieVisual")
+	_check(visual != null and bool(visual.call("uses_skin")),
+		"cadaver: el zombi de la prueba usa la skin (el defecto solo se ve con skin)")
+	zombie.call("take_damage", 10000.0, null, 0)
+	var tint: Color = zombie.modulate
+	_check(_color_close(tint, Color.WHITE, 0.001),
+		"cadaver: al morir se restaura el tinte (modulate=%s, se esperaba blanco)"
+			% str(tint))
 
 
 ## ---------------------------------------------------------------------------

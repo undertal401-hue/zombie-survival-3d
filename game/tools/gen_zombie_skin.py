@@ -81,17 +81,8 @@ SKIN_ANIMS = {
     "special": ("hurt", (0, 1, 2, 3), 10.0, False),
 }
 
-# Mapa pack -> nombres canonicos que usa el runtime (ZombieVisual).
-CANONICAL_MAP = {
-    "idle": "idle",
-    "walk": "walk",
-    "walk_alt": "run",
-    "attack": "attack",
-    "attack_alt": "hit",
-    "rise": "crawl",
-    "death": "death",
-    "special": "hurt",
-}
+# El nombre canonico vive en la propia tupla `SKIN_ANIMS`; no se mantiene un
+# segundo mapa pack -> runtime que pueda quedar desincronizado en silencio.
 
 # Par de color del zombi: mismo triple que `zombie_walker.png`.
 TRIPLE = ZOMBIE_TRIPLES["walker"]

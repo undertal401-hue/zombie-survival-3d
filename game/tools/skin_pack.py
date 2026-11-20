@@ -30,6 +30,7 @@ Solo stdlib (zlib + struct), igual que `tools/gen_art.py`.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import struct
 import sys
@@ -886,6 +887,16 @@ def _tree_files(root: str) -> list:
     return found
 
 
+def _tree_digest(root: str) -> dict:
+    """Huella del contenido de un arbol (ruta relativa -> SHA-256)."""
+    digest = {}
+    for path in sorted(_tree_files(root)):
+        with open(path, "rb") as handle:
+            digest[os.path.relpath(path, root)] = hashlib.sha256(
+                handle.read()).hexdigest()
+    return digest
+
+
 def selftest() -> int:
     """Autopruebas del importador y del auditor (puerta de CI).
 
@@ -898,7 +909,11 @@ def selftest() -> int:
          traceback de `struct.error`;
       4. `audit` de un pack estructuralmente invalido devuelve rc=1;
       5. un pack valido se importa con rc=0 (si no, los rechazos de 1 y 2
-         serian verdes triviales).
+         serian verdes triviales);
+      6. el destino NO puede ser el propio pack de origen: con `--out` igual
+         a la entrada, el importador normalizaba los frames EN EL SITIO
+         (rellenaba los vacios, cuantizaba la paleta y perdia los anchos
+         originales) de forma irreversible.
     """
     failures = []
     with tempfile.TemporaryDirectory(prefix="skinpack_selftest_") as temporary:
@@ -979,6 +994,26 @@ def selftest() -> int:
             failures.append("audit de un pack vacio debe devolver rc=1 "
                             "(devolvio %d)" % code)
 
+        # 6. El destino no puede ser el propio pack de origen: importando
+        #    sobre el, el importador reescribia la entrada (rellenaba los
+        #    frames vacios y cuantizaba la paleta) y el resultado era
+        #    IRREVERSIBLE.
+        source_pack = os.path.join(root, "pack_source")
+        _write_synthetic_pack(source_pack)
+        before = _tree_digest(source_pack)
+        if any(len(digest) != 64 for digest in before.values()):
+            failures.append("la huella del arbol debe usar SHA-256 (64 hex)")
+        code = import_pack(source_pack, source_pack)
+        if code != 2:
+            failures.append("importar sobre el propio pack de origen debe "
+                            "rechazarse (rc=2, hubo %d)" % code)
+        after = _tree_digest(source_pack)
+        if before != after:
+            changed = sorted(set(before) ^ set(after)) or \
+                sorted(k for k in before if before[k] != after.get(k))
+            failures.append("importar sobre el propio pack de origen lo "
+                            "modifico: %s" % changed[:8])
+
     print("SKIN_PACK_SELFTEST failures=%d" % len(failures))
     for failure in failures:
         print("  - %s" % failure)
@@ -1046,6 +1081,15 @@ def import_pack(pack_dir: str, out_dir: str | None, force: bool = False) -> int:
         return 2
 
     out_dir = os.path.abspath(os.path.expanduser(out_dir))
+    pack_dir = os.path.abspath(os.path.expanduser(pack_dir))
+    # El destino NO puede ser el propio pack de origen: con `--out` igual a
+    # la entrada, el importador normalizaba los frames EN EL SITIO (rellenaba
+    # los vacios, cuantizaba la paleta y perdia los anchos originales) de
+    # forma IRREVERSIBLE. Se rechaza siempre, con o sin `--force`.
+    if os.path.realpath(out_dir) == os.path.realpath(pack_dir):
+        print("ERROR: el destino es el propio pack de origen (%s); la "
+              "importacion destruiria la entrada. Usa otro --out." % pack_dir)
+        return 2
     if _is_within(out_dir, SKIN_DIR) and not force:
         print("ERROR: no se puede escribir en el pack canonico %s sin --force" %
               SKIN_DIR)

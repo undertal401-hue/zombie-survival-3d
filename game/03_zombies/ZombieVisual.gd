@@ -58,8 +58,17 @@ const ATTACK_FALLBACK: float = 0.5
 ## que interrumpir. Con skin, `play_hit()` reproduce un clip real y el
 ## `update_state()` del siguiente frame fisico lo pisaba con idle/walk/run:
 ## el golpe se veia UN solo frame. El lock mantiene el clip visible.
+##
+## El lock NO es un literal: se DERIVA de la duracion del clip `hit` del
+## pack (`count / fps`) con un margen. Con un literal (0,2 s) solo coincidia
+## por casualidad con el clip actual (2 frames a 10 fps): si el arte
+## cambiaba, el lock podia cortar el clip antes de terminar, y ninguna
+## puerta lo detectaba (revision adversarial de R2, enmienda de ADR-005).
 var _hit_timer: float = 0.0
 const HIT_FALLBACK: float = 0.2
+## Margen del lock sobre la duracion del clip. Es parte del contrato: lo
+## exige `ZombieSkinTest` (y su control negativo).
+const HIT_LOCK_MARGIN: float = 1.5
 
 ## Tipos de zombi (coincide con Zombie.Kind).
 ## R3 (ADR-006): solo hay UN arquetipo. BOSS es el perfil "Tanque Alfa" del
@@ -129,8 +138,10 @@ const CUBE_SPRITE_OFFSET: Vector2 = Vector2(0.0, 8.0)
 
 ## z_index de la sprite con la presentacion en cubo (el de la escena). Con
 ## skin baja a 0: el zombi debe ordenarse en profundidad igual que el cubo de
-## los demas tipos, si no el WALKER pasaria por DELANTE del vehiculo (z=4)
-## y los otros zombis por detras.
+## los demas tipos. La escena lo ponia en 5, que es el z FINAL del sprite del
+## vehiculo (`DriveableVehicle.tscn`: root `z_index = 4` + sprite `z_index = 1`
+## con `z_as_relative`), asi que a 5 el WALKER EMPATABA con el vehiculo y el
+## orden de dibujo dependia del arbol; con 0 queda inequivocamente detras.
 const CUBE_SPRITE_Z_INDEX: int = 5
 const SKIN_Z_INDEX: int = 0
 
@@ -139,6 +150,12 @@ var _use_skin: bool = false
 var _skin_ready: bool = false
 var _skin_attempted: bool = false
 var _skin_atlas: Dictionary = {}
+## Directorio del ULTIMO intento de carga. Se recuerda para poder reintentarlo
+## (una carga fallida no se cachea) sin romper la inyeccion de rutas.
+var _skin_attempted_dir: String = ""
+## Numero de intentos de carga: lo expone `skin_load_attempts()` y lo exige
+## `ZombieSkinTest` (una carga fallida no puede cegar al zombi para siempre).
+var _skin_attempts: int = 0
 
 ## Ultimo tipo aplicado por `set_type()`. Lo necesita `install_skin()` para
 ## saber si al terminar de cargar el pack debe ACTIVAR la skin o dejar al
@@ -148,6 +165,14 @@ var _current_type: int = ZombieType.WALKER
 ## Cache de texturas por directorio: las 8 texturas se cargan UNA vez por
 ## proceso, no una por zombi (un zombie cada vez es una escena distinta).
 static var _skin_cache: Dictionary = {}
+
+## Reintento de skin fallida, compartido por directorio. Cada entrada guarda
+## el instante del proximo intento, el numero de fallos y el backoff actual.
+## El diccionario es estatico para que una horda no haga N cargas identicas
+## al vencer el mismo cooldown.
+const SKIN_RETRY_BASE_MS: int = 250
+const SKIN_RETRY_MAX_MS: int = 5000
+static var _skin_retry_after: Dictionary = {}
 
 ## Orientacion de la sprite (arte cenital): gira hacia la direccion de
 ## marcha. El cubo lo rota Zombie.gd; la sprite lo rota este nodo.
@@ -219,6 +244,8 @@ func _ready() -> void:
 ## sin depender de que nadie llame a `set_type()` otra vez.
 func install_skin(base_dir: String = SKIN_DIR) -> bool:
 	_skin_attempted = true
+	_skin_attempted_dir = base_dir
+	_skin_attempts += 1
 	if animated_sprite == null:
 		_skin_ready = false
 		_use_skin = false
@@ -228,15 +255,87 @@ func install_skin(base_dir: String = SKIN_DIR) -> bool:
 	_skin_atlas = atlas
 	_skin_ready = not atlas.is_empty()
 	if _skin_ready:
+		# Una carga correcta cierra cualquier reintento pendiente de ESA ruta.
+		_skin_retry_after.erase(base_dir)
 		_install_skin_frames()
 		_use_skin = USE_SPRITE_ART and SKIN_TYPES.has(_current_type)
 	else:
 		# Pack ausente o incompleto: se limpian los frames para que no
-		# quede media skin colgada y el zombi vuelve al cubo.
+		# quede media skin colgada y el zombi vuelve al cubo. La ruta entra en
+		# cooldown; `_process()` la reintentara con backoff cuando venza.
+		_register_skin_retry(base_dir)
 		_clear_skin_frames()
 		_use_skin = false
 	_apply_presentation()
 	return _skin_ready
+
+
+## Registra el fallo de una ruta y abre/renueva su cooldown. El primer fallo
+## espera `SKIN_RETRY_BASE_MS`; los siguientes duplican el backoff hasta el
+## tope. Una llamada explicita a `install_skin()` puede ocurrir antes de que
+## venza el cooldown: cuenta como un intento manual, pero no reinicia el reloj
+## ni permite una rafaga de reintentos automaticos.
+func _register_skin_retry(base_dir: String) -> void:
+	if base_dir.is_empty():
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	var entry_value: Variant = _skin_retry_after.get(base_dir, {})
+	if entry_value is Dictionary:
+		var entry: Dictionary = entry_value
+		if not entry.is_empty():
+			if now_ms >= int(entry.get("retry_at_ms", 0)):
+				_advance_skin_retry(base_dir, entry)
+			return
+	_skin_retry_after[base_dir] = {
+		"retry_at_ms": now_ms + SKIN_RETRY_BASE_MS,
+		"failures": 1,
+		"delay_ms": SKIN_RETRY_BASE_MS,
+	}
+
+
+## Reclama un intento automatico vencido. Devuelve false si otra instancia ya
+## reclamo la misma ruta en este frame (el cooldown es compartido).
+func _advance_skin_retry(base_dir: String, entry: Dictionary) -> bool:
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms < int(entry.get("retry_at_ms", 0)):
+		return false
+	var failures: int = int(entry.get("failures", 1)) + 1
+	var delay_ms: int = mini(int(entry.get("delay_ms", SKIN_RETRY_BASE_MS)) * 2,
+		SKIN_RETRY_MAX_MS)
+	entry["failures"] = failures
+	entry["delay_ms"] = delay_ms
+	entry["retry_at_ms"] = now_ms + delay_ms
+	_skin_retry_after[base_dir] = entry
+	return true
+
+
+## Barrido de reintentos en el ciclo de vida real. No depende de otra llamada
+## a `set_type()`: cada `ZombieVisual` revisa la ruta que le fallo y, cuando
+## vence su cooldown compartido, intenta cargarla de nuevo.
+func _process_skin_retry() -> void:
+	if _is_dying or animated_sprite == null or not _skin_attempted \
+			or _skin_ready or _skin_attempted_dir.is_empty():
+		return
+	if not USE_SPRITE_ART or not SKIN_TYPES.has(_current_type):
+		return
+	var base_dir: String = _skin_attempted_dir
+	# Otra instancia puede haber cargado la ruta con exito: el cache permite
+	# recuperar esta presentacion sin tocar disco.
+	if _skin_cache.has(base_dir):
+		install_skin(base_dir)
+		return
+	for candidate: Variant in _skin_retry_after.keys():
+		var route: String = String(candidate)
+		if route != base_dir:
+			continue
+		var entry_value: Variant = _skin_retry_after.get(route, {})
+		if not (entry_value is Dictionary):
+			continue
+		var entry: Dictionary = entry_value
+		if not _advance_skin_retry(route, entry):
+			break
+		install_skin(route)
+		break
 
 ## Atlas de celdas por animacion canonica. Cacheado por ruta: las texturas se
 ## cargan una sola vez por proceso, no una por zombi.
@@ -321,6 +420,17 @@ func has_skin() -> bool:
 func uses_skin() -> bool:
 	return _use_skin
 
+
+## Numero de intentos de carga del pack en ESTA instancia. Lo expone para
+## que las puertas puedan exigir que un fallo de carga se reintente.
+func skin_load_attempts() -> int:
+	return _skin_attempts
+
+
+## Directorio del ultimo intento de carga (util para diagnostico).
+func skin_attempted_dir() -> String:
+	return _skin_attempted_dir
+
 ## --- Animaciones ---------------------------------------------------------------
 
 ## (Re)crea las 8 animaciones canonicas. `atlas` vacio = presentacion con
@@ -373,6 +483,7 @@ func _apply_presentation() -> void:
 	_capture_cube_base_scales()
 
 func _process(delta: float) -> void:
+	_process_skin_retry()
 	if _attack_timer > 0.0:
 		_attack_timer = maxf(_attack_timer - delta, 0.0)
 		if _attack_timer <= 0.0 and _is_attacking:
@@ -406,6 +517,10 @@ func set_type(type: int) -> void:
 	_use_skin = USE_SPRITE_ART and SKIN_TYPES.has(type)
 	if _use_skin and not _skin_attempted:
 		install_skin()
+	# Si el intento inicial fallo, NO se reintenta aqui: `set_type()` solo se
+	# ejecuta al aplicar el tipo y saltarse el cooldown permitiria una rafaga.
+	# `_process_skin_retry()` conserva la ruta inyectada y reintenta con
+	# backoff cuando vence el cooldown compartido por directorio.
 	_use_skin = _use_skin and _skin_ready
 	# Ajustar velocidades y escala según tipo (el cubo lo tinte Zombie.gd).
 	# Sin `AnimatedSprite2D` no hay nada que presentar: el cubo se queda y el
@@ -737,8 +852,24 @@ func play_hit() -> void:
 	squash(0.78, 0.14)
 	if animated_sprite != null:
 		animated_sprite.play("hit")
-	_hit_timer = HIT_FALLBACK
+	_hit_timer = hit_lock_duration() if _use_skin else HIT_FALLBACK
 	_current_state = ""
+
+
+## Duracion del lock del golpe, DERIVADA de la tabla del pack: la duracion
+## del clip `hit` es `count / fps` y el lock la cubre con `HIT_LOCK_MARGIN`.
+## Si el arte cambia, el lock cambia con el (no queda corto y corta el clip).
+func hit_lock_duration() -> float:
+	for pack_anim in SKIN_ANIMATIONS.keys():
+		var spec: Dictionary = SKIN_ANIMATIONS[pack_anim] as Dictionary
+		if String(spec.get("canonical", "")) != "hit":
+			continue
+		var count: int = int(spec.get("count", 0))
+		var fps: float = float(spec.get("fps", 0.0))
+		if count > 0 and fps > 0.0:
+			return (float(count) / fps) * HIT_LOCK_MARGIN
+	# Fallback: sin tabla utilizable se conserva el valor historico.
+	return HIT_FALLBACK
 
 func play_death() -> void:
 	# La muerte es la dueña del estado visual: si el zombi muere durante una

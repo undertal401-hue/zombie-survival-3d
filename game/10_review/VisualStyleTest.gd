@@ -39,6 +39,7 @@ const PLAYER_VISUAL: String = "res://02_player/PlayerVisual.gd"
 const ZOMBIE_VISUAL: String = "res://03_zombies/ZombieVisual.gd"
 const SOLAR_LIGHTING: String = "res://08_ui/SolarLighting.gd"
 const SOLAR_SCENE: String = "res://08_ui/SolarLighting.tscn"
+const ADR_005_RELATIVE: String = "docs/adr/0005-hybrid-zombie-sprite-presentation.md"
 
 ## Hojas del banco de arte tras R3: el jugador, el caminante, el jefe, los
 ## efectos y los tiles. Los sheets de los arquetipos eliminados se retiraron.
@@ -79,6 +80,7 @@ func _read(path: String) -> String:
 func _ready() -> void:
 	await get_tree().process_frame
 	_bible_checks()
+	_adr_005_amendment_checks()
 	_generator_checks()
 	_asset_checks()
 	_player_inst = _instantiate(PLAYER_SCENE)
@@ -105,14 +107,36 @@ func _bible_checks() -> void:
 	var text: String = _read(ART_BIBLE)
 	_check(FileAccess.file_exists(ART_BIBLE),
 		"existe assets/art/ART_BIBLE.md (banco de arte futuro)")
-	_check(text.contains("32"),
-		"ART_BIBLE.md documenta sprites de 32 px")
+	# La comprobacion anterior era TAUTOLOGICA: `text.contains("32")` la
+	# cumplia cualquier fichero que contuviera un "32" (un año, un color, un
+	# id). Ahora se exige la frase CON su unidad.
+	_check(text.contains("32×32") or text.contains("32 px") or text.contains("32x32"),
+		"ART_BIBLE.md documenta los sprites de 32 px con su unidad")
 	var hex_lines: int = 0
 	for line in text.split("\n"):
 		if _has_hex_color(line):
 			hex_lines += 1
 	_check(hex_lines >= 16,
 		"ART_BIBLE.md contiene paleta de 16 colores (líneas hexadecimal): %d" % hex_lines)
+
+
+## La enmienda del hotfix R2 se anade como SECCION NUEVA: no reescribe en
+## silencio el texto original de ADR-005 ni su invariante 13.
+func _adr_005_amendment_checks() -> void:
+	var game_root: String = ProjectSettings.globalize_path("res://").trim_suffix("/")
+	var repo_root: String = game_root.get_base_dir()
+	var adr_path: String = repo_root.path_join(ADR_005_RELATIVE)
+	var text: String = _read(adr_path)
+	_check(FileAccess.file_exists(adr_path),
+		"ADR-005: existe la enmienda R2 del hotfix")
+	_check(text.contains("## Enmienda R2"),
+		"ADR-005: la enmienda R2 figura como seccion nueva")
+	_check(text.contains("§5") and text.contains("Invariante 13"),
+		"ADR-005: la enmienda identifica §5 y la Invariante 13")
+	_check(text.contains("count / fps * 1.5"),
+		"ADR-005: la enmienda declara el lock con skin derivado count / fps * 1.5")
+	_check(text.to_lower().contains("lock del cubo") and text.contains("0.2 s"),
+		"ADR-005: la enmienda conserva el lock del cubo en 0.2 s")
 
 
 func _has_hex_color(line: String) -> bool:
