@@ -2,9 +2,10 @@
 
 ## `zoimbie1_hold.png`
 
-- **Qué es**: el sprite cenital de zombi (35×43 px, 235 colores, con
-  transparencia) entregado por el autor en la carpeta de Descargas. Procede del
-  build Unity de `this-world-definitely-need-a-hero-but-you-are-just-a-spear`
+- **Qué es**: el sprite cenital de zombi (35×43 px, 235 combinaciones RGBA —
+  191 colores RGB distintos—, con transparencia) entregado por el autor en la
+  carpeta de Descargas. Procede del build Unity de
+  `this-world-definitely-need-a-hero-but-you-are-just-a-spear`
   y es la **única** `Texture2D`/`Sprite` de zombi que contiene ese juego.
 - **SHA-256**: `61df3e84c18409b698b56273a0bd014f86a23dc5622380d5d10b82124afff84e`.
   `tools/gen_zombie_skin.py` lo fija: si el fichero cambia, `--check` falla.

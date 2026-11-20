@@ -176,6 +176,13 @@ como un zombi que se levanta y se tumba sin parar, no como un arrastre. El
 generador canónico dibuja por tanto la pose baja de `crawl` con un bob
 vertical sutil de 1 px lógico por frame.
 
+> **Enmienda R4 (ADR-007).** La frase anterior describe cómo se implementaba
+> el clip cuando el pack se dibujaba de forma procedural. Desde R4 el pack se
+> deriva del sprite real del autor: `rise` **ya no es una pose dibujada**, sino
+> la base real comprimida al **55 %** de su altura y anclada abajo, con un bob
+> entero de ±1 px. El resto de §3.1 (recuento, fps, bucle, acción canónica
+> `crawl`) sigue vigente sin cambios.
+
 ### 4. Fallback seguro al cubo
 
 Si falta el pack, falta uno de sus strips, la carga no puede completarse o **las

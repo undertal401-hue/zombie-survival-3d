@@ -5,9 +5,12 @@
 - **Deciders**: Lead Orchestrator + subagentes ECC
 - **Technical Story**: Ronda R4 de corrección de la presentación de zombis
 - **Amends**: [ADR-005](0005-hybrid-zombie-sprite-presentation.md) §2
-  («El skin se genera con el pipeline canónico del repositorio») **solo en la
-  fuente de los píxeles**. El contrato de celda 64×64, PPU 64, pivot, ancla
-  global, ocho clips, fallback al cubo y allowlist WALKER/BOSS sigue vigente.
+  («El skin se genera con el pipeline canónico del repositorio») **en la
+  fuente de los píxeles**, y §3.1 **en la descripción de implementación de
+  `rise`** (de «pose baja dibujada con bob de 1 px lógico» a «base real
+  comprimida al 55 % con bob entero de ±1 px»). El contrato de celda 64×64,
+  PPU 64, pivot, ancla global, ocho clips, fallback al cubo y allowlist
+  WALKER/BOSS sigue vigente.
 - **Related**: [ADR-001](0001-pixel-art-pipeline.md) (paleta canónica de 16
   colores y pipeline determinista), [ADR-006](0006-walker-only-roster-bounded-sun-shadows-and-detection.md)
   (roster de un solo arquetipo).
@@ -27,7 +30,8 @@ El build de Unity que el usuario tenía en Descargas
 (`this-world-definitely-need-a-hero-but-you-are-just-a-spear-linux-universal.zip`)
 se extrajo y se inventarió con UnityPy. Contiene **un solo** `Texture2D`/
 `Sprite` de zombi: `zoimbie1_hold`, de **35×43 px**, con transparencia y 235
-colores. No hay frames de animación oficiales que extraer: el juego original
+combinaciones RGBA (191 colores RGB distintos). No hay frames de animación
+oficiales que extraer: el juego original
 anima a sus actores con transforms, no con una hoja de sprites.
 
 El pack que el runtime estaba mostrando se dibujaba con `draw_humanoid` del
@@ -111,7 +115,43 @@ de presentación.
   `tools/art_source/zoimbie1_hold.png` hace fallar `gen_zombie_skin.py
   --check` con el diagnóstico de SHA-256; restaurar el byte devuelve rc=0.
 
-### 5.1 Endurecimiento de la ingesta
+#### 5.1 El pack está ligado a los píxeles de la fuente (no solo a su hash)
+
+Un hash demuestra que el **fichero** es el esperado, pero no que el **pack**
+salga de sus píxeles: un generador que comprobase el hash y luego dibujara un
+humanoide procedural pasaría todas las puertas. Para cerrar ese hueco:
+
+- **Control de derivación** (`gen_zombie_skin.py --check`): el generador
+  perfora un píxel **interior** de la fuente (sin tocar la silueta, de modo que
+  el contrato sigue cumpliéndose; prueba varios candidatos y usa el primero
+  que deja la derivación válida) y exige que el pack **cambie**. Si la
+  derivación dejase de usar la fuente, la puerta falla con «la derivación NO
+  responde a los píxeles de la fuente». Reproducido neutralizando la
+  derivación en una copia del árbol: `FAIL control: la derivacion NO responde
+  a los pixeles de la fuente`, rc=1.
+- **Exigencia del marcador** (`ZombieSkinTest`): el arnés exige que la salida
+  de `--check` contenga el marcador del control, de modo que el control no
+  pueda desaparecer en silencio.
+- **Poses vivas**: `SKIN_ANIMS` declara poses **ordinales** (0..n-1) y el
+  índice selecciona el movimiento; el generador rechaza una tabla no ordinal
+  y el arnés comprueba que cada token coincide con su posición.
+
+#### 5.2 Contrato único del pack
+
+Las reglas (celda, centrado, margen, paleta, semántica de `rise`, unión
+global) viven en **una sola** función, `skin_pack.validate_pack_contract()`,
+que consumen `skin_pack.py check` y `gen_zombie_skin.py`. Antes cada puerta
+tenía su copia y **ya habían divergido**: `skin_pack.py check` aceptaba un
+pack con `rise` a la misma altura que `walk` (RED reproducido:
+`SKIN_PACK_CHECK failures=0`), mientras la documentación atribuía esa
+comprobación a ambas puertas. Ahora la regla está en el `selftest` (casos 26 y
+27) y en el arnés de Godot.
+
+El generador, además, **falla cerrado**: si un píxel opaco caería fuera de la
+celda (al componer o al aplicar la traslación global) aborta en vez de
+recortarlo en silencio, porque un frame recortado rompería el ancla global.
+
+### 5.3 Endurecimiento de la ingesta
 
 La revisión de seguridad de la ronda detectó tres puntos medios y los tres
 quedan cerrados:
@@ -150,9 +190,10 @@ rechazó porque el usuario había pedido explícitamente **esa** textura.
 - La animación no es una animación oficial del juego de origen (no existe):
   es una derivación determinista documentada. Esto es una limitación conocida,
   no una regresión.
-- La fuente antialiasada y de 235 colores se reduce a 16 colores y a una
-  silueta binaria; el resultado es coherente con el resto del arte, pero no es
-  un calco pixel-perfect del PNG original.
+- La fuente antialiasada de **235 combinaciones RGBA (191 colores RGB
+  distintos)** se reduce a 16 colores y a una silueta binaria; el resultado es
+  coherente con el resto del arte, pero no es un calco pixel-perfect del PNG
+  original.
 - El coste de regeneración es despreciable (33 frames de 64×64 en Python puro).
 - Cualquier cambio futuro de la fuente exige actualizar el SHA-256, regenerar
   el pack y volver a pasar las tres puertas. Es intencional: impide que el

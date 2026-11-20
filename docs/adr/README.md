@@ -14,7 +14,7 @@ inmutable: para cambiar una decisión se crea un nuevo ADR que la reemplaza.
 | [ADR-004](0004-revert-presentation-and-real-lighting.md) | Reversión de la presentación e iluminación 2D real | accepted (parcialmente superseded por ADR-005) | 2026-11-20 |
 | [ADR-005](0005-hybrid-zombie-sprite-presentation.md) | Presentación híbrida de los zombis: skin de sprites para el rango bajo y cubo para los rangos altos | accepted (parcialmente superseded por ADR-006) | 2026-11-20 |
 | [ADR-006](0006-walker-only-roster-bounded-sun-shadows-and-detection.md) | Roster de un solo arquetipo, sombras solares acotadas y detección del jugador reforzada | accepted | 2026-11-20 |
-| [ADR-007](0007-zombie-skin-derived-from-real-sprite.md) | El skin del zombi se deriva del sprite cenital real del autor | accepted (enmienda ADR-005 §2) | 2026-11-20 |
+| [ADR-007](0007-zombie-skin-derived-from-real-sprite.md) | El skin del zombi se deriva del sprite cenital real del autor | accepted (enmienda ADR-005 §2 y §3.1) | 2026-11-20 |
 
 ## Notas de estado
 
@@ -51,12 +51,23 @@ inmutable: para cambiar una decisión se crea un nuevo ADR que la reemplaza.
   FX y la puerta determinista del banco de arte.
   **La iluminación nocturna, el faro y sus sombras reales no cambian**: es la
   restricción que el usuario puso expresamente.
-- **ADR-007** (R4) **enmienda ADR-005 §2 solo en la fuente de píxeles**. El
-  pack de 33 frames y 8 strips sigue cumpliendo celda 64×64, PPU 64, pivot
-  central, ancla global, paleta de 16 colores y fallback al cubo, pero ahora se
-  deriva del sprite cenital real `tools/art_source/zoimbie1_hold.png` (35×43,
-  SHA-256 fijado), no del humanoide procedural. El Unity de origen solo tiene
-  ese sprite: la animación es una derivación determinista documentada, no una
-  animación oficial.
+- **ADR-007** (R4) **enmienda ADR-005 §2 en la fuente de píxeles y §3.1 en la
+  descripción de `rise`**. El pack de 33 frames y 8 strips sigue cumpliendo
+  celda 64×64, PPU 64, pivot central, ancla global, paleta de 16 colores y
+  fallback al cubo, pero ahora se deriva del sprite cenital real
+  `tools/art_source/zoimbie1_hold.png` (35×43, SHA-256 fijado), no del
+  humanoide procedural; `rise` deja de ser una pose dibujada y pasa a ser la
+  base real comprimida al 55 %. El Unity de origen solo tiene ese sprite: la
+  animación es una derivación determinista documentada, no una animación
+  oficial.
+- **Contrato único del pack:** las reglas de celda, centrado, margen,
+  paleta, semántica de `rise` y unión global viven en **una sola** función,
+  `skin_pack.validate_pack_contract()`, que consumen tanto
+  `skin_pack.py check` como `gen_zombie_skin.py`. Antes cada puerta tenía su
+  copia y ya habían divergido: `skin_pack.py check` aceptaba un pack con el
+  arrastre a la altura de `walk` (RED reproducido: `failures=0`). Además,
+  `gen_zombie_skin.py --check` ejecuta un **control de derivación** que
+  perfora un píxel interior de la fuente y exige que el pack cambie: si el
+  generador volviera a dibujar un humanoide procedural, la puerta falla.
 - **ADR-002** y **ADR-003** no se ven afectados por ADR-004, ADR-005, ADR-006
   ni ADR-007: hit-stop y meta-árbol son mecánicas, no presentación.

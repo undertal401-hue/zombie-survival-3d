@@ -8,7 +8,8 @@ Produce el pack que consume el runtime:
     assets/enemies/zombie/<anim>_strip.png        strip horizontal uniforme
 
 FUENTE (ADR-007): el sprite cenital real que el autor entrego en Descargas,
-`zoimbie1_hold.png` (35x43, 235 colores, transparencia). El juego Unity de
+`zoimbie1_hold.png` (35x43, 235 combinaciones RGBA - 191 colores RGB -,
+transparencia). El juego Unity de
 origen solo contiene ESE sprite de zombi: no hay frames de animacion
 oficiales. El pack se DERIVA de el de forma determinista:
 
@@ -279,12 +280,91 @@ def _resize_nearest(width: int, height: int, pixels: bytes,
     return out_w, out_h, bytes(out)
 
 
-def build_base():
-    """Carga, orienta, cuantiza y escala la fuente a la base del pack."""
-    width, height, pixels = _read_source()
+def _derive_base(width: int, height: int, pixels: bytes):
+    """Orienta, cuantiza y escala unos pixeles de fuente a la base del pack.
+
+    Separado de `build_base` para que el control de derivacion pueda aplicar
+    la MISMA transformacion a una fuente mutada.
+    """
     width, height, pixels = _rotate_ccw(width, height, pixels)
     width, height, pixels = _quantize(width, height, pixels)
     return _resize_nearest(width, height, pixels, BASE_W, BASE_H)
+
+
+def build_base():
+    """Carga, orienta, cuantiza y escala la fuente a la base del pack."""
+    width, height, pixels = _read_source()
+    return _derive_base(width, height, pixels)
+
+
+def _mutated_source_candidates(width: int, height: int, pixels: bytes):
+    """Genera variantes de la fuente con UN pixel interior perforado.
+
+    El pixel elegido esta dentro de la silueta (no toca el bbox), de modo que
+    la mutacion cambia los pixeles del pack sin romper el contrato. Se
+    ofrecen VARIOS candidatos: si uno dejara la derivacion invalida (por
+    ejemplo, eliminando el ultimo pixel de un color), se prueba el siguiente
+    en vez de dar la puerta por rota.
+    """
+    data = bytearray(pixels)
+    opaque = []
+    for i in range(width * height):
+        if data[i * 4 + 3] >= ALPHA_THRESHOLD:
+            opaque.append(i)
+    if not opaque:
+        raise RuntimeError("la fuente no tiene pixeles opacos")
+    xs = [i % width for i in opaque]
+    ys = [i // width for i in opaque]
+    x0, x1 = min(xs), max(xs)
+    y0, y1 = min(ys), max(ys)
+    for i in opaque:
+        x = i % width
+        y = i // width
+        if x0 < x < x1 and y0 < y < y1:
+            mutated = bytearray(pixels)
+            mutated[i * 4:i * 4 + 4] = b"\x00\x00\x00\x00"
+            yield width, height, bytes(mutated)
+
+
+def control_derivacion_desde_pixeles() -> list[str]:
+    """Control NEGATIVO: los pixeles de la FUENTE mandan en el pack.
+
+    Si la derivacion dejase de usar la fuente (por ejemplo, volviendo al
+    humanoide procedural), mutar un pixel de la fuente no cambiaria el pack
+    y este control fallaria. Es la garantia permanente de que el pack que se
+    muestra es el arte pedido y no un dibujo cualquiera.
+    """
+    problems = []
+    width, height, pixels = _read_source()
+    base_real = _derive_base(width, height, pixels)
+    frames_real = None
+    base_changed = False
+    frames_changed = False
+    tried = 0
+    for mutated in _mutated_source_candidates(width, height, pixels):
+        tried += 1
+        if tried > 16:
+            break
+        base_mut = _derive_base(*mutated)
+        if base_mut == base_real:
+            continue
+        base_changed = True
+        try:
+            frames_mut = _frames_from_base(base_mut)
+        except RuntimeError:
+            # Este pixel deja la derivacion invalida: se prueba otro.
+            continue
+        if frames_real is None:
+            frames_real = _frames_from_base(base_real)
+        if frames_mut != frames_real:
+            frames_changed = True
+            break
+    if not base_changed:
+        problems.append("la derivacion NO responde a los pixeles de la fuente")
+    elif not frames_changed:
+        problems.append(
+            "los frames no cambian al cambiar los pixeles de la fuente")
+    return problems
 
 
 def _compose(base, dx: int, dy: int, scale_x: float, scale_y: float,
@@ -295,6 +375,10 @@ def _compose(base, dx: int, dy: int, scale_x: float, scale_y: float,
     if (out_w, out_h) != (width, height):
         width, height, pixels = _resize_nearest(
             width, height, pixels, out_w, out_h)
+    if width > CELL or height > CELL:
+        raise RuntimeError(
+            "el frame escalado (%dx%d) no cabe en la celda de %dx%d" %
+            (width, height, CELL, CELL))
     x = (CELL - width) // 2 + dx
     if bottom is None:
         y = (CELL - height) // 2 + dy
@@ -303,15 +387,17 @@ def _compose(base, dx: int, dy: int, scale_x: float, scale_y: float,
     out = bytearray(CELL * CELL * 4)
     for row in range(height):
         ty = y + row
-        if ty < 0 or ty >= CELL:
-            continue
         for col in range(width):
-            tx = x + col
-            if tx < 0 or tx >= CELL:
-                continue
             src = (row * width + col) * 4
             if pixels[src + 3] == 0:
                 continue
+            tx = x + col
+            # FAIL CLOSED: si un pixel opaco caeria fuera de la celda, el
+            # recorte perderia silueta en silencio y el frame dejaria de
+            # encajar en el ancla global. Se aborta el generador.
+            if ty < 0 or ty >= CELL or tx < 0 or tx >= CELL:
+                raise RuntimeError(
+                    "un pixel opaco caeria fuera de la celda (%d,%d)" % (tx, ty))
             dst = (ty * CELL + tx) * 4
             out[dst:dst + 4] = pixels[src:src + 4]
     return CELL, CELL, bytes(out)
@@ -321,13 +407,16 @@ def _shift(width: int, height: int, pixels: bytes, dx: int, dy: int):
     out = bytearray(width * height * 4)
     for y in range(height):
         ty = y + dy
-        if ty < 0 or ty >= height:
-            continue
         for x in range(width):
-            tx = x + dx
-            if tx < 0 or tx >= width:
-                continue
             src = (y * width + x) * 4
+            if pixels[src + 3] == 0:
+                continue
+            tx = x + dx
+            # FAIL CLOSED por el mismo motivo que en `_compose`.
+            if ty < 0 or ty >= height or tx < 0 or tx >= width:
+                raise RuntimeError(
+                    "la traslacion global (%d,%d) saca un pixel opaco de la celda"
+                    % (dx, dy))
             dst = (ty * width + tx) * 4
             out[dst:dst + 4] = pixels[src:src + 4]
     return width, height, bytes(out)
@@ -340,63 +429,27 @@ def _bbox(pixels: bytes):
 
 
 def _validate(frames):
-    """Exige el contrato completo ANTES de escribir o comparar."""
-    from skin_pack import LEGAL_CANONICAL
-    problems = []
-    boxes = {}
-    heights = {}
-    for rel, (_w, _h, pixels) in sorted(frames.items()):
-        bbox, colors = _bbox(pixels)
-        if bbox is None:
-            problems.append("%s vacio" % rel)
-            continue
-        boxes[rel] = bbox
-        heights[rel] = bbox[3] - bbox[1]
-        center_x = (bbox[0] + bbox[2]) / 2.0
-        if abs(center_x - CELL / 2.0) > 1.0:
-            problems.append("%s descentrado (centro_x=%.1f)" % (rel, center_x))
-        if CELL - bbox[3] < 2:
-            problems.append("%s sin margen inferior (%d)" % (rel, CELL - bbox[3]))
-        if len(colors) < 4:
-            problems.append("%s con menos de 4 colores (%d)" % (rel, len(colors)))
-        illegal = sorted(color for color in colors
-                         if color not in LEGAL_CANONICAL)
-        if illegal:
-            problems.append("%s con %d colores fuera de paleta" %
-                            (rel, len(illegal)))
-    if boxes:
-        walk_heights = [height for rel, height in heights.items()
-                        if rel.startswith("walk/")]
-        if walk_heights:
-            min_walk = min(walk_heights)
-            for rel, bbox in boxes.items():
-                if not rel.startswith("rise/"):
-                    continue
-                if heights[rel] >= min_walk:
-                    problems.append("%s no es mas bajo que walk" % rel)
-                if (bbox[1] + bbox[3]) / 2.0 < CELL / 2.0:
-                    problems.append("%s fuera de la mitad inferior" % rel)
-        union = (
-            min(b[0] for b in boxes.values()),
-            min(b[1] for b in boxes.values()),
-            max(b[2] for b in boxes.values()),
-            max(b[3] for b in boxes.values()),
-        )
-        center_x = (union[0] + union[2]) / 2.0
-        center_y = (union[1] + union[3]) / 2.0
-        if abs(center_x - CELL / 2.0) > 1.0 or \
-                abs(center_y - CELL / 2.0) > 1.0:
-            problems.append("union global descentrada (%.1f, %.1f)" %
-                            (center_x, center_y))
+    """Exige el contrato completo ANTES de escribir o comparar.
+
+    El contrato vive en `skin_pack.validate_pack_contract`: el generador y la
+    puerta del pack comparten la MISMA lista de reglas. Antes cada uno tenia
+    su copia y ya habian divergido (solo el generador comprobaba la
+    semantica de `rise`).
+    """
+    from skin_pack import validate_pack_contract
+    problems = validate_pack_contract(frames)
     if problems:
         raise RuntimeError(
             "el pack derivado incumple el contrato:\n  " + "\n  ".join(problems))
-    return boxes
 
 
 def build_frames():
     """Deriva todos los frames del pack -> {ruta_rel: (w, h, rgba)}."""
-    base = build_base()
+    return _frames_from_base(build_base())
+
+
+def _frames_from_base(base):
+    """Aplica los movimientos de `MOTION` a una base ya derivada."""
     composed = {}
     for anim in sorted(SKIN_ANIMS):
         _action, poses, _fps, _loop = SKIN_ANIMS[anim]
@@ -405,9 +458,16 @@ def build_frames():
             raise RuntimeError(
                 "%s: SKIN_ANIMS declara %d frames y MOTION %d" %
                 (anim, len(poses), len(motions)))
-        for idx, motion in enumerate(motions):
-            composed["%s/%s_%02d.png" % (anim, anim, idx + 1)] = _compose(
-                base, *motion)
+        # Las poses son ordinales REALES: el indice selecciona el movimiento.
+        # Si fueran metadatos muertos, cambiar (0, 1, 2, 3, 1) no cambiaria
+        # el pack y ninguna puerta lo detectaria.
+        if poses != tuple(range(len(poses))):
+            raise RuntimeError(
+                "%s: SKIN_ANIMS debe declarar poses ordinales 0..%d (tiene %s)"
+                % (anim, len(poses) - 1, poses))
+        for pose in poses:
+            composed["%s/%s_%02d.png" % (anim, anim, pose + 1)] = _compose(
+                base, *motions[pose])
 
     # Traslacion global: centra la UNION de todos los frames. Se aplica una
     # sola vez y a todos por igual; nunca se reencuadra un frame suelto.
@@ -491,7 +551,7 @@ def do_build() -> int:
 
 def do_check() -> int:
     """Puerta de CI: compara con disco y valida el contrato completo."""
-    from skin_pack import LEGAL_CANONICAL, pixel_stats, png_bytes, read_png
+    from skin_pack import png_bytes, read_png, validate_pack_contract
 
     frames, strips = outputs()
     bad = 0
@@ -550,33 +610,12 @@ def do_check() -> int:
             print("FAIL PNG invalido %s (%s)" % (rel, exc))
             bad += 1
             continue
-        if (fw, fh) != (CELL, CELL):
-            print("FAIL frame fuera de celda %s: %dx%d" % (rel, fw, fh))
-            bad += 1
-            continue
-        opaque, bbox, colors = pixel_stats(fw, fh, fp)
-        if bbox is None:
-            print("FAIL frame vacio %s" % rel)
-            bad += 1
-            continue
-        center_x = (bbox[0] + bbox[2]) / 2.0
-        if abs(center_x - CELL / 2.0) > 1.0:
-            print("FAIL frame descentrado %s: centro_x=%.1f" %
-                  (rel, center_x))
-            bad += 1
-        if CELL - bbox[3] < 2:
-            print("FAIL frame sin margen inferior %s" % rel)
-            bad += 1
-        if len(colors) < 4:
-            print("FAIL frame con menos de 4 colores %s" % rel)
-            bad += 1
-        illegal = sorted(color for color in colors
-                         if color not in LEGAL_CANONICAL)
-        if illegal:
-            print("FAIL paleta no canonica %s (%d colores)" %
-                  (rel, len(illegal)))
-            bad += 1
-        disk_frames[rel] = bbox
+        disk_frames[rel] = (fw, fh, fp)
+
+    # Contrato canonico: MISMA funcion que usa `skin_pack.py check`.
+    for problem in validate_pack_contract(disk_frames):
+        print("FAIL %s" % problem)
+        bad += 1
 
     for anim, count in sorted(
             (anim, len(poses)) for anim, (_a, poses, _f, _l)
@@ -587,40 +626,15 @@ def do_check() -> int:
                   (anim, found, count))
             bad += 1
 
-    # Semantica del arrastre: todos los frames de `rise` son mas bajos que
-    # todos los frames de `walk` y se mantienen en la mitad baja del pack.
-    walk_heights = [
-        bbox[3] - bbox[1] for rel, bbox in disk_frames.items()
-        if rel.startswith("walk/")
-    ]
-    rise_boxes = [
-        bbox for rel, bbox in disk_frames.items() if rel.startswith("rise/")
-    ]
-    if walk_heights and rise_boxes:
-        min_walk_height = min(walk_heights)
-        for rel, bbox in sorted(disk_frames.items()):
-            if not rel.startswith("rise/"):
-                continue
-            if bbox[3] - bbox[1] >= min_walk_height:
-                print("FAIL rise no mas bajo que walk %s" % rel)
-                bad += 1
-            if (bbox[1] + bbox[3]) / 2.0 < CELL / 2.0:
-                print("FAIL rise fuera de la parte inferior %s" % rel)
-                bad += 1
-
-    if disk_frames:
-        boxes = list(disk_frames.values())
-        union = (
-            min(b[0] for b in boxes), min(b[1] for b in boxes),
-            max(b[2] for b in boxes), max(b[3] for b in boxes),
-        )
-        center_x = (union[0] + union[2]) / 2.0
-        center_y = (union[1] + union[3]) / 2.0
-        if abs(center_x - CELL / 2.0) > 1.0 or \
-                abs(center_y - CELL / 2.0) > 1.0:
-            print("FAIL union global descentrada: centro=(%.1f, %.1f)" %
-                  (center_x, center_y))
-            bad += 1
+    # Control negativo: la derivacion tiene que responder a los PIXELES de la
+    # fuente. Si el generador volviera a dibujar un humanoide procedural, este
+    # control fallaria aunque el pack cumpliese el contrato estructural.
+    control_problems = control_derivacion_desde_pixeles()
+    for problem in control_problems:
+        print("FAIL control: %s" % problem)
+        bad += 1
+    if not control_problems:
+        print("OK   control: la derivacion responde a los pixeles de la fuente")
 
     for name, (w, h, rgba) in sorted(strips.items()):
         path = os.path.join(OUT_DIR, name)

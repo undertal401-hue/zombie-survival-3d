@@ -356,6 +356,91 @@ def pixel_stats(width: int, height: int, pixels: bytes):
     return opaque, bbox, colors
 
 
+def validate_pack_contract(frames: dict) -> list[str]:
+    """Contrato canonico del pack (FUENTE UNICA de reglas).
+
+    `frames` mapea ruta relativa ("walk/walk_01.png") -> (ancho, alto, rgba).
+    Devuelve la lista de problemas encontrados; una lista vacia significa que
+    el pack cumple el contrato.
+
+    Reglas (ADR-005 / ADR-007):
+      - celda de 64x64 y frame con silueta (no vacio);
+      - centrado horizontal: |centro_x - 32| <= 1;
+      - margen inferior >= 2 px;
+      - al menos 4 colores opacos, todos de la paleta canonica de 16;
+      - `rise` (arrastre) mas bajo que TODOS los frames de `walk` y con su
+        centro en la mitad inferior del pack;
+      - union global de todos los frames centrada en la celda.
+
+    La consumen `skin_pack.py check` y `tools/gen_zombie_skin.py`: antes cada
+    puerta tenia su propia copia de estas reglas y ya habian divergido (la
+    puerta del generador comprobaba la semantica de `rise` y la del pack no).
+    """
+    problems = []
+    boxes = {}
+    heights = {}
+    for rel in sorted(frames):
+        width, height, pixels = frames[rel]
+        if (width, height) != (CELL, CELL):
+            problems.append("%s: frame fuera de celda (%dx%d, esperado %dx%d)"
+                            % (rel, width, height, CELL, CELL))
+            continue
+        _opaque, bbox, colors = pixel_stats(width, height, pixels)
+        if bbox is None:
+            problems.append("%s: frame vacio" % rel)
+            continue
+        boxes[rel] = bbox
+        heights[rel] = bbox[3] - bbox[1]
+        center_x = (bbox[0] + bbox[2]) / 2.0
+        if abs(center_x - CELL / 2.0) > 1.0:
+            problems.append("%s: frame descentrado (centro_x=%.1f)" %
+                            (rel, center_x))
+        if CELL - bbox[3] < 2:
+            problems.append("%s: frame sin margen inferior (%d px)" %
+                            (rel, CELL - bbox[3]))
+        if len(colors) < 4:
+            problems.append("%s: frame con menos de 4 colores (%d)" %
+                            (rel, len(colors)))
+        illegal = sorted(color for color in colors
+                         if color not in LEGAL_CANONICAL)
+        if illegal:
+            problems.append("%s: %d colores fuera de la paleta canonica" %
+                            (rel, len(illegal)))
+    # Semantica del arrastre: `rise` es mas bajo que `walk` y esta en la
+    # mitad inferior. Sin esta regla, un pack con el arrastre "de pie" se
+    # colaba en el runtime aunque cumpliese el resto del contrato.
+    walk_heights = [heights[rel] for rel in heights
+                     if rel.startswith("walk/")]
+    for rel in sorted(boxes):
+        if not rel.startswith("rise/"):
+            continue
+        if not walk_heights:
+            problems.append("%s: rise sin frames de walk con los que comparar"
+                            % rel)
+            continue
+        if heights[rel] >= min(walk_heights):
+            problems.append("%s: rise no es mas bajo que walk (%d px)" %
+                            (rel, heights[rel]))
+        bbox = boxes[rel]
+        if (bbox[1] + bbox[3]) / 2.0 < CELL / 2.0:
+            problems.append("%s: rise fuera de la mitad inferior del pack" %
+                            rel)
+    if boxes:
+        union = (
+            min(b[0] for b in boxes.values()),
+            min(b[1] for b in boxes.values()),
+            max(b[2] for b in boxes.values()),
+            max(b[3] for b in boxes.values()),
+        )
+        center_x = (union[0] + union[2]) / 2.0
+        center_y = (union[1] + union[3]) / 2.0
+        if abs(center_x - CELL / 2.0) > 1.0 or \
+                abs(center_y - CELL / 2.0) > 1.0:
+            problems.append("union global descentrada (centro=(%.1f, %.1f))" %
+                            (center_x, center_y))
+    return problems
+
+
 def is_flat_card(pixels: bytes, width: int, height: int, colors) -> bool:
     """True si el frame es una 'tarjeta' de color, no una silueta.
 
@@ -788,6 +873,7 @@ def check() -> int:
         bad += 1
 
     frames_by_anim = {}
+    contract_frames = {}
     for anim in sorted(ANIM_FRAMES):
         images = []
         for idx in range(1, ANIM_FRAMES[anim] + 1):
@@ -801,33 +887,14 @@ def check() -> int:
                 print("FAIL PNG invalido: %s/%s (%s)" % (anim, name, exc))
                 bad += 1
                 continue
+            # Todos los frames legibles entran en el contrato compartido: los
+            # que no cumplen una regla los reporta `validate_pack_contract`.
+            contract_frames["%s/%s" % (anim, name)] = (width, height, pixels)
             if (width, height) != (CELL, CELL):
-                print("FAIL frame fuera de celda: %s/%s (%dx%d)" %
-                      (anim, name, width, height))
-                bad += 1
                 continue
-            opaque, bbox, colors = pixel_stats(width, height, pixels)
+            _opaque, bbox, _colors = pixel_stats(width, height, pixels)
             if bbox is None:
-                print("FAIL frame vacio: %s/%s" % (anim, name))
-                bad += 1
                 continue
-            center_x = (bbox[0] + bbox[2]) / 2.0
-            if abs(center_x - CELL / 2.0) > 1.0:
-                print("FAIL frame descentrado: %s/%s centro_x=%.1f" %
-                      (anim, name, center_x))
-                bad += 1
-            if CELL - bbox[3] < 2:
-                print("FAIL frame sin margen inferior: %s/%s" % (anim, name))
-                bad += 1
-            if len(colors) < 4:
-                print("FAIL frame con menos de 4 colores: %s/%s" %
-                      (anim, name))
-                bad += 1
-            illegal = sorted(c for c in colors if c not in LEGAL_CANONICAL)
-            if illegal:
-                print("FAIL paleta no canonica: %s/%s (%d colores)" %
-                      (anim, name, len(illegal)))
-                bad += 1
             images.append((width, height, pixels))
         frames_by_anim[anim] = images
         if len(images) != ANIM_FRAMES[anim]:
@@ -835,16 +902,13 @@ def check() -> int:
                   (anim, len(images), ANIM_FRAMES[anim]))
             bad += 1
 
+    # Contrato canonico: MISMA funcion que usa el generador del skin.
+    for problem in validate_pack_contract(contract_frames):
+        print("FAIL %s" % problem)
+        bad += 1
+
     flat = _flatten_frames(frames_by_anim)
     if flat:
-        union = union_bbox(flat)
-        center_x = (union[0] + union[2]) / 2.0
-        center_y = (union[1] + union[3]) / 2.0
-        if abs(center_x - CELL / 2.0) > 1.0 or \
-                abs(center_y - CELL / 2.0) > 1.0:
-            print("FAIL union global descentrada: centro=(%.1f, %.1f)" %
-                  (center_x, center_y))
-            bad += 1
         anchored, _translation = anchor_images(flat, CELL)
         anchored_by_anim = _split_anchored(frames_by_anim, anchored)
         for anim in sorted(ANIM_FRAMES):
@@ -886,6 +950,61 @@ def check() -> int:
 # ---------------------------------------------------------------------------
 # Autopruebas del importador y del auditor (puerta de CI)
 # ---------------------------------------------------------------------------
+
+def _contract_frame(x0: int, y0: int, x1: int, y1: int):
+    """Frame 64x64 con bbox opaco exacto [x0,x1) x [y0,y1) y 4 colores."""
+    pixels = bytearray(CELL * CELL * 4)
+    mid_x = (x0 + x1) // 2
+    mid_y = (y0 + y1) // 2
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            quadrant = (0 if x < mid_x else 1) + (0 if y < mid_y else 2)
+            r, g, b = CANONICAL_COLORS[quadrant]
+            i = (y * CELL + x) * 4
+            pixels[i:i + 4] = bytes((r, g, b, 255))
+    return (CELL, CELL, bytes(pixels))
+
+
+def _contract_frames_fixture() -> dict:
+    """Pack canonico minimo para probar el contrato compartido.
+
+    Cumple todas las reglas: paleta de 16 colores, centrado horizontal,
+    margen inferior >= 2, union global centrada y `rise` mas bajo que
+    `walk` y en la mitad inferior.
+    """
+    tall = _contract_frame(20, 5, 44, 59)    # define la union global
+    walk = _contract_frame(20, 30, 44, 50)   # 20 px de alto
+    rise = _contract_frame(20, 40, 44, 52)   # 12 px de alto, mitad inferior
+    frames = {}
+    for anim, count in ANIM_FRAMES.items():
+        for idx in range(1, count + 1):
+            if anim == "rise":
+                frame = rise
+            elif anim == "walk":
+                frame = walk
+            else:
+                frame = tall
+            frames["%s/%s_%02d.png" % (anim, anim, idx)] = frame
+    return frames
+
+
+def _shift_frame(frame, dx: int, dy: int):
+    """Desplaza un frame (width, height, rgba) dentro de la celda."""
+    width, height, pixels = frame
+    out = bytearray(width * height * 4)
+    for y in range(height):
+        ty = y + dy
+        if ty < 0 or ty >= height:
+            continue
+        for x in range(width):
+            tx = x + dx
+            if tx < 0 or tx >= width:
+                continue
+            src = (y * width + x) * 4
+            dst = (ty * width + tx) * 4
+            out[dst:dst + 4] = pixels[src:src + 4]
+    return (width, height, bytes(out))
+
 
 def _synthetic_frame(width: int = CELL, height: int = CELL) -> bytes:
     """Frame sintetico CON silueta (no es una tarjeta de color)."""
@@ -2032,6 +2151,33 @@ def selftest() -> int:
                             "(rc=%d)" % code)
         if _tree_fingerprint(pending_dry_root) != pending_dry_before:
             failures.append("el dry-run toco una transaccion pendiente")
+
+        # 26. El contrato canonico compartido rechaza un `rise` que no es mas
+        #     bajo que `walk` (la regla que la documentacion atribuia a esta
+        #     puerta y que solo comprobaba el generador: un pack con el
+        #     arrastre "de pie" se colaba en el runtime).
+        contract_frames = _contract_frames_fixture()
+        problems = validate_pack_contract(contract_frames)
+        if problems:
+            failures.append("un pack canonico no debe dar problemas (%s)"
+                            % problems)
+        broken = dict(contract_frames)
+        broken["rise/rise_01.png"] = contract_frames["walk/walk_01.png"]
+        broken["rise/rise_02.png"] = contract_frames["walk/walk_02.png"]
+        problems = validate_pack_contract(broken)
+        if not any("rise" in problem for problem in problems):
+            failures.append("el contrato debe rechazar un rise a la altura de "
+                            "walk (problemas: %s)" % problems)
+
+        # 27. El contrato compartido rechaza tambien la union descentrada.
+        off_center = dict(contract_frames)
+        off_center["idle/idle_01.png"] = contract_frames["idle/idle_01.png"]
+        shifted = _shift_frame(contract_frames["idle/idle_01.png"], 0, 6)
+        off_center["idle/idle_01.png"] = shifted
+        problems = validate_pack_contract(off_center)
+        if not any("union" in problem for problem in problems):
+            failures.append("el contrato debe rechazar una union descentrada "
+                            "(problemas: %s)" % problems)
 
     print("SKIN_PACK_SELFTEST failures=%d" % len(failures))
     for failure in failures:

@@ -216,7 +216,7 @@ func _generator_runtime_cross_check() -> void:
 		return
 	var skin_anims_block: String = source.substr(block_start, block_end - block_start)
 	var regex := RegEx.new()
-	# "walk": ("walk", (0, 1, 2, 3, 1), 8.0, True),
+	# "walk": ("walk", (0, 1, 2, 3, 4), 8.0, True),
 	var compiled: Error = regex.compile(
 		"\"([a-z_]+)\"\\s*:\\s*\\(\"([a-z_]+)\"\\s*,\\s*\\(([^)]*)\\)\\s*,"
 		+ "\\s*([0-9]+(?:\\.[0-9]+)?)\\s*,\\s*(True|False)\\)")
@@ -255,6 +255,16 @@ func _generator_runtime_cross_check() -> void:
 		_check(int(spec.get("count", -1)) == poses.size(),
 			"contrato: '%s' tiene los mismos frames (generador %d vs runtime %d)"
 				% [pack_anim, poses.size(), int(spec.get("count", -1))])
+		# Las poses deben ser ordinales REALES (0..n-1): el indice selecciona el
+		# movimiento del frame. Si fueran metadatos muertos, cambiar la tabla
+		# no cambiaria el pack y esta puerta no lo detectaria.
+		var ordinals_ok: bool = poses.size() > 0
+		for index in range(poses.size()):
+			if poses[index].strip_edges() != str(index):
+				ordinals_ok = false
+		_check(ordinals_ok,
+			"contrato: '%s' declara poses ordinales 0..%d (el indice elige el movimiento)"
+				% [pack_anim, poses.size() - 1])
 		_check(is_equal_approx(float(spec.get("fps", -1.0)), fps),
 			"contrato: '%s' usa los mismos fps (generador %.1f vs runtime %.1f)"
 				% [pack_anim, fps, float(spec.get("fps", -1.0))])
@@ -723,6 +733,9 @@ func _pack_integrity_checks() -> void:
 
 	var union_bbox: Rect2i = Rect2i()
 	var has_union: bool = false
+	var walk_heights: Array[int] = []
+	var rise_heights: Array[int] = []
+	var rise_centers_y: Array[float] = []
 	var palette: Dictionary = _canonical_palette()
 	_check(palette.size() == 16,
 		"pack: ART_BIBLE.md expone la paleta canónica de 16 colores")
@@ -789,6 +802,16 @@ func _pack_integrity_checks() -> void:
 				"pack: %s/%s deja margen inferior >=2 (actual %d)" % [
 					anim, frame_name, bottom_margin])
 
+			# Semantica del arrastre: `rise` es mas bajo que TODOS los frames
+			# de `walk` y esta en la mitad inferior del pack. Sin esta regla un
+			# pack con el arrastre "de pie" se colaba en el runtime.
+			if anim == "walk":
+				walk_heights.append(bbox.size.y)
+			elif anim == "rise":
+				rise_heights.append(bbox.size.y)
+				rise_centers_y.append(
+					float(bbox.position.y) + float(bbox.size.y) * 0.5)
+
 			if not has_union:
 				union_bbox = bbox
 				has_union = true
@@ -812,6 +835,20 @@ func _pack_integrity_checks() -> void:
 			"pack: la unión global está centrada verticalmente (centro %.1f)" % union_center_y)
 	else:
 		_check(false, "pack: la unión global de frames no está vacía")
+
+	if walk_heights.is_empty():
+		_check(false, "pack: hay frames de walk para comparar con rise")
+	else:
+		var min_walk_height: int = walk_heights[0]
+		for height in walk_heights:
+			min_walk_height = mini(min_walk_height, height)
+		for index in range(rise_heights.size()):
+			_check(rise_heights[index] < min_walk_height,
+				"pack: rise/%02d es más bajo que walk (alto %d vs mínimo %d)" % [
+					index + 1, rise_heights[index], min_walk_height])
+			_check(rise_centers_y[index] >= float(CELL) * 0.5,
+				"pack: rise/%02d está en la mitad inferior (centro %.1f)" % [
+					index + 1, rise_centers_y[index]])
 
 
 func _png_names(path: String) -> Array[String]:
@@ -890,8 +927,13 @@ func _frame_uses_palette(texture: Texture2D, palette: Dictionary) -> bool:
 ## Puertas deterministas: ambas deben salir 0 y no escribir ningún asset.
 ## ---------------------------------------------------------------------------
 func _generator_checks() -> void:
+	# El marcador del control de derivacion es la garantia de que el pack se
+	# deriva de los PIXELES de la fuente: si el generador volviera a dibujar
+	# un humanoide procedural, la puerta lo detectaria y este marcador
+	# desapareceria (no basta con que el fichero mencione el PNG).
 	_run_generator_check(GEN_ZOMBIE_SKIN, PackedStringArray(["--check"]),
-		"python3 tools/gen_zombie_skin.py --check sale 0")
+		"python3 tools/gen_zombie_skin.py --check sale 0",
+		"control: la derivacion responde a los pixeles de la fuente")
 	_run_generator_check(SKIN_PACK_TOOL, PackedStringArray(["check"]),
 		"python3 tools/skin_pack.py check sale 0")
 	# Autopruebas del importador: rechazan los packs sin silueta, bloquean
@@ -902,7 +944,7 @@ func _generator_checks() -> void:
 
 
 func _run_generator_check(script_path: String, arguments: PackedStringArray,
-		label: String) -> void:
+		label: String, expected_output: String = "") -> void:
 	var exists: bool = FileAccess.file_exists(script_path)
 	_check(exists, "existe %s" % script_path.get_file())
 	if not exists:
@@ -918,6 +960,17 @@ func _run_generator_check(script_path: String, arguments: PackedStringArray,
 	var output: Array = []
 	var code: int = OS.execute("python3", command, output)
 	_check(code == 0, "%s (exit=%d)" % [label, code])
+	if code != 0:
+		# Evidencia del fallo: la salida de la herramienta se imprime para que
+		# el log del CI diga QUE fallo, no solo que fallo.
+		for line in output:
+			print("salida: %s" % str(line))
+	if not expected_output.is_empty():
+		var joined: String = ""
+		for line in output:
+			joined += str(line) + "\n"
+		_check(joined.contains(expected_output),
+			"%s: la salida contiene '%s'" % [script_path.get_file(), expected_output])
 	var after: Array[String] = _snapshot_outputs()
 	_check(before == after,
 		"%s no escribe archivos" % label.replace(" sale 0", ""))

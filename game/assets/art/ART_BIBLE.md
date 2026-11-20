@@ -164,6 +164,16 @@ PNG con el disco, además de validar el contrato estructural. Este pack queda
 **fuera del alcance de `gen_art.py --check`**: esa puerta valida las 5 hojas
 canónicas de 32×32, los 2 mapas de luz y la máscara de sombra (§8).
 
+Las reglas del pack (celda, centrado, margen, paleta, semántica de `rise` y
+unión global) viven en **una sola** función, `skin_pack.validate_pack_contract()`,
+que consumen `gen_zombie_skin.py --check` y `skin_pack.py check`: antes cada
+puerta tenía su propia copia y ya habían divergido.
+
+Además, `--check` ejecuta un **control de derivación**: perfora un píxel
+interior de la fuente (sin tocar la silueta) y exige que el pack **cambie**.
+Es la garantía de que lo que se ve en pantalla procede del sprite pedido y no
+de un dibujo procedural que pasara la comprobación del hash.
+
 `game/tools/skin_pack.py` audita e importa packs externos. El pack entregado
 por el autor (`~/zombie_sprites/`) es el ejemplo canónico de pack defectuoso:
 contiene **4 frames vacíos y 29 tarjetas de color** sin silueta, tamaños
