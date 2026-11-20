@@ -254,6 +254,67 @@ queda iluminado (`03_inside.png`). Luma media del centro: 0.095 fuera →
 maestro + cancelación completa) y `LightingTest` ampliado (grading inicial,
 geometría del cono por píxeles, oclusores de la casa). CI: **22 suites**.
 
+### 11. R1-hotfix: errores que solo aparecieron al JUGAR
+
+La compuerta de R1-polish estaba verde (22 suites, `MECHANICS_READY 5/5`, CI
+remoto en verde) y aun así el juego escupía errores en vivo. La diferencia
+entre un arnés y el juego real es que el arnés **no carga todo**: la compuerta
+arranca la escena principal y apaga el motor en el primer frame, y ninguna
+suite ejercitaba la ruta vehiculo -> zombi ni compilaba los scripts que
+nadie carga.
+
+Los dos errores se Reprodujeron literalmente abriendo el juego:
+
+**11.1 `Invalid operands 'Vector2' and 'Object' in operator '=='`**
+
+```
+SCRIPT ERROR: Invalid operands 'Vector2' and 'Object' in operator '=='.
+       at: _on_bus_alert_2 (res://03_zombies/Zombie.gd:451)
+   GDScript backtrace (most recent call last):
+       [0] _on_bus_alert_2 (res://03_zombies/Zombie.gd:451)
+       [1] _emit_alert (res://12_vehicles/DriveableVehicle.gd:353)
+       [2] _physics_process (res://12_vehicles/DriveableVehicle.gd:204)
+```
+
+`EventBus.zombie_alerted` se declara como `zombie_alerted(zombie, source)`,
+pero `DriveableVehicle._emit_alert()` inspecciona la firma y emite
+`(posicion: Vector2, radio: float)`. El receptor del zombi hacia
+`if a == self` con `a` = Vector2: en GDScript 4 comparar un Vector2 con un
+Object es un **error en tiempo de ejecucion** (no un `false`), asi que el
+handler abortaba, el zombi nunca oia el ruido del motor y el error se
+repetia en cada frame de conduccion.
+
+Arreglo: guard consciente de tipo `ZombieVisual`/`Zombie.gd::_is_self()`,
+que solo responde `true` si el valor es un Node vivo (`value is Node` ->
+`is_instance_valid()` -> comparacion). El bus admite las dos convenciones y
+las tres variantes (`_on_bus_alert_1/2/3`) usan el mismo guard.
+
+**11.2 `HouseBuilder.gd` no compilaba**
+
+```
+SCRIPT ERROR: Parse Error: Cannot find member "keys" in base "int".
+SCRIPT ERROR: Parse Error: Function "keys()" not found in base int.
+ERROR: Failed to load script "res://05_house/HouseBuilder.gd" with error "Parse error".
+```
+
+`get_part()` hacia `material.keys()[material]`, es decir, `.keys()` sobre un
+`int` (el enum `HousePart.WallMaterial`). El script entero no compilaba y el
+error solo aparecia al abrir el **editor**, que escanea todo el sistema de
+ficheros; `--import` y las suites headless solo compilan lo que la escena
+carga. Arreglo: la biblioteca se indexa por los enums (int), no por nombres.
+
+**11.3 Puertas nuevas (el lesson learned)**
+
+| Puerta | Qué cubre | Por que faltaba |
+|---|---|---|
+| `ZombieAlertBusTest` (nuevo) | La ruta vehiculo -> zombi con las dos convenciones del bus, mas el caso "no oyes tu propia alerta" | Ninguna suite emitia `zombie_alerted` |
+| `ScriptParseTest` (nuevo) | Compila **todos** los `.gd` del proyecto (62 scripts) y falla si alguno no se puede cargar | `--import` solo parsea lo que se carga |
+| Smoke de juego en vivo (nuevo, CI) | 1800 frames del juego real en headless con el autopiloto de `QA_MODE=play`, grep de errores | La compuerta apagaba el motor en el primer frame |
+
+Control negativo de `ZombieAlertBusTest`: restaurando el fichero con el bug
+(`git show HEAD:game/03_zombies/Zombie.gd`) el arnés da **5 fallos** y el
+`SCRIPT ERROR` original; con el arreglo, **0 fallos**.
+
 ### Alternatives Considered
 
 ### (a) Mantener los sprites pixel-art generados como presentación

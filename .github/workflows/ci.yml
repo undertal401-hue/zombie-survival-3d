@@ -150,7 +150,31 @@ jobs:
           run_suite "10_review/VictoryTest.tscn"      "VICTORY_TEST failures=0"
           run_suite "10_review/ZombieEventPayloadTest.tscn" "ZOMBIE_EVENT_PAYLOAD_TEST failures=0"
           run_suite "10_review/CubeFxLifecycleTest.tscn" "CUBE_FX_LIFECYCLE_TEST failures=0"
+          run_suite "10_review/ZombieAlertBusTest.tscn" "ZOMBIE_ALERT_BUS_TEST failures=0"
+          run_suite "10_review/ScriptParseTest.tscn" "SCRIPT_PARSE_TEST failures=0"
           run_suite "10_review/StressTest.tscn"      "STRESS_TEST failures=0"
+
+          echo "=== QA live gameplay smoke ==="
+          # El juego REAL en headless durante 1800 frames (30 s). Hasta ahora
+          # la compuerta solo arrancaba la escena principal y apagaba el motor
+          # en el primer frame: ningun error de runtime del bucle de juego
+          # podia aparecer. Este paso corre el autopiloto de QA_MODE=play y
+          # falla si el log trae cualquier error de script.
+          QA_MODE=play timeout 180 $GODOT_BIN --headless --path game res://09_tests/QA.tscn --quit-after 1800 > test-qa-play.log 2>&1
+          status=$?
+          cat test-qa-play.log
+          if [ $status -eq 124 ]; then
+            echo "::error::Timeout ejecutando el juego en vivo (QA play)"
+            exit 1
+          fi
+          if [ $status -ne 0 ]; then
+            echo "::error::El juego en vivo termino con codigo $status"
+            exit $status
+          fi
+          if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load|ERROR:|Assertion failed" test-qa-play.log; then
+            echo "::error::Errores de script durante el juego en vivo"
+            exit 1
+          fi
 
           echo "=== QA mechanics ==="
           QA_MODE=mechanics timeout 120 $GODOT_BIN --headless --path game res://09_tests/QA.tscn --quit-after 700 > test-qa-mechanics.log 2>&1

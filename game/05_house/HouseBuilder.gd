@@ -254,9 +254,13 @@ func _draw_roof_slope(img: Image, w: int, h: int, material: int) -> void:
 ## API pública
 
 func get_part(type: int, material: int) -> HousePart:
-	var mat_key: String = material.keys()[material]
-	if _parts_library.has(mat_key) and _parts_library[mat_key].has(type):
-		return _parts_library[mat_key][type]
+	# La biblioteca se indexa por el ENUM de material (int) y, dentro, por el
+	# enum de tipo de pieza (int): no por nombres. Antes esta línea pedía
+	# `material.keys()[material]`, es decir, `.keys()` sobre un int: error de
+	# parseo ("Cannot find member 'keys' in base 'int'") que dejaba TODO el
+	# script sin compilar y que solo se veía al abrir el editor.
+	if _parts_library.has(material) and _parts_library[material].has(type):
+		return _parts_library[material][type]
 	return null
 
 func build_house(plan: Dictionary, position: Vector2) -> Node2D:
