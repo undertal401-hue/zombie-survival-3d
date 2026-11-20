@@ -135,8 +135,12 @@ func _ready() -> void:
 	_update_sun_position()
 
 	# Resolver la fase real ANTES del primer apply para que el grading
-	# inicial no arranque neutro durante el primer frame.
+	# inicial no arranque neutro durante el primer frame. No basta con
+	# calcular el objetivo: el valor ACTUAL (`_phase_grade`) debe arrancar
+	# ya en ese tinte, si no el primer fotograma es blanco de más y se ve
+	# un destello al cargar de noche.
 	_refresh_grade_target()
+	_phase_grade = _phase_grade_target
 	_apply_lighting()
 
 	# El resplandor debe seguir circular si cambia el tamaño de la ventana.

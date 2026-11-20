@@ -29,6 +29,13 @@ var _failures: Array[String] = []
 var _sandbox: Node
 var _solar: Node
 
+## Director falso: `SolarLighting` busca un nodo con `current_phase()`.
+class FakeDirector extends Node:
+	var phase_value: String = "night"
+
+	func current_phase() -> String:
+		return phase_value
+
 func _check(condition: bool, label: String) -> void:
 	print(("OK   " if condition else "FAIL ") + label)
 	if not condition:
@@ -47,6 +54,9 @@ func _ready() -> void:
 	_scene_checks()
 	_shader_checks()
 	await _phase_table_checks()
+	_initial_grade_checks()
+	_cone_texture_checks()
+	await _house_occluder_checks()
 	_runtime_checks()
 	await _finish()
 
@@ -162,7 +172,148 @@ func _float_call(method: String, phase: String) -> float:
 func _luma(c: Color) -> float:
 	return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
 
-# --- 4. Comportamiento en runtime ---------------------------------------------
+# --- 4. Grading inicial (sin destello blanco al arrancar de noche) ------------
+#
+# El comentario del código decía "para que el grading inicial no arranque
+# neutro durante el primer frame", pero `_phase_grade` seguía en WHITE: solo
+# se calculaba `_phase_grade_target`. Si la escena arrancaba de noche, el
+# primer fotograma era blanco de más.
+
+func _initial_grade_checks() -> void:
+	var night_luma: float = _initial_luma_for_phase("night")
+	var day_luma: float = _initial_luma_for_phase("day")
+	_check(night_luma >= 0.0,
+		"grading inicial: se pudo medir el primer fotograma de noche (%.3f)" % night_luma)
+	_check(night_luma < day_luma * 0.7,
+		"grading inicial: de noche arranca OSCURO, no blanco (%.3f < %.3f)" % [
+			night_luma, day_luma * 0.7])
+
+
+## Color del PRIMER fotograma del CanvasModulate con la fase indicada.
+## Se lee sin dejar pasar un frame: ese es el valor inicial.
+func _initial_luma_for_phase(phase: String) -> float:
+	var sandbox := Node.new()
+	sandbox.name = "InitialGradeSandbox"
+	get_tree().root.add_child(sandbox)
+
+	# Director falso: `SolarLighting` busca un nodo con `current_phase()`.
+	var director := FakeDirector.new()
+	director.name = "WorldDirector"
+	director.phase_value = phase
+	sandbox.add_child(director)
+
+	var solar: Node = load(SOLAR_SCENE).instantiate()
+	sandbox.add_child(solar)
+	var cm: CanvasModulate = solar.get_node_or_null("CanvasModulate") as CanvasModulate
+	var luma: float = -1.0
+	if cm != null:
+		luma = _luma(cm.color)
+		if absf(cm.color.a - 1.0) > 0.001:
+			_check(false, "grading inicial: el alpha del CanvasModulate es 1.0")
+		else:
+			_check(true, "grading inicial: el alpha del CanvasModulate es 1.0")
+	sandbox.queue_free()
+	return luma
+
+# --- 5. Geometría del cono del faro (validación por píxeles) ------------------
+#
+# El mapa de luz es un cono con el VÉRTICE en el centro que se abre hacia +X
+# (la dirección de apuntado) y se desvanece con la distancia. Antes solo se
+# comprobaban las dimensiones del fichero.
+
+func _cone_texture_checks() -> void:
+	var tex: Texture2D = load(CONE_TEXTURE) as Texture2D
+	if tex == null:
+		_check(false, "cono del faro: se puede cargar light_cone.png")
+		return
+	var img: Image = tex.get_image()
+	if img == null:
+		_check(false, "cono del faro: la textura tiene imagen")
+		return
+	var w: int = img.get_width()
+	var h: int = img.get_height()
+	_check(w == 512 and h == 256,
+		"cono del faro: 512x256 (%dx%d)" % [w, h])
+	if w != 512 or h != 256:
+		return
+	var cx: int = w / 2
+	var cy: int = h / 2
+	var alpha_at := func(x: int, y: int) -> float:
+		return img.get_pixel(clampi(x, 0, w - 1), clampi(y, 0, h - 1)).a
+	# Detrás del vértice no hay luz.
+	_check(alpha_at.call(cx - 12, cy) <= 0.001,
+		"cono del faro: transparente DETRÁS del vértice")
+	# Justo delante del vértice sí hay haz.
+	_check(alpha_at.call(cx + 12, cy) > 0.5,
+		"cono del faro: haz justo por delante del vértice (a %.2f)" % alpha_at.call(cx + 12, cy))
+	# Se abre hacia +X: el MISMO desvío lateral está iluminado lejos del
+	# vértice (cono ancho) pero no cerca de él (cono estrecho).
+	var lit_near: bool = alpha_at.call(cx + 30, cy + 20) > 0.001
+	var lit_far: bool = alpha_at.call(cx + 170, cy + 20) > 0.001
+	_check(lit_far and not lit_near,
+		"cono del faro: se ABRE hacia +X (mismo desvío: cerca %.3f, lejos %.3f)" % [
+			alpha_at.call(cx + 30, cy + 20), alpha_at.call(cx + 170, cy + 20)])
+	# Simetría vertical respecto al eje del haz.
+	var up: float = alpha_at.call(cx + 60, cy - 18)
+	var down: float = alpha_at.call(cx + 60, cy + 18)
+	_check(absf(up - down) < 0.01,
+		"cono del faro: simetría vertical (%.3f vs %.3f)" % [up, down])
+	# El borde del haz se desvanece: nada de escalones duros.
+	_check(alpha_at.call(cx + 60, cy) > alpha_at.call(cx + 60, cy - 60),
+		"cono del faro: el borde se desvanece")
+
+# --- 6. Oclusores de la casa: la puerta debe dejar pasar el faro -------------
+#
+# La casa usaba UN LightOccluder2D con el rectángulo completo: el haz del faro
+# no entraba por la puerta y las sombras no correspondían a la geometría
+# visible. Ahora hay un oclusor por segmento de muro, con el hueco de la
+# puerta ABIERTO.
+
+func _house_occluder_checks() -> void:
+	var house_script: Script = load("res://05_house/House.gd") as Script
+	if house_script == null:
+		_check(false, "casa: se puede cargar House.gd")
+		return
+	var house: Node = house_script.new()
+	house.name = "OccluderProbeHouse"
+	add_child(house)
+	await get_tree().process_frame
+
+	var occluders: Array[LightOccluder2D] = []
+	_collect_occluders(house, occluders)
+	_check(occluders.size() >= 3,
+		"casa: hay un oclusor por segmento de muro (%d)" % occluders.size())
+
+	var size: Vector2 = house.get("size")
+	# Puerta por defecto: BOTTOM -> el hueco está en el borde inferior.
+	var door_point: Vector2 = Vector2(0.0, size.y * 0.5)
+	_check(not _point_in_any_occluder(occluders, door_point),
+		"casa: el hueco de la PUERTA deja pasar la luz")
+	# Un muro sí debe bloquear.
+	var wall_point: Vector2 = Vector2(size.x * 0.5, 0.0)
+	_check(_point_in_any_occluder(occluders, wall_point),
+		"casa: un MURO sí bloquea la luz")
+	house.queue_free()
+
+func _collect_occluders(node: Node, out: Array[LightOccluder2D]) -> void:
+	for child in node.get_children():
+		if child is LightOccluder2D:
+			out.append(child as LightOccluder2D)
+		_collect_occluders(child, out)
+
+func _point_in_any_occluder(occluders: Array[LightOccluder2D], point: Vector2) -> bool:
+	for occ in occluders:
+		if occ == null or not is_instance_valid(occ):
+			continue
+		var poly: OccluderPolygon2D = occ.occluder
+		if poly == null:
+			continue
+		var local: Vector2 = occ.to_local(point)
+		if Geometry2D.is_point_in_polygon(local, poly.polygon):
+			return true
+	return false
+
+# --- 7. Comportamiento en runtime ---------------------------------------------
 
 func _runtime_checks() -> void:
 	if _solar == null or not is_instance_valid(_solar):

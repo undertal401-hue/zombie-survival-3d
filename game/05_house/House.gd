@@ -90,21 +90,6 @@ func build() -> void:
 
 	_add_windows()
 
-	# LightOccluder2D único para toda la casa (bounding box)
-	var occluder_node := Node2D.new()
-	occluder_node.name = "HouseOccluder"
-	var occluder := LightOccluder2D.new()
-	var occ_poly := OccluderPolygon2D.new()
-	var hx: float = size.x * 0.5
-	var hy: float = size.y * 0.5
-	occ_poly.polygon = PackedVector2Array([
-		Vector2(-hx, -hy), Vector2(hx, -hy),
-		Vector2(hx, hy), Vector2(-hx, hy),
-	])
-	occluder.occluder = occ_poly
-	occluder_node.add_child(occluder)
-	add_child(occluder_node)
-
 ## Punto interior en la pared opuesta a la puerta, util para colocar botin.
 func back_interior_point() -> Vector2:
 	match door_side:
@@ -204,3 +189,24 @@ func _add_wall(rect: Rect2) -> void:
 	body.add_child(visual)
 
 	add_child(body)
+
+	# R1-polish: un oclusor POR SEGMENTO de muro. Antes había un único
+	# LightOccluder2D con el rectángulo de la casa entera: el haz del faro
+	# no entraba por la puerta y las sombras no correspondían a la geometría
+	# visible. Al crear el oclusor a partir del MISMO rect que dibuja el
+	# muro, el hueco de la puerta queda abierto de verdad.
+	#
+	# Decisión: las ventanas siguen siendo SOLO visuales (no se abre un hueco
+	# en el muro por ventana); el único hueco real es la puerta.
+	var occluder := LightOccluder2D.new()
+	occluder.name = "WallOccluder"
+	var occ_poly := OccluderPolygon2D.new()
+	occ_poly.polygon = PackedVector2Array([
+		rect.position,
+		rect.position + Vector2(rect.size.x, 0.0),
+		rect.position + rect.size,
+		rect.position + Vector2(0.0, rect.size.y),
+	])
+	occluder.occluder = occ_poly
+	occluder.position = Vector2.ZERO
+	add_child(occluder)

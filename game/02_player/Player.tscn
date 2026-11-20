@@ -70,6 +70,7 @@ range_layer_max = 0
 [node name="Camera2D" type="Camera2D" parent="."]
 current = true
 zoom = Vector2(1, 1)
+ignore_rotation = true
 limit_left = -2400
 limit_top = -1500
 limit_right = 2400

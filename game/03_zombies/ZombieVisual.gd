@@ -136,9 +136,10 @@ func _process(delta: float) -> void:
 			_current_state = ""  # Forzar actualización en siguiente frame
 
 func set_type(type: int) -> void:
-	# Primero se cancelan los FX en curso: si no, un tween vivo podría
-	# sobrescribir la escala del arquetipo mientras se captura.
-	_kill_cube_tweens()
+	# Cancelar CUALQUIER efecto en curso y devolver el cubo a su estado base:
+	# antes solo se mataban los tweens, así que `_is_telegraphing` seguía en
+	# true y el tinte/la escala deformada se quedaban pegados al cubo.
+	_reset_fx()
 	_capture_cube_base_scales()
 	# Ajustar velocidades y escala según tipo (el cubo lo tinte Zombie.gd).
 	var frames: SpriteFrames = animated_sprite.sprite_frames
@@ -233,13 +234,30 @@ func _cube_nodes() -> Array[Polygon2D]:
 ## Escala actual de cada polígono del cubo. Se lee en el momento del FX:
 ## Zombie.gd la fija por arquetipo al instanciar y puede cambiarla después.
 ## Escala base del cubo por arquetipo.
-## `Zombie.gd:_apply_kind()` fija `body_visual.scale` / `nose.scale` y LUEGO
-## llama a `set_type()`, así que aquí se captura el valor ya aplicado.
+## `Zombie.gd:_apply_kind()` la fija con `set_cube_base_scales()`, que aplica
+## la escala y ACTUALIZA esta base en la MISMA operación. Antes era una
+## instantánea tomada en `set_type()`, lo que dejaba un protocolo implícito
+## ("asignar escala → set_type()") y permitía que un cambio de escala
+## posterior fuera pisado por el FX al restaurar la base.
+##
 ## Sin esta memoria, `_cube_scale_targets()` releía la escala deformada por el
 ## último FX: el cubo se quedaba deformado para siempre y las deformaciones
 ## se acumulaban (medido: escala 1.38 tras telegrafía + squash encadenados,
 ## cuando la base del arquetipo es 1.0).
 var _cube_base_scales: Array[Vector2] = []
+
+## Fija la escala del cubo por arquetipo Y su base en una sola operación.
+## Es la única vía para cambiar la escala base: así el FX siempre restaura
+## la escala vigente y no una instantánea desfasada.
+func set_cube_base_scales(body_scale: Vector2, nose_scale: Vector2) -> void:
+	_kill_cube_tweens()
+	_is_telegraphing = false
+	if _cube_body != null:
+		_cube_body.scale = body_scale
+	if _cube_nose != null:
+		_cube_nose.scale = nose_scale
+	_restore_cube_tint()
+	_capture_cube_base_scales()
 
 ## Captura la escala actual del cubo como nueva escala base.
 func _capture_cube_base_scales() -> void:
@@ -298,38 +316,43 @@ func _on_fx_finished() -> void:
 func squash(amount: float = 0.85, duration: float = 0.12) -> void:
 	_reset_fx()
 	var factor: float = clampf(amount, 0.5, 1.0)
-	var nodes: Array[Polygon2D] = _cube_nodes()
-	var targets: Array[Vector2] = _cube_scale_targets()
-	for i in nodes.size():
-		var poly: Polygon2D = nodes[i]
-		if poly == null:
-			continue
-		var base: Vector2 = targets[i]
-		var target: Vector2 = Vector2(base.x / factor, base.y * factor)
-		_cube_tweens.append(_scale_tween(poly, target, base, duration))
+	var base: Array[Vector2] = _cube_scale_targets()
+	var target: Array[Vector2] = []
+	for b in base:
+		target.append(Vector2(b.x / factor, b.y * factor))
+	_start_cube_scale_tween(target, base, duration * 0.4, duration * 0.6)
 
 ## Estiramiento al atacar: estrecho y alto, como un resorte.
 func stretch(amount: float = 0.88, duration: float = 0.12) -> void:
 	_reset_fx()
 	var factor: float = clampf(amount, 0.5, 1.0)
+	var base: Array[Vector2] = _cube_scale_targets()
+	var target: Array[Vector2] = []
+	for b in base:
+		target.append(Vector2(b.x * factor, b.y / factor))
+	_start_cube_scale_tween(target, base, duration * 0.4, duration * 0.6)
+
+## Aplica la escala a TODOS los polígonos del cubo a la vez.
+## `amount` 0 = escala base, 1 = escala objetivo.
+func _apply_cube_scale(amount: float, base: Array[Vector2], target: Array[Vector2]) -> void:
 	var nodes: Array[Polygon2D] = _cube_nodes()
-	var targets: Array[Vector2] = _cube_scale_targets()
 	for i in nodes.size():
 		var poly: Polygon2D = nodes[i]
-		if poly == null:
+		if poly == null or not is_instance_valid(poly):
 			continue
-		var base: Vector2 = targets[i]
-		var target: Vector2 = Vector2(base.x * factor, base.y / factor)
-		_cube_tweens.append(_scale_tween(poly, target, base, duration))
+		if i < base.size() and i < target.size():
+			poly.scale = base[i].lerp(target[i], amount)
 
-## Tween de escala de UN polígono: dos fases SECUENCIALES (aplastar -> volver).
-## Un tween por polígono: así los polígonos se animan a la vez sin que un
-## tween huérfano pueda pelear con el siguiente efecto.
-func _scale_tween(poly: Polygon2D, target: Vector2, base: Vector2, duration: float) -> Tween:
-	var tween: Tween = create_tween()
-	tween.tween_property(poly, "scale", target, duration * 0.4)
-	tween.tween_property(poly, "scale", base, duration * 0.6)
-	return tween
+## Tween MAESTRO de un efecto de escala: UN solo tween para todo el cubo.
+## Con un tween por polígono, el `finished` conectado solo al último podía
+## dejar al otro escribiendo escala mientras un FX nuevo ya había empezado.
+func _start_cube_scale_tween(target: Array[Vector2], base: Array[Vector2],
+		t_in: float, t_out: float) -> void:
+	var master: Tween = create_tween()
+	master.tween_method(_apply_cube_scale.bind(base, target), 0.0, 1.0, t_in)
+	master.tween_method(_apply_cube_scale.bind(base, target), 1.0, 0.0, t_out)
+	_cube_tweens.append(master)
+	master.finished.connect(_on_fx_finished)
 
 func punch_scale(amount: float = 0.88, duration: float = 0.12) -> void:
 	stretch(amount, duration)
@@ -375,39 +398,41 @@ func telegraph(kind: int) -> void:
 			factor = 1.04
 			tint = Color(1.0, 0.92, 0.92, 1.0)
 			hold = 0.04
-	# R1: un tween POR polígono y fases SECUENCIALES dentro de cada tween:
-	#   subir (0.07) -> hold -> bajar (0.10) -> (hold) -> repetir
-	# El patrón anterior (`set_parallel` + `tween_interval` + `set_parallel`)
-	# no respetaba el hold: la bajada arrancaba en el mismo instante que la
-	# subida y el pulso de aviso era invisible. Medido con sonda en Godot 4.7.2.
+	# R1-polish: un ÚNICO tween maestro para todo el cubo y fases SECUENCIALES
+	# dentro: subir (0.07) -> hold -> bajar (0.10) -> (hold) -> repetir.
+	# - El patrón anterior (`set_parallel` + `tween_interval` + `set_parallel`)
+	#   no respetaba el hold: la bajada arrancaba en el mismo instante que la
+	#   subida y el pulso de aviso era invisible (medido con sonda Godot 4.7.2).
+	# - Con un tween por polígono, el `finished` conectado solo al último
+	#   dejaba al otro escribiendo escala mientras un FX nuevo empezaba.
+	# - Ahora el tween maestro escribe TODOS los polígonos en la misma
+	#   llamada, así que hay un solo dueño del ciclo de vida.
+	var base_list: Array[Vector2] = _cube_scale_targets()
+	var master: Tween = create_tween()
+	for _pulse in range(pulses):
+		# `tween_method` llama con (valor, ...argumentos_bound), por eso el
+		# helper recibe primero el valor interpolado.
+		master.tween_method(_apply_pulse_all.bind(base_list, factor, tint),
+			0.0, 1.0, 0.07)
+		master.tween_interval(hold)
+		master.tween_method(_apply_pulse_all.bind(base_list, factor, tint),
+			1.0, 0.0, 0.10)
+	_cube_tweens.append(master)
+	master.finished.connect(_on_fx_finished)
+
+## Telegrafía: aplica escala + tinte a TODO el cubo a la vez.
+## `amount` 0 = estado base, 1 = estado pulsado.
+func _apply_pulse_all(amount: float, base_list: Array[Vector2],
+		factor: float, tint: Color) -> void:
 	var nodes: Array[Polygon2D] = _cube_nodes()
-	var targets: Array[Vector2] = _cube_scale_targets()
 	for i in nodes.size():
 		var poly: Polygon2D = nodes[i]
-		if poly == null:
+		if poly == null or not is_instance_valid(poly):
 			continue
-		var base: Vector2 = targets[i]
-		var tween: Tween = create_tween()
-		for _pulse in range(pulses):
-			# `tween_method` llama con (valor, ...argumentos_bound), por eso el
-			# helper recibe primero el valor interpolado.
-			tween.tween_method(_apply_pulse.bind(poly, base, factor, tint),
-				0.0, 1.0, 0.07)
-			tween.tween_interval(hold)
-			tween.tween_method(_apply_pulse.bind(poly, base, factor, tint),
-				1.0, 0.0, 0.10)
-		_cube_tweens.append(tween)
-	if not _cube_tweens.is_empty():
-		_cube_tweens[_cube_tweens.size() - 1].finished.connect(_on_fx_finished)
-
-## Telegrafía: aplica escala + tinte al cubo a la vez.
-## `amount` 0 = estado base, 1 = estado pulsado.
-func _apply_pulse(amount: float, poly: Polygon2D, base: Vector2,
-		factor: float, tint: Color) -> void:
-	if poly == null or not is_instance_valid(poly):
-		return
-	poly.scale = base.lerp(base * factor, amount)
-	poly.modulate = Color.WHITE.lerp(tint, amount)
+		if i < base_list.size():
+			var base: Vector2 = base_list[i]
+			poly.scale = base.lerp(base * factor, amount)
+		poly.modulate = Color.WHITE.lerp(tint, amount)
 
 func play_attack() -> void:
 	# Si hay telegrafía en curso, ella ya está animando la escala: no la corta.

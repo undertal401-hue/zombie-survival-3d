@@ -225,6 +225,35 @@ operador `is` no puede usarse antes de comprobar la vigencia.
   Control negativo verificado: con el código anterior el arnés da **10 fallos**
   y reproduce los dos `SCRIPT ERROR`; con el arreglo, **0 fallos**.
 
+### 10. Revisión de código de R1 (cierre de los riesgos latentes)
+
+Una revisión de código posterior al push de R1 (`9594ff2`) dio veredicto
+**SHIP** (0 bloqueantes) y dejó 3 riesgos latentes y 5 observaciones menores.
+Todos se han cerrado y verificado:
+
+| # | Hallazgo | Cierre |
+|---|---|---|
+| 1 | `_cube_base_scales` era una instantánea: el orden "asignar escala → `set_type()`" era un protocolo implícito | Nueva operación atómica `ZombieVisual.set_cube_base_scales()`: aplica la escala **y** actualiza la base en la misma llamada. `Zombie.gd:_apply_kind()` la usa en los 6 arquetipos vía `_apply_cube_scale()` |
+| 2 | `telegraph()` conectaba `finished` solo al último tween (uno por polígono): el otro podía seguir escribiendo escala | Un **tween maestro** por efecto: `_apply_pulse_all()` / `_apply_cube_scale()` escriben todos los polígonos en la misma llamada. Un solo dueño del ciclo de vida |
+| 3 | `set_type()` mataba los tweens pero no restauraba `_is_telegraphing`, el tinte ni la escala | `set_type()` llama a `_reset_fx()`: el cubo vuelve a su estado base completo |
+| 4 | La casa usaba UN `LightOccluder2D` con el rectángulo entero: el faro no entraba por la puerta | Un oclusor **por segmento de muro**, creado desde el mismo `Rect2` que dibuja el muro: el hueco de la puerta queda abierto de verdad. Las ventanas siguen siendo solo visuales (decisión explícita) |
+| 5 | El grading inicial arrancaba blanco (`_phase_grade` seguía en `Color.WHITE`) | `_phase_grade = _phase_grade_target` antes del primer `_apply_lighting()` |
+| 6 | Comentario obsoleto sobre el bus de música en `AudioDirector.gd` | Comentario sustituido por la decisión vigente |
+| 7 | El ADR afirmaba `ignore_rotation = true` sin declararlo en la escena | `ignore_rotation = true` declarado explícitamente en `Player.tscn` |
+| 8 | Faltaba validación por píxeles del cono del faro | `LightingTest` comprueba ahora la geometría del mapa de luz por píxeles: vértice en el centro, transparencia detrás, apertura hacia `+X`, simetría vertical y borde difuminado |
+| 9 | Línea en blanco al final de `docs/adr/README.md` | Eliminada (`git diff --check` limpio) |
+
+**Validación visual** (la reserva que la revisión señalaba): con el jugador
+fuera de una casa, de noche y apuntando a la puerta, el cono del faro
+**entra por el hueco** y los muros proyectan sombras a ambos lados del haz
+(`/tmp/opencode/r1/house/01_outside_door.png`); dentro de la casa, el interior
+queda iluminado (`03_inside.png`). Luma media del centro: 0.095 fuera →
+0.111 en el umbral → 0.090 dentro.
+
+**Arneses**: `CubeFxLifecycleTest` (nuevo, escala base atómica + tween
+maestro + cancelación completa) y `LightingTest` ampliado (grading inicial,
+geometría del cono por píxeles, oclusores de la casa). CI: **22 suites**.
+
 ### Alternatives Considered
 
 ### (a) Mantener los sprites pixel-art generados como presentación

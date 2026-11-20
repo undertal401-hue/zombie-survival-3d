@@ -848,6 +848,18 @@ func _update_flash(delta: float) -> void:
 # Tipos y dificultad
 # ---------------------------------------------------------------------------
 
+## Fija la escala del cubo por arquetipo en UNA operación atómica.
+## `ZombieVisual.set_cube_base_scales()` aplica la escala Y actualiza la base
+## que los FX restauran: así no depende del orden "asignar escala → set_type()"
+## y un cambio de escala posterior nunca es pisado por un FX.
+func _apply_cube_scale(scale_value: Vector2) -> void:
+	if zombie_visual != null:
+		zombie_visual.set_cube_base_scales(scale_value, scale_value)
+		return
+	body_visual.scale = scale_value
+	nose.scale = scale_value
+
+
 func _apply_kind() -> void:
 	# Sincronizado aquí (no solo en _ready) porque las pruebas y el spawner
 	# pueden asignar `kind` antes o después de la instanciación.
@@ -865,8 +877,7 @@ func _apply_kind() -> void:
 			lose_radius = 700.0
 			body_visual.color = Color(0.62, 0.22, 0.18)
 			nose.color = Color(0.8, 0.5, 0.45)
-			body_visual.scale = Vector2(1.0, 1.0)
-			nose.scale = Vector2(1.0, 1.0)
+			_apply_cube_scale(Vector2(1.0, 1.0))
 			spit_range = 0.0
 			spit_damage = 0.0
 			spit_cooldown = 0.0
@@ -887,8 +898,7 @@ func _apply_kind() -> void:
 			lose_radius = 800.0
 			body_visual.color = Color(0.82, 0.58, 0.2)
 			nose.color = Color(0.95, 0.8, 0.5)
-			body_visual.scale = Vector2(0.82, 0.82)
-			nose.scale = Vector2(0.82, 0.82)
+			_apply_cube_scale(Vector2(0.82, 0.82))
 			spit_range = 0.0
 			spit_damage = 0.0
 			spit_cooldown = 0.0
@@ -909,8 +919,7 @@ func _apply_kind() -> void:
 			lose_radius = 600.0
 			body_visual.color = Color(0.4, 0.4, 0.5)
 			nose.color = Color(0.6, 0.6, 0.7)
-			body_visual.scale = Vector2(1.5, 1.5)
-			nose.scale = Vector2(1.5, 1.5)
+			_apply_cube_scale(Vector2(1.5, 1.5))
 			spit_range = 0.0
 			spit_damage = 0.0
 			spit_cooldown = 0.0
@@ -931,8 +940,7 @@ func _apply_kind() -> void:
 			lose_radius = 700.0
 			body_visual.color = Color(0.4, 0.7, 0.4)
 			nose.color = Color(0.6, 0.9, 0.6)
-			body_visual.scale = Vector2(0.9, 0.9)
-			nose.scale = Vector2(0.9, 0.9)
+			_apply_cube_scale(Vector2(0.9, 0.9))
 			spit_range = 300.0
 			spit_damage = 15.0
 			spit_cooldown = 3.0
@@ -953,8 +961,7 @@ func _apply_kind() -> void:
 			lose_radius = 650.0
 			body_visual.color = Color(0.8, 0.3, 0.8)
 			nose.color = Color(1.0, 0.5, 1.0)
-			body_visual.scale = Vector2(0.85, 0.85)
-			nose.scale = Vector2(0.85, 0.85)
+			_apply_cube_scale(Vector2(0.85, 0.85))
 			spit_range = 0.0
 			spit_damage = 0.0
 			spit_cooldown = 0.0
@@ -977,8 +984,7 @@ func _apply_kind() -> void:
 			lose_radius = 1000.0
 			body_visual.color = Color(0.431, 0.09, 0.071)   # BLOOD_DARK
 			nose.color = Color(0.604, 0.671, 0.714)          # STEEL_LIGHT
-			body_visual.scale = Vector2(1.9, 1.9)
-			nose.scale = Vector2(1.9, 1.9)
+			_apply_cube_scale(Vector2(1.9, 1.9))
 			spit_range = 0.0
 			spit_damage = 0.0
 			spit_cooldown = 0.0

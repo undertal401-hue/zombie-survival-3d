@@ -15,7 +15,9 @@ const MASTER_BUS: String = "AudioDirectorMaster"
 const SFX_BUS: String = "AudioDirectorSFX"
 const AMBIENCE_BUS: String = "AudioDirectorAmbience"
 const UI_BUS: String = "AudioDirectorUI"
-## ÍTEM 16: la música tiene su propio bus para poder hacer ducking sin tocar SFX.
+## R1 (2026-11-20): la música adaptativa se eliminó por decisión del usuario
+## (dañaba el ambiente de supervivencia). Ya no hay bus de música ni ducking:
+## ver el bloque de R1 más abajo. Este límite es para los SFX.
 const MAX_CALLABLE_ARGS: int = 4
 
 ## R1 (2026-11-20): el juego NO tiene música adaptativa. Decisión del usuario:

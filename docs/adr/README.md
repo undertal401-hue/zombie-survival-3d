@@ -23,4 +23,3 @@ inmutable: para cambiar una decisión se crea un nuevo ADR que la reemplaza.
   `USE_SPRITE_ART = false` como interruptor explícito.
 - **ADR-002** y **ADR-003** no se ven afectados por ADR-004: hit-stop y
   meta-árbol son mecánicas, no presentación.
-
