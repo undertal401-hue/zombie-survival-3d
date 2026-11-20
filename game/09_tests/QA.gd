@@ -18,6 +18,10 @@ var _last_position: Vector2
 var _distance_travelled: float = 0.0
 var _victory_fired: bool = false
 var _game_over_fired: bool = false
+
+## Resultado del smoke de juego en vivo (QA_MODE=smoke): el CI exige codigo
+## de salida 0 y el centinela `PLAY_SMOKE_COMPLETE`.
+var _smoke_ok: bool = false
 var _kills: int = 0
 var _damage_events: int = 0
 var _damage_total: float = 0.0
@@ -56,6 +60,10 @@ func _ready() -> void:
 			await _inspect()
 		"play":
 			await _play()
+		"smoke":
+			await _smoke()
+			get_tree().quit(0 if _smoke_ok else 1)
+			return
 		"hunger":
 			await _hunger_test()
 		"capture":
@@ -266,6 +274,46 @@ func _play() -> void:
 	await _ensure_combat()
 	await _go_extraction()
 	_print_summary()
+
+## ============================================================================
+## SMOKE DE JUEGO EN VIVO (QA_MODE=smoke)
+## ============================================================================
+## El juego REAL corre un numero FIJO de frames con el autopiloto y el arnes
+## imprime un centinela inequivoco al terminar: `PLAY_SMOKE_COMPLETE`.
+##
+## Por que existe: la compuerta arrancaba la escena principal y apagaba el
+## motor en el PRIMER frame, asi que ningun error de runtime del bucle de
+## juego podia aparecer. Y el modo `play` depende de un `--quit-after`
+## externo: si el juego acaba antes, el CI ve un codigo 0 sin centinela y
+## puede parecer verde sin haber terminado el flujo.
+##
+## El CI exige (a) codigo de salida 0, (b) el centinela `PLAY_SMOKE_COMPLETE`,
+## (c) ningun `SCRIPT ERROR|Parse Error|...` y (d) ningun `FAIL `.
+## ============================================================================
+func _smoke() -> void:
+	_smoke_ok = false
+	await _acquire_nodes()
+	print("SMOKE start pos=%s map=%s" % [str(_player.global_position), str(_neighborhood.map_size())])
+
+	# El autopiloto mueve al jugador (y pelea si aparece un zombi): obliga a
+	# correr la IA, el combate, el HUD y las oleadas.
+	var target: Vector2 = _player.global_position + Vector2(420.0, 0.0)
+	var reached: bool = await _move_to(target, 420, 48.0, true)
+	print("SMOKE move reached=%s pos=%s" % [str(reached), str(_player.global_position)])
+
+	# Frames extra de juego vivo con el mundo en marcha.
+	for i in range(180):
+		await get_tree().physics_frame
+
+	var alive: bool = not bool(_player.get("is_dead"))
+	var hp: float = float(_player.get("hp"))
+	print("SMOKE alive=%s hp=%.0f" % [str(alive), hp])
+	if alive:
+		_smoke_ok = true
+		print("PLAY_SMOKE_COMPLETE")
+	else:
+		print("PLAY_SMOKE_FAILED player_dead")
+
 
 func _hunger_test() -> void:
 	await _acquire_nodes()

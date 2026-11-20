@@ -284,10 +284,10 @@ Object es un **error en tiempo de ejecucion** (no un `false`), asi que el
 handler abortaba, el zombi nunca oia el ruido del motor y el error se
 repetia en cada frame de conduccion.
 
-Arreglo: guard consciente de tipo `ZombieVisual`/`Zombie.gd::_is_self()`,
-que solo responde `true` si el valor es un Node vivo (`value is Node` ->
-`is_instance_valid()` -> comparacion). El bus admite las dos convenciones y
-las tres variantes (`_on_bus_alert_1/2/3`) usan el mismo guard.
+Arreglo: guard consciente de tipo `Zombie.gd:_is_self()`, que solo responde
+`true` si el valor es un Node vivo (`typeof` -> `is_instance_valid` -> `is`).
+El bus admite las dos convenciones y las tres variantes (`_on_bus_alert_1/2/3`)
+usan el mismo guard.
 
 **11.2 `HouseBuilder.gd` no compilaba**
 
@@ -307,13 +307,28 @@ carga. Arreglo: la biblioteca se indexa por los enums (int), no por nombres.
 
 | Puerta | Qué cubre | Por que faltaba |
 |---|---|---|
-| `ZombieAlertBusTest` (nuevo) | La ruta vehiculo -> zombi con las dos convenciones del bus, mas el caso "no oyes tu propia alerta" | Ninguna suite emitia `zombie_alerted` |
-| `ScriptParseTest` (nuevo) | Compila **todos** los `.gd` del proyecto (62 scripts) y falla si alguno no se puede cargar | `--import` solo parsea lo que se carga |
-| Smoke de juego en vivo (nuevo, CI) | 1800 frames del juego real en headless con el autopiloto de `QA_MODE=play`, grep de errores | La compuerta apagaba el motor en el primer frame |
+| `ZombieAlertBusTest` (nuevo) | La ruta vehiculo -> zombi: emision directa al bus con las dos convenciones, el **vehiculo real** (`DriveableVehicle._emit_alert()`), los handlers de 1 y 3 argumentos y un **payload liberado** | Ninguna suite emitia `zombie_alerted` ni liberation un payload |
+| `CodeIntegrityTest` (nuevo) | Compila **todos** los `.gd` del proyecto (**73 scripts**, recorrido recursivo de `res://`) y comprueba que un modulo huerfano (`HouseBuilder.get_part()`) responde | `--import` solo parsea lo que se carga; una lista manual de carpetas se quedo obsoleta y dejaba fuera 11 scripts |
+| Smoke de juego en vivo (nuevo, CI) | `QA_MODE=smoke`: el juego real con el autopiloto y **centinela** `PLAY_SMOKE_COMPLETE`, mas grep de `SCRIPT ERROR` y de `FAIL ` | La compuerta apagaba el motor en el primer frame y el modo `play` dependia de un `--quit-after` externo sin centinela |
 
 Control negativo de `ZombieAlertBusTest`: restaurando el fichero con el bug
-(`git show HEAD:game/03_zombies/Zombie.gd`) el arnés da **5 fallos** y el
-`SCRIPT ERROR` original; con el arreglo, **0 fallos**.
+(`git show ba9a7fb:game/03_zombies/Zombie.gd`) el arnes da **5 fallos** y el
+`SCRIPT ERROR` original; con el arreglo, **0 fallos**. Segundo control
+negativo: reintroduciendo solo el `_alert_point` roto (que devolvia `(0,0)`
+en vez de `INF` ante un payload liberado) el arnes da **2 fallos** y el zombi
+persigue un punto inventado. Control negativo de `CodeIntegrityTest`: un
+script roto plantado en `04_items/` (carpeta que la primera version de la
+puerta se saltaba) lo detecta y falla el arnes.
+
+**11.4 Nota sobre `_is_self()` y el payload liberado**
+
+La primera version del arreglo usaba `value is Node and is_instance_valid(value)`.
+Medido en Godot 4.7.2, ese orden sigue siendo incorrecto: `instancia_liberada
+is Node` **LANZA** "Left operand of 'is' is a previously freed instance"
+(`is_instance_valid()` responde false sin lanzar, pero el `is` aborta). Por
+eso el orden definitivo es `typeof` -> `is_instance_valid` -> `is`
+(ADR-004 §9), en `_is_live_node()` y en los helpers `_alert_point()`,
+`_alert_radius()` y `_alert_source()`.
 
 ### Alternatives Considered
 

@@ -452,10 +452,38 @@ func _on_melee_noise(_weapon: Variant, direction: Vector2) -> void:
 ##
 ## Por eso el guard tiene que comprobar el TIPO antes de comparar, y validar
 ## que la instancia siga viva antes de tocarla (mismo patrón que R1-fix).
+## ¿Es este valor un objeto VIVO de tipo Node?
+##
+## Orden de guards (el mismo que fija ADR-004 §9 para el payload de
+## `zombie_died`): `typeof` -> `is_instance_valid` -> `is`.
+##
+## Medido en Godot 4.7.2:
+##   - `instancia_liberada is Node` LANZA "Left operand of 'is' is a previously
+##     freed instance": aborta la funcion y deja un SCRIPT ERROR por frame.
+##   - `is_instance_valid(instancia_liberada)` responde false SIN lanzar.
+##   - `typeof()` distingue un Vector2 de un objeto sin tocar la instancia.
+##   - `instancia_liberada is float` NO lanza (los tipos basicos no necesitan
+##     mirar la instancia), pero `is Node`/`is Node2D` si.
+func _is_live_node(value: Variant) -> bool:
+	if typeof(value) != TYPE_OBJECT:
+		return false
+	if not is_instance_valid(value):
+		return false
+	return value is Node
+
+
+## ¿Es este valor ESTE zombi?
+##
+## El bus `zombie_alerted` admite DOS convenciones: `(zombie, source)` con
+## nodos (la que declara `EventBus`) y `(posicion, radio)` desde el vehículo
+## (`DriveableVehicle._emit_alert()` inspecciona la firma y emite lo que
+## encaja). Comparar un Vector2 con un Object en GDScript 4 es un ERROR en
+## tiempo de ejecución ("Invalid operands 'Vector2' and 'Object' in operator
+## '=='"), NO un false: aborta el handler y el zombi nunca oye el ruido.
 func _is_self(value: Variant) -> bool:
-	if value is Node and is_instance_valid(value):
-		return (value as Node) == self
-	return false
+	if not _is_live_node(value):
+		return false
+	return (value as Node) == self
 
 
 func _on_bus_alert_1(a: Variant) -> void:
@@ -477,28 +505,42 @@ func _on_bus_alert_3(a: Variant, b: Variant, c: Variant) -> void:
 
 
 func _alert_source(a: Variant, b: Variant) -> Node:
-	if b is Node and (b as Node).is_in_group("player"):
-		return b as Node
-	if a is Node and (a as Node).is_in_group("player"):
-		return a as Node
+	# Orden de guards: `typeof` -> `is_instance_valid` -> `is`. Con un `is`
+	# directo sobre una instancia liberada, GDScript lanza y aborta la funcion.
+	if _is_live_node(b):
+		var source_b: Node = b as Node
+		if source_b.is_in_group("player"):
+			return source_b
+	if _is_live_node(a):
+		var source_a: Node = a as Node
+		if source_a.is_in_group("player"):
+			return source_a
 	return null
 
 
 func _alert_point(value: Variant) -> Vector2:
-	if value is Vector2:
+	# `typeof` primero: un payload liberado es TYPE_OBJECT y no se puede
+	# leer su posicion, asi que el punto es desconocido (INF) y el ruido se
+	# ignora. Antes el `is` sobre una instancia liberada abortaba la funcion
+	# y devolvia (0,0): el zombi perseguia un punto inventado.
+	var value_type: int = typeof(value)
+	if value_type == TYPE_VECTOR2:
 		return value
-	if value is Vector2i:
+	if value_type == TYPE_VECTOR2I:
 		return Vector2(value)
-	if value is Node2D and is_instance_valid(value):
-		return value.global_position
+	if _is_live_node(value) and value is Node2D:
+		return (value as Node2D).global_position
 	return Vector2.INF
 
 
 func _alert_radius(value: Variant) -> float:
-	if value is float or value is int:
+	var value_type: int = typeof(value)
+	if value_type == TYPE_FLOAT or value_type == TYPE_INT:
 		return maxf(float(value), 0.0)
-	if value is String and value.is_valid_float():
-		return clampf(float(value), 0.0, 2000.0)
+	if value_type == TYPE_STRING:
+		var text: String = value
+		if text.is_valid_float():
+			return clampf(float(text), 0.0, 2000.0)
 	return alert_propagation_radius
 
 

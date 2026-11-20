@@ -63,6 +63,12 @@ func _create_part(type: int, material: int, w: int, h: int) -> HousePart:
 	col_node.shape = rect
 	col_scene.pack(col_node)
 	part.collision_shape = col_scene
+	# `pack()` serializa el nodo pero NO lo libera: el nodo temporal se
+	# quedaba vivo con su RectangleShape2D y sus 40 RIDs (5 materiales x 8
+	# tipos) se reportaban como "leaked at exit". Este modulo no lo carga
+	# nadie, asi que la fuga solo aparecia al instanciarlo (lo hace
+	# `CodeIntegrityTest`).
+	col_node.free()
 	
 	# Occluder
 	var hw: float = w * TILE_SIZE * 0.5

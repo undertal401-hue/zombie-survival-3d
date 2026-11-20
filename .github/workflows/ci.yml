@@ -151,28 +151,39 @@ jobs:
           run_suite "10_review/ZombieEventPayloadTest.tscn" "ZOMBIE_EVENT_PAYLOAD_TEST failures=0"
           run_suite "10_review/CubeFxLifecycleTest.tscn" "CUBE_FX_LIFECYCLE_TEST failures=0"
           run_suite "10_review/ZombieAlertBusTest.tscn" "ZOMBIE_ALERT_BUS_TEST failures=0"
-          run_suite "10_review/ScriptParseTest.tscn" "SCRIPT_PARSE_TEST failures=0"
+          run_suite "10_review/CodeIntegrityTest.tscn" "CODE_INTEGRITY_TEST failures=0"
           run_suite "10_review/StressTest.tscn"      "STRESS_TEST failures=0"
 
           echo "=== QA live gameplay smoke ==="
-          # El juego REAL en headless durante 1800 frames (30 s). Hasta ahora
-          # la compuerta solo arrancaba la escena principal y apagaba el motor
-          # en el primer frame: ningun error de runtime del bucle de juego
-          # podia aparecer. Este paso corre el autopiloto de QA_MODE=play y
-          # falla si el log trae cualquier error de script.
-          QA_MODE=play timeout 180 $GODOT_BIN --headless --path game res://09_tests/QA.tscn --quit-after 1800 > test-qa-play.log 2>&1
+          # El juego REAL en headless con el autopiloto (QA_MODE=smoke).
+          # Hasta ahora la compuerta arrancaba la escena principal y apagaba
+          # el motor en el PRIMER frame: ningun error de runtime del bucle de
+          # juego podia aparecer. Este paso corre el juego de verdad y exige
+          # un CENTINELA de finalizacion (`PLAY_SMOKE_COMPLETE`): sin el, un
+          # arranque parcial o un corte por tiempo parecerian verdes.
+          set +e
+          QA_MODE=smoke timeout 180 $GODOT_BIN --headless --path game res://09_tests/QA.tscn > test-qa-smoke.log 2>&1
           status=$?
-          cat test-qa-play.log
+          set -e
+          cat test-qa-smoke.log
           if [ $status -eq 124 ]; then
-            echo "::error::Timeout ejecutando el juego en vivo (QA play)"
+            echo "::error::Timeout ejecutando el juego en vivo (QA smoke)"
             exit 1
           fi
           if [ $status -ne 0 ]; then
             echo "::error::El juego en vivo termino con codigo $status"
             exit $status
           fi
-          if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load|ERROR:|Assertion failed" test-qa-play.log; then
+          if grep -qiE "SCRIPT ERROR|Parse Error|Failed to load|ERROR:|Assertion failed" test-qa-smoke.log; then
             echo "::error::Errores de script durante el juego en vivo"
+            exit 1
+          fi
+          if grep -q "FAIL " test-qa-smoke.log; then
+            echo "::error::Hay comprobaciones fallidas en el juego en vivo"
+            exit 1
+          fi
+          if ! grep -q "PLAY_SMOKE_COMPLETE" test-qa-smoke.log; then
+            echo "::error::El juego en vivo no llego al centinela PLAY_SMOKE_COMPLETE"
             exit 1
           fi
 
