@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://02_player/InputHandler.gd" id="1"]
 [ext_resource type="Script" path="res://02_player/Player.gd" id="2"]
 [ext_resource type="Script" path="res://02_player/weapons/WeaponController.gd" id="3"]
 [ext_resource type="Script" path="res://02_player/PlayerVisual.gd" id="4"]
-[ext_resource type="Script" path="res://02_player/CameraController.gd" id="5"]
+[ext_resource type="Texture2D" path="res://assets/art/lights/light_cone.png" id="5"]
+[ext_resource type="Texture2D" path="res://assets/art/lights/light_halo.png" id="6"]
 
 [sub_resource type="RectangleShape2D" id="1_rect"]
 size = Vector2(24, 24)
@@ -30,11 +31,6 @@ scale = Vector2(1.15, 1.15)
 offset = Vector2(0, 6)
 z_index = 5
 
-[node name="Shadow" type="Polygon2D" parent="PlayerVisual/AnimatedSprite2D" groups=["pixel_shadows"]]
-z_index = -1
-modulate = Color(0.04, 0.05, 0.04, 0.5)
-polygon = PackedVector2Array(-11, 8, 11, 8, 8, 13, -8, 13)
-
 [node name="Body" type="Polygon2D" parent="."]
 color = Color(0.35, 0.75, 0.35, 1)
 polygon = PackedVector2Array(-12, -12, 12, -12, 12, 12, -12, 12)
@@ -49,9 +45,30 @@ shape = SubResource("1_rect")
 [node name="LightOccluder2D" type="LightOccluder2D" parent="."]
 occluder = SubResource("1_occluder")
 
+[node name="Flashlight" type="PointLight2D" parent="."]
+position = Vector2(14, 0)
+texture = ExtResource("5")
+texture_scale = 2.0
+energy = 0.0
+color = Color(1, 0.965, 0.878, 1)
+shadow_enabled = true
+shadow_filter = 1
+shadow_filter_smooth = 2.0
+max_distance = 700.0
+range_layer_min = 0
+range_layer_max = 0
+
+[node name="MuzzleLight" type="PointLight2D" parent="."]
+position = Vector2(20, 0)
+texture = ExtResource("6")
+texture_scale = 0.25
+energy = 0.0
+color = Color(1, 0.9, 0.72, 1)
+range_layer_min = 0
+range_layer_max = 0
+
 [node name="Camera2D" type="Camera2D" parent="."]
 current = true
-script = ExtResource("5")
 zoom = Vector2(1, 1)
 limit_left = -2400
 limit_top = -1500

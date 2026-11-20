@@ -762,9 +762,12 @@ func _ready() -> void:
 	# ------------------------------------------------------------------------
 	var r51: Dictionary = _probe_r2_system(main, [
 			["play_sfx", "play_sound", "play", "play_effect"],
-			["play_music", "set_music", "start_music", "set_ambience"],
+			# R1: la música adaptativa se eliminó (ver AudioPolicyTest). La lista
+			# de métodos reflejaba la API vieja (play_music/set_music); ahora
+			# comprueba la API real de ambiente y SFX.
+			["set_ambience", "set_ambience_volume", "play_telegraph", "play_loot_rarity"],
 			["set_volume", "set_master_volume", "set_bus_volume"],
-		], ["sfx_played", "music_changed", "volume_changed", "audio_ready"], [],
+		], ["sfx_played", "volume_changed", "audio_ready"], [],
 		["Main/AudioDirector", "/root/AudioDirector", "/root/Audio", "Main/Audio"],
 		["res://13_audio/AudioDirector.gd"], false)
 	print("51. AudioDirector: estado=", r51.get("state", "PENDING"),

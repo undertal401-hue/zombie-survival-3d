@@ -1,29 +1,84 @@
 extends Node2D
 
 ## Solar Lighting - 2D Survival Sandbox
-## Luz diurna pálida, cálida y ligeramente contaminada para ambiente urbano deteriorado.
-## Sombras direccionales basadas en posición solar global (+X = Este, +Y = Sur).
-## El sol NO se dibuja; su posición se comunica via sombras y luz ambiental sutil.
-## Sombras limitadas a ~800px para evitar artefactos y mejorar rendimiento.
+## ============================================================================
+## R1 (2026-11-20): iluminación REAL de Godot, no "grading" cosmético.
+## ============================================================================
+## Antes (C0-C3) la oscuridad salía de dos trucos flojos:
+##   1. el CanvasModulate usaba su ALPHA como intensidad -> el canvas se
+##      desvanecía contra el color de fondo plano y la "noche" salía lavada;
+##   2. las sombras eran polígonos falsos (`pixel_shadows`) desplazados a mano.
+## Ahora:
+##   - la CanvasModulate tiene alpha SIEMPRE 1.0 y su RGB multiplica la
+##     escena: la noche tiñe de azul oscuro de verdad;
+##   - la DirectionalLight2D tiene energía real por fase y proyecta sombras
+##     (LightOccluder2D del jugador, zombis y casa);
+##   - el faro del jugador es una PointLight2D con textura de cono y sombras
+##     propias: de día apagada, de noche al máximo;
+##   - hay una capa de acabado (viñeta + grano) sobre la escena, bajo el HUD.
+##
+## Contrato que se conserva (no cambiar sin tocar los arneses):
+##   - `ambient_energy` sigue siendo 0..1.5 y lo sigue mandando WorldDirector.
+##     NO se usa como alpha del CanvasModulate; se usa como factor de ambiente
+##     (con suelo) para que el clima y el bosque sigan oscureciendo.
+##   - `apply_state(ambient, sun, angle, tint, duration)` conserva su firma.
+##   - `solar_direction_changed` sigue emitiéndose.
+## ============================================================================
 
 class_name SolarLighting
 
-## --- Color grading por fase (ART_BIBLE.md §2, paleta de 16 colores) -------
-## Multiplicadores suaves sobre el tinte que ya envía WorldDirector via
-## apply_state(). No sustituyen ese tinte: solo matizan la fase del ciclo.
-## Dusk deriva de AMBER (#d2a867)/BLOOD (#b52b20); night de
-## STEEL_DARK/STEEL_LIGHT (#55626d/#9aabb6); day es BONE neutro (#efe4bd).
-const GRADE_DAWN: Color = Color(0.99, 0.94, 0.90)
+## --- Tabla de iluminación por fase (R1) -----------------------------------
+## Multiplicadores REALES de oscuridad aplicados al CanvasModulate.
+##   day   -> la escena se ve tal cual.
+##   dawn  -> amanecer cálido, aún legible.
+##   dusk  -> atardecer rojo apagado.
+##   night -> MEDIA luz azul (0.42-0.56 antes de normalizar): el mundo se
+##            sigue leyendo sin faro y el cono del faro destaca sobre él.
+const GRADE_DAWN: Color = Color(0.92, 0.82, 0.72)
 const GRADE_DAY: Color = Color(1.00, 1.00, 1.00)
-const GRADE_DUSK: Color = Color(1.00, 0.93, 0.82)
-const GRADE_NIGHT: Color = Color(0.84, 0.90, 1.00)
+const GRADE_DUSK: Color = Color(0.68, 0.48, 0.40)
+const GRADE_NIGHT: Color = Color(0.42, 0.46, 0.56)
+
+## Ganancia del DirectionalLight2D por fase. WorldDirector manda una energía de
+## sol muy baja (0.16-0.23) pensada para el grading antiguo: con sombras
+## proyectadas esa energía no dibuja nada visible. Aquí se amplifica.
+const PHASE_SUN_GAIN: Dictionary = {
+	"dawn": 1.8,
+	"day": 3.4,
+	"dusk": 1.4,
+	"night": 0.0,
+}
+
+## Energía del faro por fase: apagado de día, medio en crepúsculo, pleno de noche.
+const PHASE_FLASHLIGHT: Dictionary = {
+	"dawn": 0.45,
+	"day": 0.0,
+	"dusk": 1.05,
+	"night": 1.60,
+}
+
+## Referencia de `ambient_energy` para el día claro (WorldDirector envía 0.86-0.95).
+const AMBIENT_REFERENCE: float = 0.95
+## Suelo del factor de ambiente: ni el clima ni el bosque hunden la escena más
+## de un 28 %, para que la noche siga siendo legible sin faro.
+const AMBIENT_FLOOR: float = 0.72
+
 ## Suavizado exponencial del grading (misma familia que WorldDirector).
 const GRADE_SMOOTH_TAU: float = 0.6
 const GRADE_CACHE_INTERVAL: float = 0.25
+## Suavizado del faro (segundos): evita el salto brusco al anochecer.
+const FLASHLIGHT_SMOOTH_TAU: float = 0.35
+
+## --- Faro y fogonazo -------------------------------------------------------
+const FLASHLIGHT_NODE: String = "Flashlight"
+const MUZZLE_LIGHT_NODE: String = "MuzzleLight"
+const MUZZLE_FLASH_TIME: float = 0.07
+const MUZZLE_FLASH_ENERGY: float = 2.4
 
 @onready var canvas_modulate: CanvasModulate = $CanvasModulate
 @onready var sun_light: DirectionalLight2D = $SunLight
 @onready var glare_rect: ColorRect = $GlareLayer/GlareRect
+@onready var night_grade_rect: ColorRect = $GlareLayer/NightGradeRect
 
 ## Parámetros ajustables (expuestos en inspector)
 @export_group("Ambiente Base")
@@ -31,7 +86,7 @@ const GRADE_CACHE_INTERVAL: float = 0.25
 @export var ambient_energy: float = 0.85  # Intensidad global (0-1)
 
 @export_group("Sol Direccional (DirectionalLight2D) - Sombras Globales")
-@export var sun_color: Color = Color(1.0, 0.95, 0.82, 0.35)  # Muy sutil
+@export var sun_color: Color = Color(1.0, 0.95, 0.82, 1.0)  # Cálido, opaco
 @export var sun_energy: float = 0.18
 @export var sun_shadow_enabled: bool = true  # Sombras direccionales globales
 @export var shadow_filter: int = 1  # 0=PCF3, 1=PCF5, 2=PCF7, 3=PCF13 (suavizado)
@@ -49,11 +104,19 @@ var _tint: Color = Color.WHITE
 var _light_tween: Tween = null
 
 ## Estado del color grading por fase.
+var _phase: String = "day"
 var _phase_grade: Color = Color.WHITE
 var _phase_grade_target: Color = Color.WHITE
 var _grade_director: Node = null
 var _grade_cache_t: float = 0.0
-var _shadow_controller: PixelShadowController = null
+
+## Faro del jugador (PointLight2D) y fogonazo de disparo.
+var _player_node: Node2D = null
+var _flashlight: PointLight2D = null
+var _muzzle_light: PointLight2D = null
+var _flashlight_energy: float = 0.0
+var _flashlight_target: float = 0.0
+var _muzzle_timer: float = 0.0
 
 # Señal para notificar cambios de dirección solar a otros sistemas
 signal solar_direction_changed(angle_rad: float, angle_deg: float)
@@ -75,12 +138,6 @@ func _ready() -> void:
 	# inicial no arranque neutro durante el primer frame.
 	_refresh_grade_target()
 	_apply_lighting()
-
-	# Nodo hijo sin gameplay: mantiene las sombras del grupo `pixel_shadows`
-	# desplazadas según el sol. No forma parte del gameplay ni del combate.
-	_shadow_controller = PixelShadowController.new(self)
-	_shadow_controller.name = "PixelShadowController"
-	add_child(_shadow_controller)
 
 	# El resplandor debe seguir circular si cambia el tamaño de la ventana.
 	var viewport := get_viewport()
@@ -109,6 +166,9 @@ func _process(delta: float) -> void:
 		_phase_grade = next_grade
 		_apply_lighting()
 
+	_update_flashlight(delta)
+	_update_muzzle(delta)
+
 func _grade_close(a: Color, b: Color) -> bool:
 	return absf(a.r - b.r) < 0.0005 and absf(a.g - b.g) < 0.0005 and absf(a.b - b.b) < 0.0005
 
@@ -118,14 +178,15 @@ func _refresh_grade_target() -> void:
 	var phase: String = "day"
 	if _grade_director != null and is_instance_valid(_grade_director) and _grade_director.has_method("current_phase"):
 		phase = String(_grade_director.call("current_phase"))
+	_phase = phase
 	_phase_grade_target = _grade_for_phase(phase)
 
 func _find_director() -> Node:
 	var parent := get_parent()
 	if parent != null:
 		for node_name in ["WaveManager", "HordeManager", "WorldDirector"]:
-			var candidate: Node = parent.get_node_or_null(node_name)
-			if candidate != null and candidate.has_method("current_phase"):
+			var candidate := parent.get_node_or_null(node_name)
+			if candidate != null:
 				return candidate
 	for candidate in get_tree().get_nodes_in_group("world_director"):
 		if is_instance_valid(candidate) and candidate.has_method("current_phase"):
@@ -149,8 +210,42 @@ func _grade_for_phase(phase: String) -> Color:
 		_:
 			return Color.WHITE
 
+## API pública: el arnés de iluminación consulta la tabla por fase.
+func phase_grade_for(phase: String) -> Color:
+	return _grade_for_phase(String(phase).to_lower())
+
+## Ganancia del sol para la fase indicada (o la actual si se omite).
+## 0 de noche: el sol no aporta nada y solo queda el faro.
+func phase_sun_gain(phase: String = "") -> float:
+	var key: String = String(phase).to_lower()
+	if key == "":
+		key = _phase
+	return float(PHASE_SUN_GAIN.get(key, 1.0))
+
+## Energía de faro objetivo para la fase indicada (o la actual si se omite).
+## 0 de día, pleno de noche.
+func phase_flashlight_energy(phase: String = "") -> float:
+	var key: String = String(phase).to_lower()
+	if key == "":
+		key = _phase
+	return float(PHASE_FLASHLIGHT.get(key, 0.0))
+
+## Cuánta noche se aplica al acabado de pantalla (0..1).
+func night_amount() -> float:
+	match _phase:
+		"night":
+			return 1.0
+		"dusk":
+			return 0.55
+		"dawn":
+			return 0.25
+		_:
+			return 0.0
+
 func _setup_canvas_modulate() -> void:
-	canvas_modulate.color = Color(ambient_color.r, ambient_color.g, ambient_color.b, ambient_energy)
+	# Alpha SIEMPRE 1.0: la oscuridad es un multiplicador de COLOR, no una
+	# transparencia. Con alpha < 1 el canvas se fundía con el fondo plano.
+	canvas_modulate.color = Color(ambient_color.r, ambient_color.g, ambient_color.b, 1.0)
 
 func _setup_sun_light() -> void:
 	sun_light.color = sun_color
@@ -161,16 +256,33 @@ func _setup_sun_light() -> void:
 	# light_mode ya configurado en la escena (0 = ADD)
 
 func _apply_lighting() -> void:
-	# El tinte del clima multiplica el color base; el alpha de CanvasModulate
-	# sigue siendo la energía ambiente, igual que en la configuración original.
+	# El tinte del clima aporta el MATIZ; la tabla de fase decide la
+	# OSCURIDAD. Sin normalizar el tinte la noche se oscurece dos veces
+	# (tinte x grade) y el mundo queda negro en vez de "medio oscuro".
+	var tint: Color = _hue_only(_tint)
+	var factor: float = _ambient_factor()
 	canvas_modulate.color = Color(
-		ambient_color.r * _tint.r * _phase_grade.r,
-		ambient_color.g * _tint.g * _phase_grade.g,
-		ambient_color.b * _tint.b * _phase_grade.b,
-		ambient_energy
+		ambient_color.r * tint.r * _phase_grade.r * factor,
+		ambient_color.g * tint.g * _phase_grade.g * factor,
+		ambient_color.b * tint.b * _phase_grade.b * factor,
+		1.0
 	)
-	sun_light.energy = sun_energy
+	sun_light.energy = sun_energy * phase_sun_gain()
 	_update_glare()
+	_update_night_grade()
+
+## Normaliza el tinte para conservar solo su matiz (sin oscurecer de más).
+func _hue_only(tint: Color) -> Color:
+	var peak: float = maxf(maxf(tint.r, tint.g), tint.b)
+	if peak <= 0.001:
+		return Color.WHITE
+	return Color(tint.r / peak, tint.g / peak, tint.b / peak, 1.0)
+
+## Factor de ambiente con suelo: el clima (lluvia/niebla) y el bosque bajan
+## la escena, pero nunca la hunden hasta hacerla ilegible.
+func _ambient_factor() -> float:
+	var f: float = clampf(ambient_energy / AMBIENT_REFERENCE, 0.0, 1.0)
+	return lerpf(AMBIENT_FLOOR, 1.0, f)
 
 ## El resplandor era un shader huérfano. Ahora sigue al sol en pantalla y
 ## se apaga con la energía solar, sin coste cuando no hay luz directa.
@@ -194,6 +306,17 @@ func _update_glare() -> void:
 	shader_mat.set_shader_parameter("glare_intensity", clampf(sun_energy * 0.9, 0.0, 0.30))
 	shader_mat.set_shader_parameter("viewport_aspect", viewport_aspect)
 
+## Viñeta + grano de la noche. El shader recibe la intensidad de noche; de
+## día es completamente transparente.
+func _update_night_grade() -> void:
+	if night_grade_rect == null or night_grade_rect.material == null:
+		return
+	var mat: Material = night_grade_rect.material
+	if not (mat is ShaderMaterial):
+		return
+	var shader_mat: ShaderMaterial = mat as ShaderMaterial
+	shader_mat.set_shader_parameter("night_amount", night_amount())
+
 func _update_sun_position() -> void:
 	# DirectionalLight2D en Godot 4 usa rotación para definir la dirección
 	# La luz apunta en la dirección de su rotación (rotación 0 = hacia la derecha/Este)
@@ -209,6 +332,58 @@ func _update_sun_position() -> void:
 func _set_sun_rotation() -> void:
 	# Variante silenciosa para interpolaciones (evita un signal por frame).
 	sun_light.rotation = solar_angle
+
+## --- Faro del jugador -----------------------------------------------------
+
+## Localiza el jugador (y su faro) una sola vez; el faro vive en Player.tscn
+## como hijo del jugador, así que rota con el apuntado y proyecta sombras.
+func _resolve_player() -> void:
+	if _player_node != null and is_instance_valid(_player_node):
+		return
+	var tree := get_tree()
+	var found: Node = null
+	if tree != null:
+		found = tree.get_first_node_in_group("player")
+	if found == null:
+		found = get_node_or_null("../Player")
+	if not (found is Node2D):
+		return
+	_player_node = found as Node2D
+	_flashlight = _player_node.get_node_or_null(FLASHLIGHT_NODE) as PointLight2D
+	_muzzle_light = _player_node.get_node_or_null(MUZZLE_LIGHT_NODE) as PointLight2D
+	_connect_weapons(_player_node)
+
+## Conecta el fogonazo al disparo real del arma (no a un temporizador guesses).
+func _connect_weapons(player: Node2D) -> void:
+	var weapons: Node = player.get_node_or_null("WeaponController")
+	if weapons == null or not is_instance_valid(weapons):
+		return
+	if weapons.has_signal("fire_requested"):
+		var callback := Callable(self, "_on_weapon_fired")
+		if not weapons.is_connected("fire_requested", callback):
+			weapons.connect("fire_requested", callback)
+
+func _on_weapon_fired(_weapon = null, _from = null, _to = null) -> void:
+	_muzzle_timer = MUZZLE_FLASH_TIME
+
+func _update_flashlight(delta: float) -> void:
+	_resolve_player()
+	_flashlight_target = phase_flashlight_energy()
+	var k: float = 1.0 - exp(-delta / FLASHLIGHT_SMOOTH_TAU)
+	_flashlight_energy = lerpf(_flashlight_energy, _flashlight_target, k)
+	if _flashlight == null or not is_instance_valid(_flashlight):
+		return
+	_flashlight.energy = _flashlight_energy
+
+func _update_muzzle(delta: float) -> void:
+	if _muzzle_timer > 0.0:
+		_muzzle_timer = maxf(_muzzle_timer - delta, 0.0)
+	if _muzzle_light == null or not is_instance_valid(_muzzle_light):
+		return
+	if _muzzle_timer > 0.0:
+		_muzzle_light.energy = MUZZLE_FLASH_ENERGY * (_muzzle_timer / MUZZLE_FLASH_TIME)
+	else:
+		_muzzle_light.energy = 0.0
 
 ## API pública para control externo
 
@@ -278,74 +453,3 @@ func reset_to_defaults() -> void:
 	ambient_energy = _base_ambient_energy
 	sun_energy = _base_sun_energy
 	_apply_lighting()
-
-
-## --- Sombras pixeladas ----------------------------------------------------
-## Nodo Node2D hijo, sin gameplay: lee el grupo `pixel_shadows` solo cada
-## 0,25 s y coloca cada sombra en la posición global de su padre, desplazada
-## en dirección opuesta al sol. El ángulo da la dirección; la energía solar
-## da la longitud y la opacidad (sol bajo = sombra larga y tenue).
-class PixelShadowController extends Node2D:
-	const CACHE_INTERVAL: float = 0.25
-	const OFFSET_LOW_SUN: float = 14.0
-	const OFFSET_HIGH_SUN: float = 3.0
-	## La energía solar típica de día ronda 0.18-0.23 -> alpha ~0.41-0.49,
-	## cercano al 0.5 del .tscn; amanecer/atardecer/noche desvanecen la sombra.
-	const ALPHA_BASE: float = 0.12
-	const ALPHA_PER_SUN: float = 1.6
-	const ALPHA_MAX: float = 0.62
-
-	var _solar: Node2D
-	var _entries: Array = []
-	var _cache_t: float = 0.0
-
-	func _init(solar: Node2D) -> void:
-		_solar = solar
-
-	func _process(delta: float) -> void:
-		if not is_instance_valid(_solar):
-			return
-		_cache_t -= delta
-		if _cache_t <= 0.0:
-			_cache_t = CACHE_INTERVAL
-			_recache()
-		if _entries.is_empty():
-			return
-		var sun: float = clampf(float(_solar.get("sun_energy")), 0.0, 1.0)
-		var angle: float = float(_solar.get("solar_angle"))
-		# Sol en `angle`; la sombra cae en dirección opuesta.
-		var dir := -Vector2.from_angle(angle)
-		var offset: Vector2 = dir * lerpf(OFFSET_LOW_SUN, OFFSET_HIGH_SUN, sun)
-		var alpha: float = minf(ALPHA_BASE + sun * ALPHA_PER_SUN, ALPHA_MAX)
-		for entry in _entries:
-			# Un zombi puede liberarse entre el recache y este frame. Hacer el
-			# cast `as Node2D` sobre un objeto ya liberado dispara
-			# "Trying to cast a freed object", así que se valida el Variant
-			# ANTES de cualquier conversión de tipo.
-			var node_obj: Variant = entry.get("node")
-			var parent_obj: Variant = entry.get("parent")
-			if not is_instance_valid(node_obj) or not is_instance_valid(parent_obj):
-				continue
-			var node: Node2D = node_obj
-			var parent: Node2D = parent_obj
-			node.global_position = parent.global_position + offset
-			var base: Color = entry.get("color", Color.WHITE)
-			node.modulate = Color(base.r, base.g, base.b, alpha)
-
-	func _recache() -> void:
-		_entries.clear()
-		var tree := get_tree()
-		if tree == null:
-			return
-		for candidate in tree.get_nodes_in_group("pixel_shadows"):
-			if not is_instance_valid(candidate) or not (candidate is Node2D):
-				continue
-			var node := candidate as Node2D
-			var parent := node.get_parent() as Node2D
-			if parent == null:
-				continue
-			_entries.append({
-				"node": node,
-				"parent": parent,
-				"color": node.modulate,
-			})

@@ -611,21 +611,138 @@ def do_check() -> int:
             ok = False
         else:
             print("OK      %s (%dx%d)" % (name, w, h))
-    if ok:
-        print("CHECK OK: %d sheets, palette-locked" % len(expected))
+    if ok and check_lights():
+        print("CHECK OK: %d sheets, palette-locked + 2 light maps" % len(expected))
         return 0
     print("CHECK FAILED")
     return 1
 
 
+# ---------------------------------------------------------------------------
+# Mapas de luz (R1): no son sprites ni van palette-locked; son mapas de
+# luminancia RGBA que consume PointLight2D (faro del jugador y halo).
+# ---------------------------------------------------------------------------
+
+LIGHT_DIR = os.path.normpath(os.path.join(HERE, "..", "assets", "art", "lights"))
+LIGHT_COLOR = (255, 246, 224)
+## Cono del faro: 512x256, vértice en el CENTRO (origen de la PointLight2D),
+## se abre hacia +X. Con texture_scale 2.0 el haz alcanza 512 px.
+CONE_W = 512
+CONE_H = 256
+HALO_SIZE = 128
+
+
+def make_light_cone(width: int = CONE_W, height: int = CONE_H):
+    """Cono de faro con el vértice en el centro (origen de la luz).
+
+    El haz se abre hacia +X (la dirección de apuntado del jugador) y se
+    desvanece con la distancia; el borde lateral es suave para que el
+    shadow-filter de Godot no muestre escalones.
+    """
+    cx = width // 2
+    cy = height // 2
+    reach = width - cx
+    max_half = height * 0.5 - 2.0
+    pixels = bytearray(width * height * 4)
+    for y in range(height):
+        dy = abs(y - cy)
+        for x in range(width):
+            dx = x - cx
+            idx = (y * width + x) * 4
+            if dx <= 0:
+                continue  # detras del vertice: nada de luz
+            t = dx / float(reach)
+            half = 3.0 + t * max_half
+            if dy > half:
+                continue
+            edge = 1.0 - (dy / half) ** 2  # suave hacia los bordes
+            falloff = (1.0 - t) ** 1.35     # se apaga con la distancia
+            alpha = int(max(0.0, min(1.0, edge * falloff)) * 255.0)
+            if alpha == 0:
+                continue
+            pixels[idx] = LIGHT_COLOR[0]
+            pixels[idx + 1] = LIGHT_COLOR[1]
+            pixels[idx + 2] = LIGHT_COLOR[2]
+            pixels[idx + 3] = alpha
+    return width, height, pixels
+
+
+def make_light_halo(size: int = HALO_SIZE):
+    """Halo radial suave: burbuja de luz ambiente alrededor del jugador."""
+    cx = size // 2
+    cy = size // 2
+    max_r = size // 2
+    pixels = bytearray(size * size * 4)
+    for y in range(size):
+        dy = y - cy
+        for x in range(size):
+            dx = x - cx
+            dist = (dx * dx + dy * dy) ** 0.5
+            if dist >= max_r:
+                continue
+            alpha = int((1.0 - dist / float(max_r)) ** 2 * 255.0)
+            if alpha == 0:
+                continue
+            idx = (y * size + x) * 4
+            pixels[idx] = LIGHT_COLOR[0]
+            pixels[idx + 1] = LIGHT_COLOR[1]
+            pixels[idx + 2] = LIGHT_COLOR[2]
+            pixels[idx + 3] = alpha
+    return size, size, pixels
+
+
+def build_lights():
+    return {
+        "light_cone.png": make_light_cone(),
+        "light_halo.png": make_light_halo(),
+    }
+
+
+def check_lights() -> bool:
+    """Valida los mapas de luz: existen, son PNG validos y tienen degradado."""
+    ok = True
+    expected_sizes = (("light_cone.png", CONE_W, CONE_H), ("light_halo.png", HALO_SIZE, HALO_SIZE))
+    for name, expected_w, expected_h in expected_sizes:
+        path = os.path.join(LIGHT_DIR, name)
+        if not os.path.isfile(path):
+            print("MISSING lights/%s" % name)
+            ok = False
+            continue
+        try:
+            w, h, px = read_png(path)
+        except Exception as exc:  # noqa: BLE001
+            print("INVALID lights/%s: %s" % (name, exc))
+            ok = False
+            continue
+        alphas = set()
+        for i in range(3, len(px), 4):
+            alphas.add(px[i])
+            if len(alphas) > 8:
+                break
+        if w != expected_w or h != expected_h:
+            print("INVALID lights/%s: expected %dx%d, got %dx%d" % (name, expected_w, expected_h, w, h))
+            ok = False
+        elif len(alphas) < 4:
+            print("INVALID lights/%s: sin degradado de alpha (%d valores)" % (name, len(alphas)))
+            ok = False
+        else:
+            print("OK      lights/%s (%dx%d, %d+ niveles de alpha)" % (name, w, h, len(alphas)))
+    return ok
+
+
 def do_generate() -> int:
     os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(LIGHT_DIR, exist_ok=True)
     outputs = build_all()
     for name in sorted(outputs):
         w, h, px = outputs[name]
         path = os.path.join(OUT_DIR, name)
         write_png(path, w, h, px)
         print("WROTE   %s (%dx%d, %d bytes)" % (name, w, h, os.path.getsize(path)))
+    for name, (w, h, px) in sorted(build_lights().items()):
+        path = os.path.join(LIGHT_DIR, name)
+        write_png(path, w, h, px)
+        print("WROTE   lights/%s (%dx%d, %d bytes)" % (name, w, h, os.path.getsize(path)))
     return 0
 
 

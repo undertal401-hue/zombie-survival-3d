@@ -1,0 +1,261 @@
+# ADR-004: Reversión de la presentación y adoptamos iluminación 2D real
+
+- **Status**: accepted
+- **Date**: 2026-11-20
+- **Deciders**: Lead Orchestrator + subagentes ECC
+- **Technical Story**: Ronda R1 de revisión de incongruencias y errores sobre el
+  plan maestro de 18 mejoras (Capas 0-3, commits `beb9a1a`, `00afcb0`,
+  `a7ceeb7`, `d8d24a2`)
+- **Replaces (parcialmente)**: [ADR-001](0001-pixel-art-pipeline.md) en su
+  vertiente de *presentación en runtime* (el pipeline y el banco de arte se
+  conservan; ver "Consecuencias")
+
+## Context
+
+La Capa 0 del plan maestro sustituyó la presentación procedural por sprites
+pixel-art generados por `tools/gen_art.py`. La revisión R1 detectó que esa
+sustitución **no era lo que el usuario quería**: el usuario hará el arte
+personalmente más adelante y pidió explícitamente volver a una presentación
+simple de cubo. Además, la propia revisión encontró tres defectos reales en el
+estado entregado:
+
+1. **Los botones de la pantalla de derrota no funcionaban.** Al morir,
+   `HUD.gd:_end_game()` pausa el árbol (`get_tree().paused = true`). Las
+   escenas `MainMenu.tscn` y `GameOver.tscn` heredaban `process_mode = 0`
+   (`PROCESS_MODE_PAUSABLE`), por lo que sus `Button` quedaban con
+   `can_process() == false` y el clic nunca llegaba al handler. Reproducido en
+   el juego real: con el CanvasLayer en modo pausable, un clic real sobre
+   "Reintentar" deja el árbol pausado y la pantalla abierta; con
+   `PROCESS_MODE_ALWAYS` el clic despausa y recarga la partida.
+2. **Flood de errores en consola.** `HUD.gd:_tutorial_on_input()` leía
+   `event.echo` sobre cualquier `InputEvent`, incluidos
+   `InputEventMouseMotion`/`InputEventMouseButton`, que no tienen esa
+   propiedad. Producía ~1206 `SCRIPT ERROR` por sesión de juego.
+3. **La iluminación no era real.** `CanvasModulate.color` usaba su canal alpha
+   como "energía ambiente", de modo que la noche se renderizaba como un
+   desvanecido contra el fondo plano en lugar de una atenuación de la escena.
+   El mundo quedaba lavado y el faro no destacaba. Además el tinte de fase de
+   `WorldDirector` se multiplicaba sin normalizar, oscureciendo dos veces.
+
+A esto se suma la petición explícita de eliminar la música adaptativa (dañaba
+el ambiente de supervivencia) y de quitar el movimiento de cámara con el
+ratón (el seguimiento se conserva). La mecánica (combos x3, boss Tanque Alfa,
+meta-árbol v2, extracción de 12 s, tutorial y menús) **no** se toca: R1 solo
+revierte la presentación y arregla los bugs verificados.
+
+## Decision
+
+### 1. Presentación: cubo simple, con el banco de arte conservado
+
+El runtime vuelve a `Polygon2D` (cubo `Body` + `Nose`) como representación
+visible del jugador y de los zombis. `PlayerVisual.gd` y `ZombieVisual.gd`
+dejan de cargar las hojas PNG en runtime y exponen el interruptor
+`USE_SPRITE_ART = false` para que el usuario pueda activarlo cuando tenga su
+arte. Se conservan:
+
+- `assets/art/ART_BIBLE.md` (paleta de 16 colores, sprites de 32 px),
+- las 9 hojas PNG generadas por `tools/gen_art.py`,
+- los hooks `load_sprite_sheet()` / `load_all_from_atlas()`,
+- el paso `verify deterministic art pipeline` del CI (`gen_art.py --check`).
+
+Es decir: **el pipeline es una herramienta, la presentación es una decisión
+editable**. No se elimina trabajo previo; se le baja el rango de "presenta el
+juego" a "soporta el arte futuro".
+
+### 2. Oscuridad nocturna: media luz con faro
+
+La noche se implementa con `CanvasModulate` cuyo **alpha es siempre 1.0** y
+cuyo RGB multiplica la escena. La tabla de fase es:
+
+| Fase | Grade (RGB) | Carácter |
+| --- | --- | --- |
+| `day` | `(1.00, 1.00, 1.00)` | sin oscurecer |
+| `dawn` | `(0.92, 0.82, 0.72)` | cálido |
+| `dusk` | `(0.68, 0.48, 0.40)` | crepúsculo cálido |
+| `night` | `(0.42, 0.46, 0.56)` | media luz **azul** |
+
+`ambient_energy` conserva su contrato 0..1.5 (lo emite `WorldDirector`, 0.24
+de noche) y se usa como factor con suelo `AMBIENT_FLOOR = 0.72`. El tinte de
+`WorldDirector` se normaliza a matiz (`_hue_only`) para no oscurecer dos
+veces. `PHASE_SUN_GAIN` (día 3.4, amanecer 1.8, atardecer 1.4, noche 0.0)
+amplifica la `DirectionalLight2D`; `PHASE_FLASHLIGHT` (día 0.0, amanecer 0.45,
+atardecer 1.05, noche 1.60) enciende el faro.
+
+### 3. Faro real y sombras proyectadas
+
+- `Flashlight`: `PointLight2D` hijo de `Player`, textura de cono de 512×256
+  generada por `tools/gen_art.py`, `shadow_enabled`, `shadow_filter = 1`,
+  `shadow_filter_smooth = 2.0`, `max_distance = 700`, `range_layer_min/max = 0`
+  para afectar solo al canvas del mundo y no al HUD.
+- `MuzzleLight`: fogonazo de disparo, textura de halo de 128×128.
+- Sombras **proyectadas de verdad** (`DirectionalLight2D` y `PointLight2D` con
+  `shadow_enabled`). Se elimina `PixelShadowController` y el grupo
+  `pixel_shadows` (polígonos falsos desplazados a mano).
+- Las capas de pantalla (`GlareRect`, `NightGradeRect`) llevan `light_mask = 0`
+  para que el faro no las ilumine, y viven en `GlareLayer` (CanvasLayer 0),
+  por debajo del HUD (layer 1).
+- `assets/shaders/NightGrade.gdshader` añade viñeta + grano animado + tinte
+  frío de acabado nocturno.
+
+### 4. Sin música adaptativa
+
+`AudioDirector.gd` pierde por completo el subsistema musical: bus
+`MUSIC_BUS`, tabla `MUSIC_TRACKS`, crossfade, ducking (`DUCK_SFX_IDS`), API
+`play_music()` / `set_music_state()` / `set_music_volume()` y la síntesis
+`_music_day` / `_music_explore` / `_music_combat` / `_synth_night_music`. Se
+conservan el **ambiente** (viento, lluvia, noche, tensión, bosque) y los
+**SFX** (armas, zombis, loot por rareza, UI, telegrafía de arquetipo).
+
+### 5. Cámara sin ratón
+
+Se elimina `game/02_player/CameraController.gd` (look-ahead con
+`get_global_mouse_position()`). La `Camera2D` vuelve a ser un nodo simple
+hijo de `Player`, con `ignore_rotation = true`: el seguimiento se conserva
+íntegro. El shake de disparo lo conserva `WeaponController`, que ya lo
+gestiona por su cuenta.
+
+### 6. Los menús funcionan con el árbol pausado
+
+`MainMenu.tscn` y `GameOver.tscn` declaran `process_mode = 3`
+(`PROCESS_MODE_ALWAYS`), y `MainMenu.gd` / `GameOver.gd` lo fuerzan también
+en `_ready()` (defensa en profundidad: el ajuste en escena no puede
+desincronizarse del ajuste en código). `HUD.gd` pasa a usar
+`event.is_echo()` y a filtrar por tipo de evento, lo que elimina el flood de
+errores.
+
+### 7. Blindaje de `Zombie.gd`
+
+`Zombie.gd` accede al jugador **solo** a través del helper `_player_node()`,
+que valida `is_instance_valid()` antes de castear a `Node2D`. El error
+reportado por el usuario no fue reproducible en headless ni en ventana (con
+boss, muerte y recarga: 0 errores), por lo que no se puede afirmar su causa
+exacta; el blindaje elimina la clase de fallo completa ("trying to cast a
+freed object") en lugar de parchear una línea concreta.
+
+### 8. Bugs de incongruencia corregidos en la misma ronda
+
+La revisión no se limitó a lo pedido: al reescribir los visuales y los
+arneses aparecieron defectos reales que se corrigieron con el mismo criterio
+(evidencia, no impresión):
+
+1. **Tween huérfano en los FX del cubo.** `PlayerVisual.gd` y
+   `ZombieVisual.gd` creaban **un tween por polígono dentro de un bucle** y
+   solo guardaban el último (`_squash_tween` / `_fx_tween`). Los anteriores
+   quedaban vivos y peleaban por la escala del cubo. Ahora hay un tween por
+   polígono, **todos** se guardan en un array y `_reset_fx()` los mata.
+2. **La telegrafía no tenía "hold".** El patrón
+   `set_parallel(true)` → `tween_interval()` → `set_parallel(true)` de
+   `ZombieVisual.telegraph()` **no respeta la pausa**: la vuelta a la base
+   arrancaba en el mismo instante que la subida y el pulso de aviso era
+   invisible. Medido con una sonda sobre Godot 4.7.2:
+   - patrón viejo → subida `0.007-0.076 s`, vuelta `0.076-0.173 s` (sin hold)
+   - patrón nuevo → subida `0.007-0.076 s`, hold `0.076-0.376 s`, vuelta
+     `0.376-0.476 s`
+   El patrón nuevo es **secuencial puro** (subir → hold → bajar) con un tween
+   por polígono; escala y tinte se animan juntos vía `tween_method`.
+3. **La escala del cubo se acumulaba.** `ZombieVisual._cube_scale_targets()`
+   releía la escala **deformada** en vez de la escala base del arquetipo: tras
+   una telegrafía + un squash el cubo se quedaba en `1.38` cuando la base del
+   arquetipo es `1.0`, y cada efecto se acumulaba sobre el anterior. Ahora
+   `ZombieVisual` captura la escala base (`_cube_base_scales`) cuando
+   `Zombie.gd:_apply_kind()` la aplica.
+4. **La victoria se escribía de dos formas.** `HUD.gd` decía
+   "¡EXTRACTION EXITOSA!" (sin tilde) mientras `GameOver.gd` decía
+   "¡EXTRACCIÓN LOGARADA!" y `QA.gd` buscaba "EXTRACCIÓN": el check de
+   extracción del QA salía `false` aunque la victoria fuera real. Se normaliza
+   a "¡EXTRACCIÓN EXITOSA!".
+5. **`VictoryTest.gd` era un arnés muerto.** Salía `RESULT: FAIL` desde la
+   Capa 2/3 (esperaba el `EndOverlay` del HUD en vez de la pantalla
+   dedicada, y solo esperaba 6 frames para una cuenta atrás de 12 s), pero
+   terminaba con `quit(0)` y no estaba en el CI: nadie lo veía. Se reescribe
+   como compuerta real y **se añade al CI**.
+6. **Flood de `event.echo`** (ver §6): `HUD.gd` leía `event.echo` sobre
+   `InputEventMouseMotion`, que no tiene esa propiedad.
+
+### Alternatives Considered
+
+### (a) Mantener los sprites pixel-art generados como presentación
+
+- **Pros**: el trabajo de Capa 0 se aprovecha tal cual; aspecto más "profesional" de inmediato.
+- **Cons**: contradice una instrucción explícita del usuario; el arte generado
+  por máquina es exactamente lo que el usuario quiere rehacer.
+- **Why not**: la decisión de arte es del usuario, no del pipeline.
+
+### (b) Revertir también el pipeline de arte (borrar `gen_art.py` y las PNG)
+
+- **Pros**: repositorio mínimo, sin binarios ni deuda.
+- **Cons**: se pierde el banco de trabajo y la herramienta determinista que el
+  usuario necesitará cuando haga su arte; el CI pierde su paso de verificación.
+- **Why not**: el pipeline no estorba en runtime y es reutilizable tal cual.
+
+### (c) Oscuridad total de noche con el faro como única fuente de luz
+
+- **Pros**: tensión máxima, el faro se convierte en el recurso central.
+- **Cons**: el jugador deja de leer el terreno; el juego se vuelve injusto en
+  oleadas grandes y el HUD compite con el brillo del cono.
+- **Why not**: el usuario eligió explícitamente **media con faro**.
+
+### (d) Alpha del `CanvasModulate` como energía ambiente (solución anterior)
+
+- **Pros**: era la implementación existente; un solo canal de control.
+- **Cons**: el canvas se desvanecía contra el fondo plano en lugar de
+  atenuarse; la noche salía lavada y sin contraste.
+- **Why not**: es un error de modelo, no de parámetro: la oscuridad debe ser un
+  multiplicador de color, no de opacidad.
+
+### (e) Quitar el tinte de fase de `WorldDirector` en lugar de normalizarlo
+
+- **Pros**: menos código en `SolarLighting`.
+- **Cons**: `WorldDirector` seguiría oscureciendo dos veces, porque su tinte
+  también multiplica el color de la escena.
+- **Why not**: el tinte cumple una función (color de la luz ambiente); lo que
+  sobra es su componente de brillo, y eso se normaliza a matiz.
+
+### (f) Mantener la música pero bajar su volumen
+
+- **Pros**: no se pierde el trabajo de Capa 2.
+- **Cons**: el usuario pidió eliminarla; "música muy baja" sigue siendo música y
+  sigue dañando el ambiente de supervivencia.
+- **Why not**: petición explícita del usuario.
+
+## Consequences
+
+### Positive
+
+- La presentación vuelve a ser exactamente lo que el usuario pidió (cubo
+  simple), con el arte futuro a un interruptor de distancia.
+- Los botones de derrota y del menú vuelven a funcionar, con control negativo
+  verificado en el juego real.
+- Consola limpia: el flood de ~1206 `SCRIPT ERROR` por sesión desaparece.
+- La noche es iluminación real: sombras proyectadas, faro con cono y viñeta, y
+  la escena se lee sin el faro (media luz) mientras el cono destaca.
+- `gen_art.py --check` sigue en el CI: el banco de arte no se degrada en
+  silencio.
+- Los FX del cubo (squash/stretch/telegrafía) ya no se pelean entre sí, el
+  "hold" de aviso se respeta y la escala del arquetipo no se deforma.
+- `VictoryTest` pasa a ser una compuerta real en el CI (antes era un arnés
+  muerto que imprimía `FAIL` y salía con código 0).
+
+### Negative
+
+- El juego vuelve a verse "prototípico" hasta que el usuario incorpore su
+  arte; el salto visual queda pendiente de su trabajo.
+- Se pierde el trabajo de presentación de Capa 0 en runtime (≈9 hojas PNG
+  quedan como material, no como presentación).
+- El sistema de iluminación es más complejo que el anterior (más de un
+  `CanvasModulate` con alpha, normales de color y un `CanvasLayer` de
+  acabado).
+- `VictoryTest` y `AudioPolicyTest`/`LightingTest`/`VisualStyleTest` suman
+  tiempo de CI (20 suites en total frente a 18 antes).
+
+### Risks
+
+- Que el faro sea demasiado potente o direccional de forma que Moleste en
+  interiores → mitigación: `range_layer` limitado al canvas del mundo,
+  `max_distance = 700` y energía modulada por fase (`PHASE_FLASHLIGHT`).
+- Que la falta de sprites haga creer que el juego está "sin terminar" →
+  mitigación: `USE_SPRITE_ART` y la API de hojas documentadas en
+  `ART_BIBLE.md` hacen que el cambio sea una línea, no una migración.
+- Que `ambient_energy` siga siendo leído por `DriveableVehicle` y
+  `MetaProgress` con el umbral `≤0.32 = noche` → mitigación: el contrato 0..1.5
+  se conserva intacto; solo cambia cómo se aplica visualmente.

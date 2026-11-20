@@ -14,6 +14,9 @@ signal return_to_menu_pressed
 
 func _ready() -> void:
 	layer = 30
+	# El juego se pausa al morir (HUD.gd). Sin PROCESS_MODE_ALWAYS los botones
+	# heredan la pausa y NO procesan input: el clic no hacía nada.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	retry_button.pressed.connect(_on_retry_pressed)
 	menu_button.pressed.connect(_on_return_to_menu_pressed)

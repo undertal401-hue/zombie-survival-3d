@@ -2,24 +2,31 @@ extends Node2D
 class_name PlayerVisual
 
 ## =============================================================================
-## PLAYER VISUAL - AnimatedSprite2D con todas las animaciones
+## PLAYER VISUAL - el cubo (Polygon2D) es el sprite actual
 ## =============================================================================
-## Maneja: idle, walk, run, attack_* (melee/pistola/escopeta/fusil), reload_* (pistola/escopeta/fusil), hurt, death
-## Se conecta a Player para recibir estado de movimiento/acción
+## R1 (2026-11-20): el usuario decide que el personaje se queda como CUBO y
+## que el arte pixel real lo hará él más adelante. Por tanto:
+##   - NO se carga ninguna hoja PNG (las hojas y tools/gen_art.py se conservan
+##     como banco de trabajo para ese arte futuro).
+##   - El cubo `Body`/`Nose` del Player queda VISIBLE.
+##   - Squash/stretch, telegrafía y hit-flash se aplican al CUBO, para que el
+##     game feel siga siendo visible sin sprites.
+##   - `load_sprite_sheet()` / `load_all_from_atlas()` siguen disponibles como
+##     API: cuando el usuario instale su arte, basta con llamar a esas
+##     funciones y poner `USE_SPRITE_ART = true`.
 ## =============================================================================
 
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 
-## Hoja real generada por tools/gen_art.py (ADR-001): 32x32, palette-locked.
-const PLAYER_SHEET: String = "res://assets/art/sprites/player_sheet.png"
-const FRAME: int = 32
-const SHEET_COLS: int = 8
+## Interruptor de presentación. false = cubo (actual). true = la sprite de
+## frames pasa a verse y el cubo se oculta (arte futuro del usuario).
+const USE_SPRITE_ART: bool = false
 
 var _current_state: String = "idle"
 var _is_attacking: bool = false
-## Las animaciones usan 4 frames procedurales reutilizados para todas las
-## acciones. animation_finished sí se emite, pero los clips son muy cortos:
-## ataques y recargas necesitan un fallback temporal que fije su duración mínima.
+## Las animaciones no tienen frames (mismo contrato que los zombis en
+## ea329e8): animation_finished nunca se emite, así que el fallback temporal
+## fija la duración mínima de ataques y recargas.
 var _attack_timer: float = 0.0
 
 ## Hit flash effect
@@ -27,11 +34,19 @@ var _hit_flash_timer: float = 0.0
 var _hit_flash_duration: float = 0.1
 @onready var _hit_flash_material: ShaderMaterial = preload("res://assets/shaders/HitFlashMaterial.tres")
 
-## Squash / stretch (ADR game feel): solo escala el AnimatedSprite2D. El
-## CollisionShape2D del Player es hermano de este nodo, así que las hitboxes
-## nunca se tocan. La escala base la fija Player.tscn (1.15, 1.15).
+## El cubo visible (Polygon2D del Player). Se escala y se tiñe, nunca la
+## CollisionShape2D: las hitboxes quedan intactas.
+@onready var _cube_body: Polygon2D = get_node_or_null("../Body") as Polygon2D
+@onready var _cube_nose: Polygon2D = get_node_or_null("../Nose") as Polygon2D
+
+## Squash / stretch (game feel): escala el cubo.
+## R1: antes se creaba UN tween por polígono dentro de un bucle y solo se
+## guardaba el último (`_squash_tween`), así que los anteriores quedaban
+## huérfanos peleándose por la escala del cubo. Ahora se guardan TODOS y
+## `_reset_fx()` los mata antes de aplicar el siguiente efecto.
 var _base_scale: Vector2 = Vector2.ONE
-var _squash_tween: Tween
+var _cube_tweens: Array[Tween] = []
+var _cube_base_scales: Array[Vector2] = []
 
 ## Estados de animación
 enum AnimState {
@@ -43,25 +58,43 @@ enum AnimState {
 
 func _ready() -> void:
 	_setup_animations()
-	# La escala del sprite sale del .tscn: se captura antes de cualquier tween.
+	# La escala base del sprite sale del .tscn: se captura antes de cualquier tween.
 	_base_scale = animated_sprite.scale
-	# Pixel art: muestreo puntual, sin interpolación (ADR-001).
+	# Muestreo puntual (sin interpolación): el objetivo es pixel art.
 	animated_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if animated_sprite.material is CanvasItemMaterial:
 		(animated_sprite.material as CanvasItemMaterial).texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	animated_sprite.play("idle")
 	animated_sprite.animation_finished.connect(_on_animation_finished)
 
-	# El sprite procedural sustituye al cubo verde de depuración. Se ocultan
-	# los Polygon2D del Player para que no se dibujen encima de la sprite.
-	for node_name in ["Body", "Nose"]:
-		var debug_poly := get_node_or_null("../%s" % node_name) as Polygon2D
-		if debug_poly != null:
-			debug_poly.visible = false
+	# Presentación: cubo visible, sprite de frames oculto (o al revés si el
+	# usuario activa USE_SPRITE_ART con su arte).
+	_apply_presentation()
 
-	# Aplicar material de hit flash al sprite
+	# Aplicar material de hit flash al sprite. Se mantiene aunque el sprite no
+	# se vea: el arnés TestFixes (check 35) lee su uniform.
 	animated_sprite.material = _hit_flash_material.duplicate()
 	_set_hit_flash(0.0)
+
+func _apply_presentation() -> void:
+	var cube_nodes: Array[Polygon2D] = _cube_nodes()
+	for poly in cube_nodes:
+		if poly != null:
+			poly.visible = not USE_SPRITE_ART
+	animated_sprite.visible = USE_SPRITE_ART
+	_cube_base_scales.clear()
+	for poly in cube_nodes:
+		if poly != null:
+			_cube_base_scales.append(poly.scale)
+
+## Los dos polígonos del cubo del Player (Body y Nose).
+func _cube_nodes() -> Array[Polygon2D]:
+	var nodes: Array[Polygon2D] = []
+	if _cube_body != null:
+		nodes.append(_cube_body)
+	if _cube_nose != null:
+		nodes.append(_cube_nose)
+	return nodes
 
 func _process(delta: float) -> void:
 	if _hit_flash_timer > 0.0:
@@ -94,14 +127,7 @@ func _setup_animations() -> void:
 		if not frames.has_animation(anim):
 			frames.add_animation(anim)
 
-	# Hoja de pixel art real (ADR-001): 12 animaciones x 4 frames en una retícula
-	# de 8 columnas de celdas de 32x32. Cada animação conserva sus 4 frames.
-	var sheet: Texture2D = load(PLAYER_SHEET) as Texture2D
-	if sheet == null:
-		push_warning("PlayerVisual: no se pudo cargar %s" % PLAYER_SHEET)
-	_install_frames(frames, sheet, anims, SHEET_COLS)
-
-	# Velocidades definitivas sobre la hoja bitmap.
+	# Velocidades definitivas (sin frames: el fallback temporal gobierna).
 	frames.set_animation_speed("idle", 8)
 	frames.set_animation_speed("walk", 10)
 	frames.set_animation_speed("run", 14)
@@ -129,25 +155,6 @@ func _setup_animations() -> void:
 	frames.set_animation_loop("hurt", false)
 	frames.set_animation_loop("death", false)
 
-## Instala 4 frames por animación desde una hoja de celdas de 32x32.
-## `cell` se numera en orden de lectura: fila 0 primero, izq. -> der.
-func _install_frames(frames: SpriteFrames, sheet: Texture2D,
-		anims: Array, cols: int) -> void:
-	var cell: int = 0
-	for anim_variant in anims:
-		var anim: String = String(anim_variant)
-		while frames.get_frame_count(anim) > 0:
-			frames.remove_frame(anim, frames.get_frame_count(anim) - 1)
-		for f in range(4):
-			var atlas := AtlasTexture.new()
-			atlas.atlas = sheet
-			var col: int = cell % cols
-			var row: int = int(floor(float(cell) / float(cols)))
-			atlas.region = Rect2(float(col * FRAME), float(row * FRAME),
-				float(FRAME), float(FRAME))
-			frames.add_frame(anim, atlas, 1.0, f)
-			cell += 1
-
 func update_from_player(player: Node2D, velocity: Vector2, weapon_controller: Node) -> void:
 	if player == null:
 		return
@@ -159,12 +166,10 @@ func update_from_player(player: Node2D, velocity: Vector2, weapon_controller: No
 	# desde el category que Player entrega. Quitar el parámetro exigiría tocar
 	# Player.gd, fuera de esta superficie.
 	
-	# Orientación del sprite (también durante ataques y recargas): el dibujo
-	# procedural tiene la coronilla y el cañón hacia -Y, pero el nodo Player
-	# apunta +X. Como este sprite es hijo del jugador, su rotación global es
-	# player.rotation + animated_sprite.rotation; compensamos +PI/2 para que
-	# el -Y del dibujo caiga exactamente sobre la dirección del ratón.
-	# No se usa flip_h: espejar el dibujo partía el arma y la coronilla.
+	# Orientación: el nodo Player ya rota hacia el ratón (rotation = +X hacia
+	# el puntero), así que el cubo mira al objetivo sin transformaciones
+	# adicionales. El sprite de frames mantiene su corrección de eje para
+	# cuando el usuario instale su arte.
 	var to_mouse: Vector2 = player.get_global_mouse_position() - player.global_position
 	if to_mouse.length_squared() > 0.25:
 		var aim_angle: float = to_mouse.angle()
@@ -192,32 +197,78 @@ func update_from_player(player: Node2D, velocity: Vector2, weapon_controller: No
 		_current_state = new_state
 		animated_sprite.play(new_state)
 
-## Devuelve el sprite a su escala base y cancela cualquier FX previo.
+## Devuelve el cubo a su escala base y cancela cualquier FX previo.
 func _reset_fx() -> void:
-	if _squash_tween != null and _squash_tween.is_valid():
-		_squash_tween.kill()
-	_squash_tween = null
+	for t in _cube_tweens:
+		if t != null and t.is_valid():
+			t.kill()
+	_cube_tweens.clear()
 	animated_sprite.scale = _base_scale
+	_restore_cube_scale()
+
+
+## Escala base actual de cada polígono del cubo (puede venir del arquetipo).
+func _cube_scale_targets() -> Array[Vector2]:
+	var targets: Array[Vector2] = []
+	var nodes: Array[Polygon2D] = _cube_nodes()
+	for i in nodes.size():
+		var poly: Polygon2D = nodes[i]
+		if poly == null:
+			targets.append(Vector2.ONE)
+			continue
+		if i < _cube_base_scales.size():
+			targets.append(_cube_base_scales[i])
+		else:
+			targets.append(poly.scale)
+	return targets
+
+
+func _restore_cube_scale() -> void:
+	var nodes: Array[Polygon2D] = _cube_nodes()
+	var targets: Array[Vector2] = _cube_scale_targets()
+	for i in nodes.size():
+		if nodes[i] != null:
+			nodes[i].scale = targets[i]
 
 
 ## Aplastamiento: ancho extra, alto reducido, vuelta a la base.
 func squash(amount: float = 0.85, duration: float = 0.12) -> void:
 	_reset_fx()
 	var factor: float = clampf(amount, 0.5, 1.0)
-	var target: Vector2 = Vector2(_base_scale.x / factor, _base_scale.y * factor)
-	_squash_tween = create_tween()
-	_squash_tween.tween_property(animated_sprite, "scale", target, duration * 0.4)
-	_squash_tween.tween_property(animated_sprite, "scale", _base_scale, duration * 0.6)
+	var nodes: Array[Polygon2D] = _cube_nodes()
+	var targets: Array[Vector2] = _cube_scale_targets()
+	for i in nodes.size():
+		var poly: Polygon2D = nodes[i]
+		if poly == null:
+			continue
+		var base: Vector2 = targets[i]
+		var target: Vector2 = Vector2(base.x / factor, base.y * factor)
+		_cube_tweens.append(_scale_tween(poly, target, base, duration))
 
 
 ## Estiramiento: estrecho y alto, vuelta a la base. Es el "punch" del ataque.
 func stretch(amount: float = 0.88, duration: float = 0.12) -> void:
 	_reset_fx()
 	var factor: float = clampf(amount, 0.5, 1.0)
-	var target: Vector2 = Vector2(_base_scale.x * factor, _base_scale.y / factor)
-	_squash_tween = create_tween()
-	_squash_tween.tween_property(animated_sprite, "scale", target, duration * 0.4)
-	_squash_tween.tween_property(animated_sprite, "scale", _base_scale, duration * 0.6)
+	var nodes: Array[Polygon2D] = _cube_nodes()
+	var targets: Array[Vector2] = _cube_scale_targets()
+	for i in nodes.size():
+		var poly: Polygon2D = nodes[i]
+		if poly == null:
+			continue
+		var base: Vector2 = targets[i]
+		var target: Vector2 = Vector2(base.x * factor, base.y / factor)
+		_cube_tweens.append(_scale_tween(poly, target, base, duration))
+
+
+## Tween de escala de UN polígono: dos fases SECUENCIALES (aplastar -> volver).
+## Un tween por polígono: los polígonos se animan a la vez (son tweens
+## distintos) y ninguno queda huérfano.
+func _scale_tween(poly: Polygon2D, target: Vector2, base: Vector2, duration: float) -> Tween:
+	var tween: Tween = create_tween()
+	tween.tween_property(poly, "scale", target, duration * 0.4)
+	tween.tween_property(poly, "scale", base, duration * 0.6)
+	return tween
 
 
 func punch_scale(amount: float = 0.88, duration: float = 0.12) -> void:
@@ -236,7 +287,7 @@ func play_attack(weapon_category: int) -> void:
 		_: anim_name = "attack_pistol"
 	
 	animated_sprite.play(anim_name)
-	# Los frames procedurales terminan demasiado pronto: imponer duración mínima.
+	# Sin frames no hay animation_finished: imponer duración mínima.
 	_attack_timer = 0.35
 
 func play_reload(weapon_category: int) -> void:
@@ -271,8 +322,13 @@ func _on_animation_finished() -> void:
 
 func set_modulate_color(color: Color) -> void:
 	animated_sprite.modulate = color
+	for poly in _cube_nodes():
+		if poly != null:
+			poly.modulate = color
 
 ## API para cargar sprites reales desde archivos (pipeline ADR-001).
+## El usuario la usará cuando tenga su arte: llama a load_all_from_atlas() con
+## la hoja y pone USE_SPRITE_ART = true.
 func load_sprite_sheet(anim_name: String, texture: Texture2D,
 		h_frames: int, v_frames: int, frame_count: int = -1) -> void:
 	var frames: SpriteFrames = animated_sprite.sprite_frames
@@ -293,7 +349,7 @@ func load_sprite_sheet(anim_name: String, texture: Texture2D,
 		var col: int = i % h_frames
 		var row: int = int(floor(float(i) / float(h_frames)))
 		atlas.region = Rect2(float(col * fw), float(row * fh),
-			float(fw), float(fh))
+				float(fw), float(fh))
 		frames.add_frame(anim_name, atlas, 1.0, i)
 
 ## layout = { "anim": {"h_frames": int, "v_frames": int, "frame_count": int} }
@@ -310,3 +366,9 @@ func _set_hit_flash(progress: float) -> void:
 	var mat := animated_sprite.material as ShaderMaterial
 	if mat != null:
 		mat.set_shader_parameter("hit_flash_progress", progress)
+	# El cubo es lo que se ve: el destello se aplica también a sus polígonos.
+	var flash: float = clampf(progress, 0.0, 1.0)
+	var tint: Color = Color(1.0, 1.0 - 0.45 * flash, 1.0 - 0.45 * flash, 1.0)
+	for poly in _cube_nodes():
+		if poly != null:
+			poly.modulate = tint

@@ -3,6 +3,12 @@ extends Node
 ## números de daño flotantes y cámara (look-ahead / shake / punch).
 ## Se escribe ANTES de la implementación sobre beb9a1a: DEBE FALLAR.
 ##
+## R1 (2026-11-20): el contrato de cámara CAMBIA. El usuario pidió quitar el
+## movimiento de cámara con el ratón y conservar el seguimiento. La cámara
+## vuelve a ser una Camera2D simple hija del jugador y el look-ahead con
+## `get_global_mouse_position()` desaparece (se borró CameraController.gd).
+## El resto del contrato (squash, telegrafía, números de daño) sigue igual.
+##
 ## Introspección 100% dinámica (FileAccess / búsqueda de texto / get). No se
 ## referencian símbolos que aún no existen, así que este arnés no produce
 ## Parse Error aunque el game feel todavía no esté implementado.
@@ -15,6 +21,7 @@ const DAMAGE_NUMBER_GD: String = "res://08_ui/DamageNumber.gd"
 const DAMAGE_NUMBER_TSCN: String = "res://08_ui/DamageNumber.tscn"
 const PLAYER_SCENE: String = "res://02_player/Player.tscn"
 const CAMERA_CONTROLLER: String = "res://02_player/CameraController.gd"
+const WEAPON_CONTROLLER: String = "res://02_player/weapons/WeaponController.gd"
 const PROJECT: String = "res://project.godot"
 
 var _failures: Array[String] = []
@@ -102,68 +109,59 @@ func _headshot_near_damage_number(src: String) -> bool:
 			idx = pos + tok.length()
 	return false
 
-# --- ÍTEM 9. Cámara -----------------------------------------------------------
+# --- ÍTEM 9. Cámara (R1: sin movimiento por el ratón) -------------------------
+#
+# R1 (2026-11-20) cambió este contrato. El usuario pidió QUITAR el movimiento
+# de cámara con el ratón y CONSERVAR el seguimiento de cámara. Por tanto:
+#   - NO debe existir CameraController.gd (era el look-ahead con el ratón);
+#   - la Camera2D sigue siendo hija del jugador (seguimiento intacto);
+#   - la cámara NO lee la posición del ratón en ningún sitio;
+#   - el shake de disparo lo conserva WeaponController (no la cámara).
 
 func _camera_checks() -> void:
-	_check(FileAccess.file_exists(CAMERA_CONTROLLER),
-		"existe game/02_player/CameraController.gd")
-	_check(_camera_assigned_in_scene(_read(PLAYER_SCENE)),
-		"Player.tscn asigna CameraController.gd al nodo Camera2D")
+	_check(not FileAccess.file_exists(CAMERA_CONTROLLER),
+		"R1: no existe game/02_player/CameraController.gd (look-ahead con el ratón eliminado)")
+	_check(not _read(PLAYER_SCENE).contains("CameraController"),
+		"R1: Player.tscn no asigna CameraController.gd al nodo Camera2D")
 
-	var cam: String = _read(CAMERA_CONTROLLER)
-	for token in ["look_ahead", "shake", "punch"]:
-		_check(_exposes(cam, token),
-			"CameraController.gd expone '%s' (método o variable)" % token)
-	_check(cam.contains("fire_requested"),
-		"CameraController.gd se conecta a 'fire_requested'")
-	_check(cam.contains("player_damaged"),
-		"CameraController.gd se conecta a 'player_damaged'")
+	# La cámara sigue al jugador: es hija del nodo Player.
+	var scene: String = _read(PLAYER_SCENE)
+	var cam_idx: int = scene.find("[node name=\"Camera2D\"")
+	_check(cam_idx != -1, "R1: Player.tscn mantiene el nodo Camera2D")
+	if cam_idx != -1:
+		var next_node: int = scene.find("[node ", cam_idx + 1)
+		var end: int = next_node if next_node != -1 else scene.length()
+		var block: String = scene.substr(cam_idx, end - cam_idx)
+		_check(block.contains("parent=\".\""),
+			"R1: la Camera2D es hija del jugador (seguimiento intacto)")
+		_check(block.contains("current = true"),
+			"R1: la Camera2D es la cámara activa")
 
-func _exposes(src: String, token: String) -> bool:
-	for line in src.split("\n"):
-		var s: String = line.strip_edges()
-		if not (s.begins_with("func ") or s.begins_with("var ") \
-				or s.begins_with("@export var ")):
-			continue
-		if s.contains(token):
-			return true
-	return false
+	# Ningún punto del proyecto mueve la cámara con el ratón.
+	var offenders: Array[String] = []
+	for path in _camera_sources():
+		var src: String = _read(path)
+		if src.contains("get_global_mouse_position"):
+			offenders.append(path.get_file())
+	_check(offenders.is_empty(),
+		"R1: ningún script de cámara lee get_global_mouse_position (%s)" % str(offenders))
 
-func _camera_assigned_in_scene(scene: String) -> bool:
-	var node_idx: int = scene.find("[node name=\"Camera2D\"")
-	if node_idx == -1:
-		return false
-	var next_node: int = scene.find("[node ", node_idx + 1)
-	var end: int = next_node if next_node != -1 else scene.length()
-	var block: String = scene.substr(node_idx, end - node_idx)
-	if block.contains("CameraController"):
-		return true
-	# Resolver `script = ExtResource("N")` contra los ext_resource del header.
-	var ids: Array[String] = []
-	for line in block.split("\n"):
-		var s: String = line.strip_edges()
-		if s.begins_with("script = ExtResource("):
-			ids.append(_between(s, "\"", "\""))
-	if ids.is_empty():
-		return false
-	for id in ids:
-		for hline in scene.split("\n"):
-			var hs: String = hline.strip_edges()
-			if hs.begins_with("[ext_resource") \
-					and hs.contains("id=\"" + id + "\"") \
-					and hs.contains("CameraController"):
-				return true
-	return false
+	# El shake de disparo lo conserva WeaponController, no la cámara.
+	var weapons: String = _read(WEAPON_CONTROLLER)
+	_check(weapons.contains("_apply_camera_shake"),
+		"R1: WeaponController conserva el shake de cámara al disparar")
+	_check(weapons.contains("_shake_base_offset"),
+		"R1: WeaponController conserva el offset base del shake")
 
-func _between(text: String, open: String, close: String) -> String:
-	var a: int = text.find(open)
-	if a == -1:
-		return ""
-	a += open.length()
-	var b: int = text.find(close, a)
-	if b == -1:
-		return ""
-	return text.substr(a, b - a)
+## Solo los scripts que pilotan la CÁMARA. El jugador y el arma sí apuntan con
+## el ratón (eso es el control de apuntado, no el movimiento de cámara).
+func _camera_sources() -> Array[String]:
+	var out: Array[String] = []
+	for path in [CAMERA_CONTROLLER, "res://02_player/Camera.gd",
+			"res://02_player/CameraRig.gd", "res://02_player/CameraShake.gd"]:
+		if FileAccess.file_exists(path):
+			out.append(path)
+	return out
 
 # --- No regresión Capa 0 ------------------------------------------------------
 

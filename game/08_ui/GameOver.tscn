@@ -28,6 +28,7 @@ corner_radius_bottom_left = 0
 
 [node name="GameOver" type="CanvasLayer"]
 layer = 30
+process_mode = 3
 script = ExtResource("1")
 
 [node name="Root" type="Control" parent="."]

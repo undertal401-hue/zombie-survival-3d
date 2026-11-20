@@ -1,22 +1,31 @@
 extends Node
-## CAPA 0 (TDD) — contrato de mejoras 1-4: arte 32 px, animaciones canónicas y
-## filtro nearest. Se escribe ANTES de la implementación: DEBE FALLAR en ea329e8.
+## ============================================================================
+## VISUAL STYLE TEST (R1) — contrato de la PRESENTACIÓN del juego.
+## ============================================================================
+## Sustituye a ArtAnimTest.gd, que codificaba una decisión RECHAZADA por el
+## usuario (pixel art obligatorio en pantalla). R1 (2026-11-20):
 ##
-## Introspección 100% dinámica (FileAccess / DirAccess / get / call / has_method).
-## No se referencian símbolos que todavía no existen, así que este arnés no
-## produce Parse Error aunque el contrato aún no esté implementado.
+##   - El personaje se queda como CUBO (Polygon2D). El usuario hará el arte.
+##   - Las hojas PNG y tools/gen_art.py SE CONSERVAN como banco de trabajo
+##     (pipeline determinista, `--check` en CI), pero NO se usan en runtime.
+##   - No hay sombras falsas (`pixel_shadows`): la sombra es proyectada de verdad.
+##   - Hay faro real (PointLight2D con cono) y capa de acabado nocturna.
 ##
-## CORRECCIÓN aplicada: se acepta el nodo `AnimatedSprite2D` existente (o un
-## `PixelSprite` si aparece), se acepta cualquiera de las variantes attack*,
-## el timer de 0.35 s es INFO no bloqueante, y texture_filter debe ser NEAREST.
+## Introspección 100% dinámica (FileAccess / get / call). No referencia
+## símbolos inexistentes: no produce Parse Error aunque el contrato no esté
+## implementado.
+## ============================================================================
 
 const ART_BIBLE: String = "res://assets/art/ART_BIBLE.md"
 const GEN_ART: String = "res://tools/gen_art.py"
 const SPRITES_DIR: String = "res://assets/art/sprites/"
+const LIGHTS_DIR: String = "res://assets/art/lights/"
 const PLAYER_SCENE: String = "res://02_player/Player.tscn"
 const ZOMBIE_SCENE: String = "res://03_zombies/Zombie.tscn"
 const PLAYER_VISUAL: String = "res://02_player/PlayerVisual.gd"
 const ZOMBIE_VISUAL: String = "res://03_zombies/ZombieVisual.gd"
+const SOLAR_LIGHTING: String = "res://08_ui/SolarLighting.gd"
+const SOLAR_SCENE: String = "res://08_ui/SolarLighting.tscn"
 
 var _canonical: Array[String] = ["idle", "walk", "hurt", "death"]
 var _attack_variants: Array[String] = [
@@ -44,25 +53,26 @@ func _ready() -> void:
 	await get_tree().process_frame
 	_bible_checks()
 	_generator_checks()
-	_sprite_file_checks()
+	_asset_checks()
 	_player_inst = _instantiate(PLAYER_SCENE)
 	_zombie_inst = _instantiate(ZOMBIE_SCENE)
 	if _player_inst != null or _zombie_inst != null:
 		# El SpriteFrames de PlayerVisual se construye en _ready().
 		await get_tree().process_frame
-	var player_sprite: Object = _find_sprite(_player_inst)
-	var zombie_sprite: Object = _find_sprite(_zombie_inst)
-	_actor_checks("Player", player_sprite)
-	_actor_checks("Zombie", zombie_sprite)
-	_timer_checks(player_sprite)
+	_cube_checks("Player", _player_inst)
+	_cube_checks("Zombie", _zombie_inst)
+	_sprite_api_checks("Player", _player_inst)
+	_sprite_api_checks("Zombie", _zombie_inst)
+	_no_fake_shadows_checks()
+	_real_lighting_checks()
 	await _finish()
 
-# --- 1. ART_BIBLE ------------------------------------------------------------
+# --- 1. El banco de arte se conserva (para el arte futuro del usuario) ---------
 
 func _bible_checks() -> void:
 	var text: String = _read(ART_BIBLE)
 	_check(FileAccess.file_exists(ART_BIBLE),
-		"existe assets/art/ART_BIBLE.md")
+		"existe assets/art/ART_BIBLE.md (banco de arte futuro)")
 	_check(text.contains("32"),
 		"ART_BIBLE.md documenta sprites de 32 px")
 	var hex_lines: int = 0
@@ -110,13 +120,21 @@ func _generator_checks() -> void:
 	_check(before == after,
 		"gen_art.py --check es solo verificación (no crea archivos)")
 
-# --- 3. PNG ------------------------------------------------------------------
+# --- 3. Assets: 9 hojas (banco) + 2 mapas de luz (runtime) -------------------
 
-func _sprite_file_checks() -> void:
+func _asset_checks() -> void:
 	var pngs: Array[String] = []
 	_collect_files(SPRITES_DIR, pngs, ".png")
-	_check(pngs.size() >= 8,
-		"al menos 8 PNG bajo assets/art/sprites/ (encontrados %d)" % pngs.size())
+	_check(pngs.size() >= 9,
+		"al menos 9 PNG de sprites conservados como banco de arte (encontrados %d)" % pngs.size())
+	var lights: Array[String] = []
+	_collect_files(LIGHTS_DIR, lights, ".png")
+	_check(lights.size() >= 2,
+		"al menos 2 mapas de luz PNG (cono + halo) (encontrados %d)" % lights.size())
+	_check(FileAccess.file_exists("res://assets/art/lights/light_cone.png"),
+		"existe el mapa del cono de faro")
+	_check(FileAccess.file_exists("res://assets/art/lights/light_halo.png"),
+		"existe el mapa del halo del jugador")
 
 func _snapshot_outputs() -> Array[String]:
 	# Solo las superficies que el generador puede escribir; se evita snapshottear
@@ -144,7 +162,47 @@ func _collect_files(path: String, out: Array[String], filter: String) -> void:
 		entry = dir.get_next()
 	dir.list_dir_end()
 
-# --- 4-6. Nodo sprite, animaciones y filtro ----------------------------------
+# --- 4. El CUBO es lo que se ve ----------------------------------------------
+
+func _cube_checks(actor: String, inst: Node) -> void:
+	if inst == null:
+		_check(false, "%s: escena instanciable" % actor)
+		return
+	var body: Polygon2D = inst.get_node_or_null("Body") as Polygon2D
+	var nose: Polygon2D = inst.get_node_or_null("Nose") as Polygon2D
+	_check(body != null, "%s: existe el cubo 'Body' (Polygon2D)" % actor)
+	_check(nose != null, "%s: existe el cubo 'Nose' (Polygon2D)" % actor)
+	if body != null:
+		_check(body.visible, "%s: el cubo Body está VISIBLE (no se oculta)" % actor)
+		_check(body.polygon.size() >= 4, "%s: el cubo Body tiene geometría" % actor)
+	if nose != null:
+		_check(nose.visible, "%s: el cubo Nose está VISIBLE (no se oculta)" % actor)
+
+# --- 5. La API de sprites queda lista para el arte futuro --------------------
+
+func _sprite_api_checks(actor: String, inst: Node) -> void:
+	if inst == null:
+		return
+	var sprite: AnimatedSprite2D = _find_sprite(inst)
+	_check(sprite != null, "%s: nodo AnimatedSprite2D presente (API para el arte futuro)" % actor)
+	if sprite == null:
+		return
+	_check(not sprite.visible,
+		"%s: la sprite de frames está oculta (se ve el cubo)" % actor)
+	var frames: Object = sprite.get("sprite_frames") as Object
+	var names: Array[String] = _animation_names(frames)
+	for needed in _canonical:
+		_check(names.has(needed),
+			"%s: sprite_frames conserva la animación '%s' para el arte futuro" % [actor, needed])
+	var has_attack: bool = false
+	for candidate in _attack_variants:
+		if names.has(candidate):
+			has_attack = true
+			break
+	_check(has_attack,
+		"%s: sprite_frames conserva una animación attack* para el arte futuro" % actor)
+	_check(_nearest_filter(sprite),
+		"%s: texture_filter NEAREST (o material equivalente)" % actor)
 
 func _instantiate(path: String) -> Node:
 	if not ResourceLoader.exists(path):
@@ -156,45 +214,13 @@ func _instantiate(path: String) -> Node:
 	get_tree().root.add_child(inst)
 	return inst
 
-func _find_sprite(inst: Node) -> Object:
+func _find_sprite(inst: Node) -> AnimatedSprite2D:
 	if inst == null:
 		return null
-	# Se conserva el nombre actual `AnimatedSprite2D`; `PixelSprite` también
-	# se acepta si la implementación decide renombrar el nodo.
-	var preferred: Array[String] = [
-		"PixelSprite", "AnimatedSprite2D",
-		"PlayerVisual/PixelSprite", "PlayerVisual/AnimatedSprite2D",
-		"ZombieVisual/PixelSprite", "ZombieVisual/AnimatedSprite2D",
-	]
-	for node_path in preferred:
-		var node: Node = inst.get_node_or_null(NodePath(node_path))
-		if node != null and node.is_class("AnimatedSprite2D"):
-			return node
 	var all: Array = inst.find_children("*", "AnimatedSprite2D", true, false)
 	if all.is_empty():
 		return null
-	return all[0] as Object
-
-func _actor_checks(actor: String, sprite: Object) -> void:
-	var present: bool = sprite != null and sprite.is_class("AnimatedSprite2D")
-	_check(present,
-		"%s: nodo AnimatedSprite2D (o PixelSprite) presente" % actor)
-	if not present:
-		return
-	var frames: Object = sprite.get("sprite_frames") as Object
-	var names: Array[String] = _animation_names(frames)
-	for needed in _canonical:
-		_check(names.has(needed),
-			"%s: sprite_frames contiene '%s'" % [actor, needed])
-	var has_attack: bool = false
-	for candidate in _attack_variants:
-		if names.has(candidate):
-			has_attack = true
-			break
-	_check(has_attack,
-		"%s: sprite_frames contiene animación attack* (5 canónicas)" % actor)
-	_check(_nearest_filter(sprite),
-		"%s: texture_filter NEAREST (o material equivalente)" % actor)
+	return all[0] as AnimatedSprite2D
 
 func _animation_names(frames: Object) -> Array[String]:
 	var out: Array[String] = []
@@ -216,28 +242,40 @@ func _nearest_filter(sprite: Object) -> bool:
 			return true
 	return false
 
-# --- 7. Fallback temporal (INFO, no bloqueante) -----------------------------
+# --- 6. Ningún PNG de sprites se carga en runtime ---------------------------
 
-func _timer_checks(player_sprite: Object) -> void:
-	var src: String = _read(PLAYER_VISUAL)
-	var has_035: bool = src.contains("0.35")
-	var frames: Object = null
-	if player_sprite != null:
-		frames = player_sprite.get("sprite_frames") as Object
-	var attacks: Array[String] = []
-	if frames != null and frames.has_method("has_animation"):
-		for candidate in _attack_variants:
-			if bool(frames.call("has_animation", StringName(candidate))):
-				attacks.append(candidate)
-	# El timer de 0.35 s se reporta como INFO mientras exista una animación
-	# attack*: solo es FAIL si además NO existe ninguna animación de ataque.
-	_check(not attacks.is_empty(),
-		"PlayerVisual: existe animación attack* aunque persista el fallback temporal")
-	if has_035:
-		_info("PlayerVisual.play_attack mantiene timer de 0.35 s (INFO no bloqueante)")
-	var zombie_src: String = _read(ZOMBIE_VISUAL)
-	if zombie_src.contains("ATTACK_FALLBACK") or zombie_src.contains("0.5"):
-		_info("ZombieVisual mantiene ATTACK_FALLBACK temporal (INFO no bloqueante)")
+func _no_fake_shadows_checks() -> void:
+	for path in [PLAYER_SCENE, ZOMBIE_SCENE]:
+		var src: String = _read(path)
+		_check(not src.contains("pixel_shadows"),
+			"%s: sin grupo 'pixel_shadows' (sombras falsas eliminadas)" % path.get_file())
+	var solar_src: String = _read(SOLAR_LIGHTING)
+	_check(not solar_src.contains("PixelShadowController"),
+		"SolarLighting.gd: fuera el PixelShadowController (sombras proyectadas reales)")
+	var pv: String = _read(PLAYER_VISUAL)
+	var zv: String = _read(ZOMBIE_VISUAL)
+	_check(not pv.contains("player_sheet.png"),
+		"PlayerVisual.gd: no carga la hoja PNG en runtime")
+	_check(not zv.contains("zombie_walker.png") and not zv.contains("zombie_sheet"),
+		"ZombieVisual.gd: no carga la hoja PNG en runtime")
+	_check(pv.contains("USE_SPRITE_ART") and zv.contains("USE_SPRITE_ART"),
+		"PlayerVisual/ZombieVisual: interruptor USE_SPRITE_ART para el arte futuro")
+
+# --- 7. Faro real y acabado nocturna ----------------------------------------
+
+func _real_lighting_checks() -> void:
+	var player_src: String = _read(PLAYER_SCENE)
+	_check(player_src.contains("Flashlight"), "Player.tscn: nodo Flashlight (PointLight2D)")
+	_check(player_src.contains("MuzzleLight"), "Player.tscn: nodo MuzzleLight (fogonazo)")
+	_check(player_src.contains("shadow_enabled = true"),
+		"Player.tscn: el faro proyecta sombras reales")
+	_check(FileAccess.file_exists("res://assets/shaders/NightGrade.gdshader"),
+		"existe el shader NightGrade.gdshader")
+	_check(FileAccess.file_exists("res://08_ui/NightGradeMaterial.tres"),
+		"existe el material NightGradeMaterial.tres")
+	var solar_scene: String = _read(SOLAR_SCENE)
+	_check(solar_scene.contains("NightGradeRect"),
+		"SolarLighting.tscn: la capa NightGradeRect está montada")
 
 # --- Cierre ------------------------------------------------------------------
 
@@ -247,10 +285,10 @@ func _finish() -> void:
 			inst.queue_free()
 	for i in range(6):
 		await get_tree().process_frame
-	print("ART_ANIM_TEST failures=%d" % _failures.size())
+	print("VISUAL_STYLE_TEST failures=%d" % _failures.size())
 	for f in _failures:
 		print("  - " + f)
-	# Salida programada ANTES de los assert (patrón NightGlareTest): si un
+	# Salida programada ANTES de los asserts (patrón NightGlareTest): si un
 	# assert detiene el proceso en debug, el código de salida ya está fijado.
 	get_tree().quit(1 if not _failures.is_empty() else 0)
 	# Los asserts quedan como red de seguridad opcional. En la fase roja del
@@ -259,7 +297,7 @@ func _finish() -> void:
 	# `-- --strict-assert` tras la ruta de la escena.
 	if _strict_assert_enabled():
 		for f in _failures:
-			assert(false, "ART_ANIM_TEST: " + f)
+			assert(false, "VISUAL_STYLE_TEST: " + f)
 
 func _strict_assert_enabled() -> bool:
 	var args: PackedStringArray = OS.get_cmdline_user_args()

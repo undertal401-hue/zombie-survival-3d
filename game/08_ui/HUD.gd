@@ -132,7 +132,14 @@ func _tutorial_on_reload(_weapon: Weapon, _duration: float) -> void:
 
 
 func _tutorial_on_input(event: InputEvent) -> void:
-	if not _tutorial_enabled or event.echo:
+	if not _tutorial_enabled:
+		return
+	# Solo teclado/acciones: los eventos de ratón (InputEventMouseMotion,
+	# InputEventMouseButton) NO tienen propiedad `echo`, y leerla lanzaba un
+	# SCRIPT ERROR en cada movimiento del puntero.
+	if not (event is InputEventKey or event is InputEventAction):
+		return
+	if event.is_echo():
 		return
 	if event.is_action_pressed("inventory"):
 		_tutorial_mark("bag")
@@ -249,7 +256,7 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	# El tutorial solo observa la entrada: no la consume ni pausa el árbol.
 	_tutorial_on_input(event)
-	if not _ended or not event.is_action_pressed("restart") or event.echo:
+	if not _ended or not event.is_action_pressed("restart") or event.is_echo():
 		return
 	get_viewport().set_input_as_handled()
 	get_tree().paused = false
@@ -436,7 +443,11 @@ func _on_game_over() -> void:
 	_end_game("HAS CAÍDO", "No sobreviviste. Reintenta y prepara mejor tu próxima salida.", Color(1.0, 0.4, 0.4))
 
 func _on_victory() -> void:
-	_end_game("¡EXTRACTION EXITOSA!", "Has conseguido el combustible y escapado con vida.\n\n¡SOBREVIVISTE!", Color(0.6, 1.0, 0.6))
+	# R1: se normaliza la grafía con la de GameOver.gd ("¡EXTRACCIÓN LOGARADA!")
+	# y con la de ExtractionZone.gd. Antes esta línea decía "¡EXTRACTION
+	# EXITOSA!" (sin tilde) mientras QA.gd:632 buscaba "EXTRACCIÓN", así que el
+	# check de extracción del QA salía false aunque la victoria fuera real.
+	_end_game("¡EXTRACCIÓN EXITOSA!", "Has conseguido el combustible y escapado con vida.\n\n¡SOBREVIVISTE!", Color(0.6, 1.0, 0.6))
 
 func _end_game(title: String, text: String, color: Color) -> void:
 	if _ended:

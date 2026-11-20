@@ -283,7 +283,10 @@ func _phase_state(phase: int, t: float) -> Dictionary:
 			ambient = 0.24 + 0.06 * dip
 			sun = 0.0
 			angle = lerpf(PI * 1.05, PI * 1.45, t)
-			tint = Color(0.60, 0.68, 0.94)
+			# R1: tinte de luna suave. Antes era (0.60,0.68,0.94), muy azul:
+			# combinado con el grading de fase dejaba el mundo a un cuarto de
+			# luz y el usuario pidió "media luz con faro".
+			tint = Color(0.72, 0.78, 0.95)
 	return {"ambient": ambient, "sun": sun, "angle": angle, "tint": tint}
 
 

@@ -89,7 +89,7 @@ func _complete_victory() -> void:
 	_victory_triggered = true
 	_countdown = -1.0
 	EventBus.victory.emit()
-	EventBus.notification.emit("¡EXTRACTION EXITOSA! Has sobrevivido.")
+	EventBus.notification.emit("¡EXTRACCIÓN EXITOSA! Has sobrevivido.")
 	call_deferred("_show_victory")
 
 func _show_victory() -> void:

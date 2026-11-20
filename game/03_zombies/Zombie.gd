@@ -136,11 +136,25 @@ func _ready() -> void:
 	_refresh_difficulty()
 	_apply_kind()
 	hp = max_hp * float(_difficulty.get("health", 1.0))
-	target = get_tree().get_first_node_in_group("player") as Node2D
+	target = _player_node()
 	alert_label.visible = false
 	_pick_wander_target()
 	_connect_hearing_sources()
 	_connect_bus_alert_if_available()
+
+
+## Única puerta de acceso al jugador dentro del zombi.
+## `get_first_node_in_group` puede devolver un objeto ya liberado (la escena
+## se recarga al morir o al reintentar) y castearlo a Node2D lanza
+## "Trying to cast a freed object". Aquí se valida ANTES de convertir.
+func _player_node() -> Node2D:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	var found: Node = tree.get_first_node_in_group("player")
+	if found == null or not is_instance_valid(found):
+		return null
+	return found as Node2D
 
 
 func _physics_process(delta: float) -> void:
@@ -216,7 +230,7 @@ func _physics_process(delta: float) -> void:
 
 func _refresh_target() -> void:
 	if target == null or not is_instance_valid(target) or not target.is_in_group("player"):
-		target = get_tree().get_first_node_in_group("player") as Node2D
+		target = _player_node()
 
 
 func _target_valid() -> bool:
@@ -379,7 +393,7 @@ func _connect_hearing_sources() -> void:
 	# conexiones a objetos liberados; aquí solo limpiamos nuestra copia.
 	if not _connected_weapons.is_empty():
 		_connected_weapons = _connected_weapons.filter(func(w): return is_instance_valid(w))
-	var player: Node2D = get_tree().get_first_node_in_group("player") as Node2D
+	var player: Node2D = _player_node()
 	if player == null:
 		return
 	# Senales locales del WeaponController: disparos, impactos y melee.
@@ -415,13 +429,13 @@ func _connect_bus_alert_if_available() -> void:
 func _on_gun_noise(_weapon: Variant, from: Vector2, to: Vector2) -> void:
 	# Ruido en la boca y en el punto de impacto (el raycast del jugador puede
 	# terminar en una pared, que también debe atraer a los zombies).
-	_hear_noise(from, hearing_shot_radius, get_tree().get_first_node_in_group("player"), true)
+	_hear_noise(from, hearing_shot_radius, _player_node(), true)
 	_hear_noise(to, hearing_impact_radius, null, true)
 
 
 func _on_melee_noise(_weapon: Variant, direction: Vector2) -> void:
 	var origin: Vector2 = global_position
-	var player: Node2D = get_tree().get_first_node_in_group("player") as Node2D
+	var player: Node2D = _player_node()
 	if player != null:
 		origin = player.global_position
 	_hear_noise(origin + direction.normalized() * 18.0, hearing_melee_radius, player, true)
@@ -490,7 +504,7 @@ func _become_alerted(world_position: Vector2, source: Node, propagate: bool = tr
 			target = source_2d
 			_hearing_source = source_2d
 	if target == null:
-		target = get_tree().get_first_node_in_group("player") as Node2D
+		target = _player_node()
 	_last_known = world_position
 	_alert_timer = ALERT_TIME
 	_investigate_wait = 0.6

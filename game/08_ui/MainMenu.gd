@@ -13,6 +13,9 @@ signal continue_pressed
 
 func _ready() -> void:
 	layer = 20
+	# El menú puede mostrarse con el árbol pausado (volver al menú desde el
+	# fin de partida): sin ALWAYS sus botones no responderían.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	new_game_button.pressed.connect(_on_new_game_pressed)
 	continue_button.pressed.connect(_on_continue_pressed)
 	quit_button.pressed.connect(_on_quit_pressed)

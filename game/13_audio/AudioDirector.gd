@@ -16,14 +16,13 @@ const SFX_BUS: String = "AudioDirectorSFX"
 const AMBIENCE_BUS: String = "AudioDirectorAmbience"
 const UI_BUS: String = "AudioDirectorUI"
 ## ÍTEM 16: la música tiene su propio bus para poder hacer ducking sin tocar SFX.
-const MUSIC_BUS: String = "AudioDirectorMusic"
 const MAX_CALLABLE_ARGS: int = 4
 
-## Volumen linear de la música y parámetros del crossfade A/B (~1 s) y del
-## ducking (baja la música cuando entra un SFX importante y la restaura).
-const MUSIC_FADE_SECONDS: float = 1.0
-const MUSIC_DUCK_LEVEL: float = 0.18
-const MUSIC_DUCK_SECONDS: float = 0.30
+## R1 (2026-11-20): el juego NO tiene música adaptativa. Decisión del usuario:
+## la música dañaba el ambiente de supervivencia. Se conservan ambiente
+## (viento/lluvia/noche/tensión/bosque) y SFX (disparos, zombis, loot, UI).
+## No existe bus de música, ni players de música, ni crossfade, ni ducking:
+## si alguien re-introduce música debe hacerlo de forma explícita y audible.
 
 const ALIASES: Dictionary = {
 	"fired": "pistol", "fire": "pistol", "shoot": "pistol", "gunshot": "pistol",
@@ -71,23 +70,9 @@ const LOOT_RARITY_SFX: Dictionary = {
 	"rare": {"id": "loot", "pitch": 1.55},
 }
 
-## ÍTEM 16.1/16.2: tabla de música adaptativa. Cuatro estados con patrones
-## PCM16 procedurales distintos (misma síntesis que el resto del audio, sin
-## assets nuevos). Cada entrada apunta a un stream cacheado por `_stream_for`.
-const MUSIC_TRACKS: Dictionary = {
-	&"day": {"stream": "music_day", "gain": 0.62},
-	&"explore": {"stream": "music_explore", "gain": 0.66},
-	&"combat": {"stream": "music_combat", "gain": 0.70},
-	&"night": {"stream": "music_night", "gain": 0.60},
-}
-
-## SFX que justifican bajar la música para que se oigan (disparos, bajas,
-## alertas de horda, daño). Se excluyen footsteps/ui para no bombear la mezcla.
-const DUCK_SFX_IDS: Dictionary = {
-	"pistol": true, "shotgun": true, "rifle": true, "horn": true,
-	"horde_alert": true, "wave_start": true, "zombie_die": true,
-	"zombie_alert": true, "player_hurt": true,
-}
+## R1: no hay tabla de música. El ambiente se decide por clima/hora y lo
+## gobierna `_refresh_ambience()`; el estado de juego (explore/combat) ya no
+## cambia ninguna pista porque no hay pistas.
 
 const UI_IDS: Dictionary = {
 	"ui_click": true, "ui_confirm": true, "ui_cancel": true, "notification": true,
@@ -101,7 +86,6 @@ const AMBIENCE_IDS: Dictionary = {
 @export_range(0.0, 1.0, 0.01) var sfx_volume: float = 0.95
 @export_range(0.0, 1.0, 0.01) var ambience_volume: float = 0.6
 @export_range(0.0, 1.0, 0.01) var ui_volume: float = 0.8
-@export_range(0.0, 1.0, 0.01) var music_volume: float = 0.7
 @export_range(4, 64, 1) var max_voices: int = 24
 @export_range(100.0, 6000.0, 10.0) var max_2d_distance: float = 1600.0
 @export var listener_follow_player: bool = true
@@ -126,18 +110,8 @@ var _last_zombie_alert_msec: int = -100000
 var _last_horn_msec: int = -100000
 var _last_engine_start_msec: int = -100000
 
-## Estado de la música adaptativa (ÍTEM 16). Dos reproductores A/B persistentes
-## permiten crossfade sin instanciar players en cada cambio de estado.
-var _music_players: Array[AudioStreamPlayer] = []
-var _music_active: int = -1
-var _music_state: StringName = &""
-var _music_phase: String = "explore"
-var _music_weather: String = "clear"
-var _music_night: bool = false
-var _music_tension: bool = false
-var _music_gain: float = 0.7
-var _music_fade_tween: Tween = null
-var _music_duck_tween: Tween = null
+## R1: no hay estado de música. El ambiente se decide con `_weather_kind`,
+## `_night`, `_ambience_override` y `_tension`.
 ## Nodos locales a los que se conectó señales: se guardan para desconectarlos
 ## explícitamente en `_exit_tree()`.
 var _weapons_node: Node = null
@@ -156,7 +130,6 @@ func _ready() -> void:
 	set_sfx_volume(sfx_volume)
 	set_ambience_volume(ambience_volume)
 	set_ui_volume(ui_volume)
-	set_music_volume(music_volume)
 	_listener = get_node_or_null("Listener2D") as AudioListener2D
 	if _listener != null:
 		_listener.make_current()
@@ -164,8 +137,6 @@ func _ready() -> void:
 	_resolve_scene_nodes()
 	_connect_event_bus()
 	_refresh_ambience()
-	_init_music_players()
-	_recompute_music_state()
 
 
 func _load_external_ambience() -> void:
@@ -196,14 +167,6 @@ func _load_external_ambience() -> void:
 
 func _exit_tree() -> void:
 	_disconnect_event_bus()
-	_kill_music_tweens()
-	# La música también debe pararse aquí: es playback activo sobre el bus de
-	# música y, de lo contrario, empeoraría el leak intermitente (deuda #24).
-	for music_player in _music_players:
-		if is_instance_valid(music_player):
-			music_player.stop()
-	_music_players.clear()
-	_music_active = -1
 	_stop_engine(false)
 	# Al cerrar, el AudioServer se libera DESPUÉS del árbol de escena. Si un
 	# reproductor sigue sonando en ese instante, Godot no libera su
@@ -307,9 +270,6 @@ func _play_one_shot(canonical: String, pos: Variant, pitch: float = 1.0) -> bool
 	player.pitch_scale = pitch
 	player.call("play")
 	_register_voice(player)
-	# Ducking: los SFX importantes bajan brevemente la música y la restauran.
-	if DUCK_SFX_IDS.has(canonical):
-		duck_for_sfx()
 	return true
 
 
@@ -350,13 +310,7 @@ func set_ambience(kind) -> void:
 			_ambience_override = ""
 	# El clima (clear/rain/wind) no debe borrar la noche del ciclo día/noche;
 	# solo los valores explícitos night/day la cambian.
-	if key == "night" or key == "dusk":
-		_music_night = true
-	elif key == "day" or key == "dawn":
-		_music_night = false
-	_music_weather = _ambience_override if _ambience_override != "" else _weather_kind
 	_refresh_ambience()
-	_recompute_music_state()
 
 
 func set_master_volume(v: float) -> void:
@@ -379,14 +333,8 @@ func set_ui_volume(v: float) -> void:
 	_set_bus_gain(UI_BUS, ui_volume)
 
 
-## Ganancia base del bus de música. El ducking siempre vuelve a este valor.
-func set_music_volume(v: float) -> void:
-	music_volume = clampf(v, 0.0, 1.0)
-	_music_gain = music_volume
-	if _music_duck_tween == null or not is_instance_valid(_music_duck_tween) \
-			or not _music_duck_tween.is_running():
-		_set_bus_gain(MUSIC_BUS, music_volume)
-
+## R1: no existe bus ni volumen de música. El juego es silencio en su capa
+## musical; solo ambiente y SFX.
 
 func mute(value: bool) -> void:
 	_muted = value
@@ -404,7 +352,6 @@ func _ensure_buses() -> void:
 	_add_bus(SFX_BUS, MASTER_BUS)
 	_add_bus(AMBIENCE_BUS, MASTER_BUS)
 	_add_bus(UI_BUS, MASTER_BUS)
-	_add_bus(MUSIC_BUS, MASTER_BUS)
 
 
 func _add_bus(bus_name: String, send_to: String) -> void:
@@ -554,12 +501,11 @@ func _on_bus_weather_changed(kind = null, _b = null, _c = null, _d = null) -> vo
 	set_ambience(kind)
 
 
-## ÍTEM 16.6: la fase del juego (explore/combat/...) cambia la música.
-func _on_bus_game_state_changed(phase = null, _b = null, _c = null, _d = null) -> void:
-	if phase == null:
-		return
-	_music_phase = String(phase).to_lower()
-	_recompute_music_state()
+## R1: `game_state_changed` ya no cambia ninguna pista (no hay música). Se
+## mantiene la conexión para que un cambio futuro de fase pueda usar esta vía
+## sin tocar el contrato del bus.
+func _on_bus_game_state_changed(_phase = null, _b = null, _c = null, _d = null) -> void:
+	pass
 
 
 func _on_bus_craft_completed(_a = null, _b = null, _c = null, _d = null) -> void:
@@ -626,164 +572,7 @@ func _on_weapon_melee(_weapon = null, _direction = null) -> void:
 func _on_world_phase(phase = null, _progress = null) -> void:
 	var text: String = String(phase).to_lower()
 	_night = text == "night"
-	# El ciclo día/noche solo decide la capa de noche; NO sobrescribe la fase
-	# de juego (explore/combat) que llega por EventBus.game_state_changed.
-	if text == "night" or text == "day" or text == "dawn" or text == "dusk":
-		_music_night = text == "night" or text == "dusk"
 	_refresh_ambience()
-	_recompute_music_state()
-
-
-## Música adaptativa (ÍTEM 16) ----------------------------------------------
-
-## Crea el par A/B de reproductores persistentes. No se instancian más players
-## cuando cambia el estado: solo se cambia `stream` y se hace crossfade.
-func _init_music_players() -> void:
-	if not _music_players.is_empty():
-		return
-	if AudioServer.get_bus_index(MUSIC_BUS) < 0:
-		_ensure_buses()
-	for i in range(2):
-		var player := AudioStreamPlayer.new()
-		player.name = "MusicPlayer" + ("A" if i == 0 else "B")
-		player.bus = MUSIC_BUS
-		player.volume_db = -80.0
-		add_child(player)
-		_music_players.append(player)
-
-
-## ÍTEM 16.3: selecciona la pista por estado (`day`, `explore`, `combat`,
-## `night`) con un crossfade de ~1 s entre el player saliente y el entrante.
-func play_music(state: StringName) -> void:
-	if not is_inside_tree():
-		return
-	var key: StringName = StringName(String(state).to_lower())
-	if not MUSIC_TRACKS.has(key):
-		return
-	if _music_players.is_empty():
-		_init_music_players()
-	if key == _music_state:
-		var sounding: AudioStreamPlayer = _current_music_player()
-		if sounding != null and not sounding.playing:
-			sounding.volume_db = _track_db(key)
-			sounding.play()
-		return
-	var preset: Dictionary = MUSIC_TRACKS[key]
-	var stream: AudioStream = _stream_for(String(preset.get("stream", "music_day")))
-	if stream == null:
-		return
-	_music_state = key
-	var next_index: int = (_music_active + 1) % _music_players.size()
-	var incoming: AudioStreamPlayer = _music_players[next_index]
-	var outgoing: AudioStreamPlayer = null
-	if _music_active >= 0 and _music_active < _music_players.size():
-		outgoing = _music_players[_music_active]
-	_start_music_crossfade(incoming, outgoing, stream, _track_db(key))
-	_music_active = next_index
-	# Al entrar música se cancela cualquier duck previo y se restaura la
-	# ganancia nominal con Tween: la nueva pista nunca queda atenuada.
-	_restore_music_gain()
-
-
-## Alias cómodo para llamadas con String en lugar de StringName.
-func set_music_state(state) -> void:
-	play_music(StringName(String(state)))
-
-
-func _track_db(state: StringName) -> float:
-	var preset: Dictionary = MUSIC_TRACKS.get(state, {})
-	return linear_to_db(clampf(float(preset.get("gain", 0.65)), 0.001, 1.0))
-
-
-func _current_music_player() -> AudioStreamPlayer:
-	if _music_active < 0 or _music_active >= _music_players.size():
-		return null
-	return _music_players[_music_active]
-
-
-## ÍTEM 16.4: crossfade A/B. El saliente baja a -80 dB mientras el entrante
-## sube a su volumen objetivo, ambos con el mismo `Tween` (misma duración).
-func _start_music_crossfade(incoming: AudioStreamPlayer, outgoing: AudioStreamPlayer,
-		stream: AudioStream, target_db: float) -> void:
-	_kill_music_tweens()
-	incoming.stream = stream
-	incoming.volume_db = -80.0
-	incoming.play()
-	_music_fade_tween = create_tween()
-	_music_fade_tween.set_parallel(true)
-	_music_fade_tween.tween_property(incoming, "volume_db", target_db, MUSIC_FADE_SECONDS)
-	if outgoing != null and outgoing != incoming and outgoing.playing:
-		_music_fade_tween.tween_property(outgoing, "volume_db", -80.0, MUSIC_FADE_SECONDS)
-	_music_fade_tween.finished.connect(_on_music_fade_finished, CONNECT_ONE_SHOT)
-
-
-func _on_music_fade_finished() -> void:
-	# El player silenciado se detiene para no dejar playback vivo al salir.
-	for i in range(_music_players.size()):
-		if i != _music_active and _music_players[i].playing \
-				and _music_players[i].volume_db <= -79.5:
-			_music_players[i].stop()
-
-
-## ÍTEM 16.5: ducking. Baja la ganancia del bus de música cuando dispara un SFX
-## importante y la DEVUELVE siempre a `music_volume` con un Tween encadenado.
-func duck_for_sfx() -> void:
-	if not is_inside_tree():
-		return
-	_duck_music(MUSIC_DUCK_LEVEL)
-
-
-func _duck_music(level: float) -> void:
-	if _music_duck_tween != null and is_instance_valid(_music_duck_tween):
-		_music_duck_tween.kill()
-	var from: float = clampf(_music_gain, 0.001, 1.0)
-	var to: float = clampf(minf(level, music_volume), 0.001, 1.0)
-	_music_duck_tween = create_tween()
-	# Ataque corto, sostenido breve y liberación de vuelta al volumen base.
-	_music_duck_tween.tween_method(_set_music_gain, from, to, 0.05)
-	_music_duck_tween.tween_interval(MUSIC_DUCK_SECONDS * 0.35)
-	_music_duck_tween.tween_method(_set_music_gain, to, music_volume,
-			MUSIC_DUCK_SECONDS * 0.65)
-
-
-## Restauración garantizada: cualquier duck queda cancelado y se interpola de
-## vuelta al volumen nominal (por si el estado cambia a mitad del ducking).
-func _restore_music_gain() -> void:
-	if _music_duck_tween != null and is_instance_valid(_music_duck_tween):
-		_music_duck_tween.kill()
-	var from: float = clampf(_music_gain, 0.001, 1.0)
-	_music_duck_tween = create_tween()
-	_music_duck_tween.tween_method(_set_music_gain, from, music_volume,
-			MUSIC_DUCK_SECONDS)
-
-
-func _set_music_gain(value: float) -> void:
-	_music_gain = clampf(value, 0.001, 1.0)
-	_set_bus_gain(MUSIC_BUS, _music_gain)
-
-
-func _kill_music_tweens() -> void:
-	if _music_fade_tween != null and is_instance_valid(_music_fade_tween):
-		_music_fade_tween.kill()
-	_music_fade_tween = null
-	if _music_duck_tween != null and is_instance_valid(_music_duck_tween):
-		_music_duck_tween.kill()
-	_music_duck_tween = null
-
-
-## Prioridad: combate (horda o fase) > noche > claro/día > explore.
-func _recompute_music_state() -> void:
-	if not is_inside_tree():
-		return
-	var state: StringName = &"explore"
-	if _music_phase == "combat" or _music_tension:
-		state = &"combat"
-	elif _music_night:
-		state = &"night"
-	elif _music_weather == "clear" or _music_weather == "day" \
-			or _music_weather == "dawn":
-		state = &"day"
-	play_music(state)
 
 
 ## Bucle principal -----------------------------------------------------------
@@ -897,9 +686,6 @@ func _set_tension(active: bool, seconds: float) -> void:
 	_tension = active
 	_tension_left = maxf(seconds, 0.0)
 	_refresh_ambience()
-	# Una horda/tensión empuja la música a combat sin sobrescribir la fase real.
-	_music_tension = active
-	_recompute_music_state()
 
 
 func _set_layer_target(kind: String, target: float) -> void:
@@ -1255,12 +1041,8 @@ func _stream_for(canonical: String) -> AudioStream:
 		"tension_loop": buf = _loop_tension(rng); loop = true
 		"forest_loop": buf = _loop_forest(rng); loop = true
 		"engine_loop": buf = _loop_engine(rng); loop = true
-		"music_day": buf = _music_day(rng); loop = true
-		"music_explore": buf = _music_explore(rng); loop = true
-		"music_combat": buf = _music_combat(rng); loop = true
-		"music_night": buf = _synth_night_music(rng); loop = true
 		_: return null
-	var peak: float = 0.70 if canonical.begins_with("music_") else (0.88 if loop else 0.9)
+	var peak: float = 0.88 if loop else 0.9
 	var stream: AudioStreamWAV = _to_stream(buf, peak, loop)
 	_streams[canonical] = stream
 	return stream
@@ -1549,108 +1331,4 @@ func _loop_engine(rng: RandomNumberGenerator) -> PackedFloat32Array:
 		value += sin(TAU * 126.0 * t) * 0.09
 		value += rumble[i] * 0.55
 		long_buf[i] = value * mod
-	return _loop_slice(long_buf, period)
-
-
-# --- Música adaptativa: cuatro patrones PCM16 (ÍTEM 16) --------------------
-# Los cuatro usan la misma síntesis que el resto del archivo (`_buffer`,
-# `_add_loop_tone`, `_to_stream`, ...) y se cortan con `_loop_slice` para que
-# no tengan costuras. Ninguno necesita un asset externo.
-
-## Escribe una nota en las tres repeticiones del periodo para que el slice
-## final (que es lo que se reproduce) contenga el patrón completo.
-func _add_loop_note(buf: PackedFloat32Array, period: float, start: float,
-		freq: float, amp: float, duration: float, attack: float, shape: String) -> void:
-	var count: int = int(duration * float(SAMPLE_RATE))
-	var total: int = buf.size()
-	for repeat in range(3):
-		var begin: int = int((start + float(repeat) * period) * float(SAMPLE_RATE))
-		for j in range(count):
-			var i: int = begin + j
-			if i >= total:
-				break
-			var t: float = float(j) / float(SAMPLE_RATE)
-			var rise: float = clampf(t / maxf(attack, 0.0001), 0.0, 1.0)
-			var fall: float = clampf((duration - t) / 0.05, 0.0, 1.0)
-			var cycle: float = fmod(t * freq, 1.0)
-			var wave: float = sin(TAU * cycle)
-			if shape == "square":
-				wave = 1.0 if cycle < 0.5 else -1.0
-			elif shape == "saw":
-				wave = cycle * 2.0 - 1.0
-			elif shape == "tri":
-				wave = 1.0 - 4.0 * absf(cycle - 0.5)
-			buf[i] += wave * amp * rise * fall
-
-
-## `day`: arpegio mayor suave (Do/Lá menor→ mayor), corcheas a 120 BPM con
-## pedal de tónica y dominante, armónicos tenues y paso bajo.
-func _music_day(_rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var period: float = 4.0
-	var long_buf: PackedFloat32Array = _buffer(period * 3.0)
-	var notes: Array[float] = [
-		261.63, 329.63, 392.00, 523.25, 392.00, 329.63, 392.00, 523.25,
-		293.66, 349.23, 440.00, 587.33, 440.00, 349.23, 293.66, 261.63,
-	]
-	var step: float = 0.25
-	for k in range(notes.size()):
-		var freq: float = notes[k]
-		_add_loop_note(long_buf, period, float(k) * step, freq, 0.26, 0.23, 0.012, "sine")
-		_add_loop_note(long_buf, period, float(k) * step, freq * 2.0, 0.06, 0.19, 0.010, "sine")
-	_add_loop_tone(long_buf, 130.81, 0.16, period)
-	_add_loop_tone(long_buf, 196.00, 0.09, period)
-	_lowpass_in_place(long_buf, 2100.0)
-	return _loop_slice(long_buf, period)
-
-
-## `explore`: pad en La menor, tempo lento (~70 BPM), cinco osciladores
-## ligeramente desafiados y una respiración de tremolo muy suave.
-func _music_explore(_rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var period: float = 4.0
-	var long_buf: PackedFloat32Array = _buffer(period * 3.0)
-	_add_loop_tone(long_buf, 110.00, 0.30, period)
-	_add_loop_tone(long_buf, 164.81, 0.22, period)
-	_add_loop_tone(long_buf, 220.00, 0.18, period)
-	_add_loop_tone(long_buf, 220.70, 0.13, period)
-	_add_loop_tone(long_buf, 261.63, 0.10, period)
-	for k in range(4):
-		_add_loop_note(long_buf, period, float(k) * 1.0, 329.63, 0.07, 0.72, 0.20, "sine")
-	_lowpass_in_place(long_buf, 1050.0)
-	_tremolo_in_place(long_buf, 0.32, 0.14)
-	return _loop_slice(long_buf, period)
-
-
-## `combat`: ritmo marcial en Re menor a 160 BPM, bajo en sierra, stabs de
-## cuarta/quinta en cuadrada y ruido de percusión; tempo y timbre tensos.
-func _music_combat(rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var period: float = 2.0
-	var long_buf: PackedFloat32Array = _buffer(period * 3.0)
-	var bass: Array[float] = [73.42, 73.42, 87.31, 73.42, 65.41, 65.41, 77.78, 87.31]
-	var step: float = 0.25
-	for k in range(8):
-		var at: float = float(k) * step
-		_add_loop_note(long_buf, period, at, bass[k], 0.40, 0.19, 0.004, "saw")
-		if k % 2 == 0:
-			_add_loop_note(long_buf, period, at + 0.02, 293.66, 0.14, 0.13, 0.003, "square")
-			_add_loop_note(long_buf, period, at + 0.02, 349.23, 0.11, 0.11, 0.003, "square")
-		for repeat in range(3):
-			_add_burst(long_buf, 0.045, float(repeat) * period + at, 0.04, rng, 70.0)
-	_add_loop_tone(long_buf, 146.83, 0.10, period)
-	_lowpass_in_place(long_buf, 2400.0)
-	return _loop_slice(long_buf, period)
-
-
-## `night`: drones graves (La1, Mi2, La2, Si2) con campanadas esporádicas
-## lejanas, muy filtrado y con una oscilación casi imperceptible.
-func _synth_night_music(_rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var period: float = 4.0
-	var long_buf: PackedFloat32Array = _buffer(period * 3.0)
-	_add_loop_tone(long_buf, 55.00, 0.34, period)
-	_add_loop_tone(long_buf, 82.41, 0.20, period)
-	_add_loop_tone(long_buf, 110.00, 0.12, period)
-	_add_loop_tone(long_buf, 164.81, 0.06, period)
-	for k in range(4):
-		_add_loop_note(long_buf, period, float(k) + 0.25, 440.0, 0.05, 0.60, 0.02, "sine")
-	_lowpass_in_place(long_buf, 700.0)
-	_tremolo_in_place(long_buf, 0.21, 0.10)
 	return _loop_slice(long_buf, period)

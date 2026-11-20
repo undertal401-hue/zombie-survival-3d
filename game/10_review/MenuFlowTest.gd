@@ -51,6 +51,7 @@ func _ready() -> void:
 	_menu_api()
 	_main_and_state()
 	_death_victory_flow()
+	await _paused_input_checks()
 	await _finish()
 
 # --- ÍTEM 15.1-15.2: archivos del menú y del fin ------------------------------
@@ -112,6 +113,68 @@ func _death_victory_flow() -> void:
 					near = true
 	_check(signals_ok and near,
 		"ÍTEM 15.7 game_over/victory conectados a mostrar pantalla de fin (show/visible)")
+
+# --- R1: los botones DEBEN funcionar con el árbol pausado --------------------
+#
+# El bug que ve el usuario: al morir, HUD.gd pausa el árbol (`get_tree().paused
+# = true`). Las pantallas de fin heredaban `process_mode = 0` (PAUSABLE), así
+# que sus botones NO procesaban input y el clic no hacía nada.
+#
+# Este check es el que lo ata: sin PROCESS_MODE_ALWAYS, el CI falla.
+
+func _paused_input_checks() -> void:
+	for path in [MAIN_MENU_TSCN, GAME_OVER_TSCN]:
+		var src: String = _read(path)
+		_check(src.contains("process_mode = 3"),
+			"R1: %s declara process_mode = 3 (PROCESS_MODE_ALWAYS)" % path.get_file())
+	for path in [MAIN_MENU_GD, GAME_OVER_GD]:
+		var src: String = _read(path)
+		_check(src.contains("PROCESS_MODE_ALWAYS"),
+			"R1: %s fuerza PROCESS_MODE_ALWAYS en _ready()" % path.get_file())
+
+	# Comprobación en runtime: con el árbol pausado, el botón sigue procesando
+	# input. Es la prueba que reproduce exactamente el clic que fallaba.
+	#
+	# Mecanismo verificado en el juego real (sonda /tmp/opencode/repro_zs):
+	# con el CanvasLayer en PROCESS_MODE_PAUSABLE, `retry.can_process()` es
+	# false, el clic real NO llega al botón, el árbol sigue pausado y la
+	# pantalla de derrota no se cierra. Con PROCESS_MODE_ALWAYS, el botón
+	# procesa el clic, `Main._on_game_over_retry()` despausa y recarga.
+	var game_over: Node = _instantiate(GAME_OVER_TSCN)
+	if game_over == null:
+		_check(false, "R1: GameOver.tscn se puede instanciar")
+		return
+	get_tree().root.add_child(game_over)
+	await get_tree().process_frame
+	game_over.visible = true
+	var retry: Button = game_over.get_node_or_null("Root/Panel/VBox/RetryButton") as Button
+	var menu_button: Button = game_over.get_node_or_null("Root/Panel/VBox/MenuButton") as Button
+	_check(retry != null, "R1: GameOver tiene un botón de reintento")
+	_check(menu_button != null, "R1: GameOver tiene un botón de volver al menú")
+	var was_paused: bool = get_tree().paused
+	get_tree().paused = true
+	await get_tree().process_frame
+	_check(game_over.process_mode == Node.PROCESS_MODE_ALWAYS,
+		"R1: la pantalla de fin está en PROCESS_MODE_ALWAYS")
+	if retry != null:
+		# El botón hereda el modo del CanvasLayer: `process_mode` sale INHERIT,
+		# pero `can_process()` es la pregunta real ("¿procesa input ahora?").
+		_check(retry.can_process(),
+			"R1: el botón de reintento SIGUE procesando input con el árbol pausado")
+	if menu_button != null:
+		_check(menu_button.can_process(),
+			"R1: el botón de volver al menú SIGUE procesando input con el árbol pausado")
+	get_tree().paused = was_paused
+	game_over.queue_free()
+	await get_tree().process_frame
+
+func _instantiate(path: String) -> Node:
+	if not ResourceLoader.exists(path):
+		return null
+	var packed: PackedScene = load(path) as PackedScene
+	if packed == null:
+		return null
+	return packed.instantiate()
 
 # --- Cierre ------------------------------------------------------------------
 

@@ -2,10 +2,17 @@ extends Node2D
 class_name ZombieVisual
 
 ## =============================================================================
-## ZOMBIE VISUAL - AnimatedSprite2D por tipo de zombi
+## ZOMBIE VISUAL - el cubo (Polygon2D) es el sprite actual
 ## =============================================================================
-## Tipos: WALKER, RUNNER, TANK, SPITTER, SCREAMER, BOSS
-## Animaciones: idle, walk, run, attack, hit, death, crawl
+## R1 (2026-11-20): el usuario decide que los personajes se quedan como CUBO
+## y que él hará el arte pixel después. Por tanto:
+##   - NO se carga ninguna hoja PNG (las hojas y tools/gen_art.py se conservan
+##     como banco de trabajo para ese arte futuro).
+##   - El cubo `Body`/`Nose` del Zombie queda VISIBLE; su color y escala por
+##     arquetipo los sigue fijando Zombie.gd (`_apply_kind`).
+##   - Squash/stretch y telegrafía se aplican al CUBO, nunca a las hitboxes.
+##   - Se conserva la barra de vida del jefe (Ítem 12) y las 8 animaciones;
+##     sin frames, el fallback temporal gobierna la duración (como en ea329e8).
 ## =============================================================================
 
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
@@ -14,38 +21,18 @@ class_name ZombieVisual
 @onready var boss_bar: Node2D = $boss_bar
 @onready var boss_health: ColorRect = $boss_bar/boss_health
 
-## Hojas de pixel art real generadas por tools/gen_art.py (ADR-001).
-## Todas comparten el mismo layout: 8 animaciones x 4 frames, 8 columnas de 32x32.
-const SHEETS: Array[String] = [
-	"res://assets/art/sprites/zombie_walker.png",
-	"res://assets/art/sprites/zombie_runner.png",
-	"res://assets/art/sprites/zombie_tank.png",
-	"res://assets/art/sprites/zombie_spitter.png",
-	"res://assets/art/sprites/zombie_screamer.png",
-	"res://assets/art/sprites/boss_sheet.png",
-]
-const FRAME: int = 32
-const SHEET_COLS: int = 8
-
-## AtlasTexture creados por _setup_animations(); set_type solo cambia su atlas.
-var _frame_atlases: Array[AtlasTexture] = []
+## El cubo visible (Polygon2D del Zombie). Lo escala Zombie.gd por arquetipo;
+## aquí solo se anima (squash/telegrafía) y se tiñe.
+@onready var _cube_body: Polygon2D = get_node_or_null("../Body") as Polygon2D
+@onready var _cube_nose: Polygon2D = get_node_or_null("../Nose") as Polygon2D
 
 var _current_state: String = "idle"
 var _is_attacking: bool = false
 var _is_dying: bool = false
 
-## Game feel: squash/stretch y telegrafía comparten un único tween para que
-## nunca peleen por animated_sprite.scale. Solo se anima el sprite: las
-## hitboxes del Zombie son hermanas de este nodo y permanecen intactas.
-var _base_scale: Vector2 = Vector2.ONE
-var _base_modulate: Color = Color.WHITE
-var _fx_tween: Tween
-var _is_telegraphing: bool = false
-
-## Zombie.tscn no asigna sprite_frames y este script no añade frames: las siete
+## Zombie.tscn no asigna sprite_frames y este script no añade frames: las ocho
 ## animaciones quedan vacías, así que animation_finished nunca se emite. El
-## fallback temporal es lo único que desbloquea update_state() (PlayerVisual sí
-## tiene frames procedurales y necesita el suyo por ser clips muy cortos).
+## fallback temporal es lo único que desbloquea update_state().
 var _attack_timer: float = 0.0
 const ATTACK_FALLBACK: float = 0.5
 
@@ -57,17 +44,54 @@ const BOSS_BAR_WIDTH: float = 48.0
 const BOSS_BAR_PHASE_1: Color = Color(0.71, 0.169, 0.125, 1.0)
 const BOSS_BAR_PHASE_2: Color = Color(0.91, 0.337, 0.235, 1.0)
 
+## Game feel: squash/stretch y telegrafía comparten los mismos tweens para que
+## nunca peleen por la escala. Solo se anima el cubo: las hitboxes del Zombie
+## son hermanas de este nodo y permanecen intactas.
+##
+## R1: antes había UN `_fx_tween` creado dentro de un bucle, así que solo se
+## conservaba el último (los anteriores quedaban huérfanos peleándose por la
+## escala) y, en la telegrafía, el patrón `set_parallel(true)` +
+## `tween_interval()` + `set_parallel(true)` NO respetaba el "hold": la vuelta
+## a la base arrancaba en el mismo instante que la subida y el pulso era
+## invisible. Medido con una sonda sobre Godot 4.7.2:
+##   patrón viejo  -> subida 0.007-0.076, "vuelta" 0.076-0.173 (sin hold)
+##   patrón nuevo  -> subida 0.007-0.076, hold 0.076-0.376, vuelta 0.376-0.476
+## Ahora hay un tween POR polígono: dentro de cada tween las fases son
+## secuenciales (subir -> hold -> bajar) y entre polígonos corren en paralelo
+## porque son tweens distintos. Todos se guardan para poder matarlos.
+var _base_scale: Vector2 = Vector2.ONE
+var _base_modulate: Color = Color.WHITE
+var _cube_tweens: Array[Tween] = []
+var _is_telegraphing: bool = false
+
 func _ready() -> void:
 	_setup_animations()
-	# Base antes de set_type(): este último la recalcula por arquetipo.
 	_base_scale = animated_sprite.scale
 	_base_modulate = animated_sprite.modulate
-	# Pixel art: muestreo puntual, sin interpolación (ADR-001).
+	# Muestreo puntual (sin interpolación): el objetivo es pixel art.
 	animated_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if animated_sprite.material is CanvasItemMaterial:
 		(animated_sprite.material as CanvasItemMaterial).texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	animated_sprite.play("idle")
 	animated_sprite.animation_finished.connect(_on_animation_finished)
+
+	# Presentación R1: se ve el CUBO. El AnimatedSprite2D queda oculto porque
+	# no tiene frames (el arte pixel real lo hará el usuario más adelante).
+	_apply_presentation()
+
+## Interruptor de presentación. false = cubo (actual). true = la sprite de
+## frames pasa a verse y el cubo se oculta (arte futuro del usuario).
+const USE_SPRITE_ART: bool = false
+
+func _apply_presentation() -> void:
+	var cube_nodes: Array[Polygon2D] = _cube_nodes()
+	for poly in cube_nodes:
+		if poly != null:
+			poly.visible = not USE_SPRITE_ART
+	animated_sprite.visible = USE_SPRITE_ART
+	# La escala base se captura aquí: `set_type()` la actualizará con la del
+	# arquetipo cuando Zombie.gd aplique el tipo.
+	_capture_cube_base_scales()
 
 func _setup_animations() -> void:
 	if animated_sprite.sprite_frames == null:
@@ -83,13 +107,6 @@ func _setup_animations() -> void:
 	for anim in anims:
 		if not frames.has_animation(anim):
 			frames.add_animation(anim)
-
-	# Frames reales desde la hoja del walker (hoja por defecto). set_type()
-	# sustituye el atlas por el del arquetipo correspondiente.
-	var sheet: Texture2D = load(SHEETS[ZombieType.WALKER]) as Texture2D
-	if sheet == null:
-		push_warning("ZombieVisual: no se pudo cargar %s" % SHEETS[ZombieType.WALKER])
-	_install_frames(frames, sheet, anims, SHEET_COLS)
 
 	# Velocidades base (se ajustan por tipo en set_type)
 	frames.set_animation_speed("idle", 6)
@@ -111,38 +128,6 @@ func _setup_animations() -> void:
 	frames.set_animation_loop("death", false)
 	frames.set_animation_loop("crawl", true)
 
-## Instala 4 frames por animación desde una hoja de celdas de 32x32 y guarda
-## los AtlasTexture para poder cambiar de arquetipo sin reconstruir SpriteFrames.
-func _install_frames(frames: SpriteFrames, sheet: Texture2D,
-		anims: Array, cols: int) -> void:
-	_frame_atlases.clear()
-	var cell: int = 0
-	for anim_variant in anims:
-		var anim: String = String(anim_variant)
-		while frames.get_frame_count(anim) > 0:
-			frames.remove_frame(anim, frames.get_frame_count(anim) - 1)
-		for f in range(4):
-			var atlas := AtlasTexture.new()
-			atlas.atlas = sheet
-			var col: int = cell % cols
-			var row: int = int(floor(float(cell) / float(cols)))
-			atlas.region = Rect2(float(col * FRAME), float(row * FRAME),
-				float(FRAME), float(FRAME))
-			frames.add_frame(anim, atlas, 1.0, f)
-			_frame_atlases.append(atlas)
-			cell += 1
-
-## Cambia la hoja de arte manteniendo regiones, speeds y timers intactos.
-func _apply_sheet(type: int) -> void:
-	if type < 0 or type >= SHEETS.size():
-		type = ZombieType.WALKER
-	var sheet: Texture2D = load(SHEETS[type]) as Texture2D
-	if sheet == null:
-		push_warning("ZombieVisual: no se pudo cargar %s" % SHEETS[type])
-		return
-	for atlas in _frame_atlases:
-		atlas.atlas = sheet
-
 func _process(delta: float) -> void:
 	if _attack_timer > 0.0:
 		_attack_timer = maxf(_attack_timer - delta, 0.0)
@@ -151,9 +136,11 @@ func _process(delta: float) -> void:
 			_current_state = ""  # Forzar actualización en siguiente frame
 
 func set_type(type: int) -> void:
-	# Hoja de arte según arquetipo (visual); no toca combate ni timers.
-	_apply_sheet(type)
-	# Ajustar velocidades y escala según tipo
+	# Primero se cancelan los FX en curso: si no, un tween vivo podría
+	# sobrescribir la escala del arquetipo mientras se captura.
+	_kill_cube_tweens()
+	_capture_cube_base_scales()
+	# Ajustar velocidades y escala según tipo (el cubo lo tinte Zombie.gd).
 	var frames: SpriteFrames = animated_sprite.sprite_frames
 	if frames == null:
 		return
@@ -233,40 +220,116 @@ func update_state(velocity: Vector2, is_chasing: bool, target_direction: Vector2
 		_current_state = new_state
 		animated_sprite.play(new_state)
 
-## Cancela FX anteriores y deja el sprite exactamente en su estado base.
+## --- Cubo: lo que realmente se ve -------------------------------------------
+
+func _cube_nodes() -> Array[Polygon2D]:
+	var nodes: Array[Polygon2D] = []
+	if _cube_body != null:
+		nodes.append(_cube_body)
+	if _cube_nose != null:
+		nodes.append(_cube_nose)
+	return nodes
+
+## Escala actual de cada polígono del cubo. Se lee en el momento del FX:
+## Zombie.gd la fija por arquetipo al instanciar y puede cambiarla después.
+## Escala base del cubo por arquetipo.
+## `Zombie.gd:_apply_kind()` fija `body_visual.scale` / `nose.scale` y LUEGO
+## llama a `set_type()`, así que aquí se captura el valor ya aplicado.
+## Sin esta memoria, `_cube_scale_targets()` releía la escala deformada por el
+## último FX: el cubo se quedaba deformado para siempre y las deformaciones
+## se acumulaban (medido: escala 1.38 tras telegrafía + squash encadenados,
+## cuando la base del arquetipo es 1.0).
+var _cube_base_scales: Array[Vector2] = []
+
+## Captura la escala actual del cubo como nueva escala base.
+func _capture_cube_base_scales() -> void:
+	_cube_base_scales.clear()
+	for poly in _cube_nodes():
+		_cube_base_scales.append(poly.scale if poly != null else Vector2.ONE)
+
+## Escala base de cada polígono del cubo (la que fija el arquetipo).
+func _cube_scale_targets() -> Array[Vector2]:
+	var targets: Array[Vector2] = []
+	var nodes: Array[Polygon2D] = _cube_nodes()
+	for i in nodes.size():
+		if i < _cube_base_scales.size():
+			targets.append(_cube_base_scales[i])
+		else:
+			targets.append(nodes[i].scale if nodes[i] != null else Vector2.ONE)
+	return targets
+
+func _restore_cube_scale() -> void:
+	var nodes: Array[Polygon2D] = _cube_nodes()
+	var targets: Array[Vector2] = _cube_scale_targets()
+	for i in nodes.size():
+		if nodes[i] != null:
+			nodes[i].scale = targets[i]
+
+func _restore_cube_tint() -> void:
+	for poly in _cube_nodes():
+		if poly != null:
+			poly.modulate = Color.WHITE
+
+## Cancela FX anteriores y deja el cubo exactamente en su estado base.
 func _reset_fx() -> void:
-	if _fx_tween != null and _fx_tween.is_valid():
-		_fx_tween.kill()
-	_fx_tween = null
+	_kill_cube_tweens()
 	_is_telegraphing = false
 	animated_sprite.scale = _base_scale
 	animated_sprite.modulate = _base_modulate
+	_restore_cube_scale()
+	_restore_cube_tint()
+
+## Mata TODOS los tweens del cubo (no solo el último).
+func _kill_cube_tweens() -> void:
+	for t in _cube_tweens:
+		if t != null and t.is_valid():
+			t.kill()
+	_cube_tweens.clear()
 
 func _on_fx_finished() -> void:
 	_is_telegraphing = false
 	animated_sprite.scale = _base_scale
 	animated_sprite.modulate = _base_modulate
-	_fx_tween = null
+	_restore_cube_scale()
+	_restore_cube_tint()
+	_cube_tweens.clear()
 
 ## Aplastamiento al recibir daño: ancho extra y alto reducido.
 func squash(amount: float = 0.85, duration: float = 0.12) -> void:
 	_reset_fx()
 	var factor: float = clampf(amount, 0.5, 1.0)
-	var target: Vector2 = Vector2(_base_scale.x / factor, _base_scale.y * factor)
-	_fx_tween = create_tween()
-	_fx_tween.tween_property(animated_sprite, "scale", target, duration * 0.4)
-	_fx_tween.tween_property(animated_sprite, "scale", _base_scale, duration * 0.6)
-	_fx_tween.finished.connect(_on_fx_finished)
+	var nodes: Array[Polygon2D] = _cube_nodes()
+	var targets: Array[Vector2] = _cube_scale_targets()
+	for i in nodes.size():
+		var poly: Polygon2D = nodes[i]
+		if poly == null:
+			continue
+		var base: Vector2 = targets[i]
+		var target: Vector2 = Vector2(base.x / factor, base.y * factor)
+		_cube_tweens.append(_scale_tween(poly, target, base, duration))
 
 ## Estiramiento al atacar: estrecho y alto, como un resorte.
 func stretch(amount: float = 0.88, duration: float = 0.12) -> void:
 	_reset_fx()
 	var factor: float = clampf(amount, 0.5, 1.0)
-	var target: Vector2 = Vector2(_base_scale.x * factor, _base_scale.y / factor)
-	_fx_tween = create_tween()
-	_fx_tween.tween_property(animated_sprite, "scale", target, duration * 0.4)
-	_fx_tween.tween_property(animated_sprite, "scale", _base_scale, duration * 0.6)
-	_fx_tween.finished.connect(_on_fx_finished)
+	var nodes: Array[Polygon2D] = _cube_nodes()
+	var targets: Array[Vector2] = _cube_scale_targets()
+	for i in nodes.size():
+		var poly: Polygon2D = nodes[i]
+		if poly == null:
+			continue
+		var base: Vector2 = targets[i]
+		var target: Vector2 = Vector2(base.x * factor, base.y / factor)
+		_cube_tweens.append(_scale_tween(poly, target, base, duration))
+
+## Tween de escala de UN polígono: dos fases SECUENCIALES (aplastar -> volver).
+## Un tween por polígono: así los polígonos se animan a la vez sin que un
+## tween huérfano pueda pelear con el siguiente efecto.
+func _scale_tween(poly: Polygon2D, target: Vector2, base: Vector2, duration: float) -> Tween:
+	var tween: Tween = create_tween()
+	tween.tween_property(poly, "scale", target, duration * 0.4)
+	tween.tween_property(poly, "scale", base, duration * 0.6)
+	return tween
 
 func punch_scale(amount: float = 0.88, duration: float = 0.12) -> void:
 	stretch(amount, duration)
@@ -275,14 +338,14 @@ func punch_scale(amount: float = 0.88, duration: float = 0.12) -> void:
 ## Telegrafía por arquetipo (kind coincide con Zombie.Kind / ZombieType).
 ## TANK: aura roja + tamaño. SPITTER: inflado previo. SCREAMER: onda pulsante.
 ## BOSS: dos pulsos rojos anchos (carga/slam). WALKER/RUNNER: aviso sutil.
-## Todo se hace sobre el sprite, nunca hitboxes.
+## Todo se hace sobre el CUBO, nunca hitboxes.
 func telegraph(kind: int) -> void:
 	if _is_dying:
 		return
 	_reset_fx()
 	_is_telegraphing = true
 	var factor: float = 1.05
-	var tint: Color = _base_modulate
+	var tint: Color = Color.WHITE
 	var hold: float = 0.07
 	var pulses: int = 1
 	match kind:
@@ -312,18 +375,39 @@ func telegraph(kind: int) -> void:
 			factor = 1.04
 			tint = Color(1.0, 0.92, 0.92, 1.0)
 			hold = 0.04
-	_fx_tween = create_tween()
-	for _pulse in range(pulses):
-		_fx_tween.set_parallel(true)
-		_fx_tween.tween_property(animated_sprite, "scale", _base_scale * factor, 0.07)
-		_fx_tween.tween_property(animated_sprite, "modulate", tint, 0.07)
-		_fx_tween.set_parallel(false)
-		_fx_tween.tween_interval(hold)
-		_fx_tween.set_parallel(true)
-		_fx_tween.tween_property(animated_sprite, "scale", _base_scale, 0.10)
-		_fx_tween.tween_property(animated_sprite, "modulate", _base_modulate, 0.10)
-		_fx_tween.set_parallel(false)
-	_fx_tween.finished.connect(_on_fx_finished)
+	# R1: un tween POR polígono y fases SECUENCIALES dentro de cada tween:
+	#   subir (0.07) -> hold -> bajar (0.10) -> (hold) -> repetir
+	# El patrón anterior (`set_parallel` + `tween_interval` + `set_parallel`)
+	# no respetaba el hold: la bajada arrancaba en el mismo instante que la
+	# subida y el pulso de aviso era invisible. Medido con sonda en Godot 4.7.2.
+	var nodes: Array[Polygon2D] = _cube_nodes()
+	var targets: Array[Vector2] = _cube_scale_targets()
+	for i in nodes.size():
+		var poly: Polygon2D = nodes[i]
+		if poly == null:
+			continue
+		var base: Vector2 = targets[i]
+		var tween: Tween = create_tween()
+		for _pulse in range(pulses):
+			# `tween_method` llama con (valor, ...argumentos_bound), por eso el
+			# helper recibe primero el valor interpolado.
+			tween.tween_method(_apply_pulse.bind(poly, base, factor, tint),
+				0.0, 1.0, 0.07)
+			tween.tween_interval(hold)
+			tween.tween_method(_apply_pulse.bind(poly, base, factor, tint),
+				1.0, 0.0, 0.10)
+		_cube_tweens.append(tween)
+	if not _cube_tweens.is_empty():
+		_cube_tweens[_cube_tweens.size() - 1].finished.connect(_on_fx_finished)
+
+## Telegrafía: aplica escala + tinte al cubo a la vez.
+## `amount` 0 = estado base, 1 = estado pulsado.
+func _apply_pulse(amount: float, poly: Polygon2D, base: Vector2,
+		factor: float, tint: Color) -> void:
+	if poly == null or not is_instance_valid(poly):
+		return
+	poly.scale = base.lerp(base * factor, amount)
+	poly.modulate = Color.WHITE.lerp(tint, amount)
 
 func play_attack() -> void:
 	# Si hay telegrafía en curso, ella ya está animando la escala: no la corta.
@@ -364,6 +448,9 @@ func _on_animation_finished() -> void:
 
 func set_modulate_color(color: Color) -> void:
 	animated_sprite.modulate = color
+	for poly in _cube_nodes():
+		if poly != null:
+			poly.modulate = color
 
 func get_sprite_rect() -> Rect2:
 	return animated_sprite.get_rect()

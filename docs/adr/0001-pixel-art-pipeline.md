@@ -1,9 +1,18 @@
 # ADR-001: Pipeline de pixel art determinista
 
-- **Status**: accepted
+- **Status**: accepted — *parcialmente superseded por
+  [ADR-004](0004-revert-presentation-and-real-lighting.md) (2026-11-20)*
 - **Date**: 2026-11-19
 - **Deciders**: Lead Orchestrator + subagentes ECC
 - **Technical Story**: Capa 0 del plan maestro de conversión a pixel art profesional
+
+> **Enmenda ADR-004 (2026-11-20).** Esta decisión sigue vigente **como
+> herramienta**: el pipeline determinista, `ART_BIBLE.md`, las hojas PNG y su
+> verificación en CI se conservan intactos. Lo que cambia es el **uso en
+> runtime**: el pipeline deja de ser la presentación del juego (el jugador y
+> los zombis vuelven a cubos `Polygon2D`) y pasa a ser el banco de trabajo del
+> arte que hará el usuario, activable con `USE_SPRITE_ART`. Ver
+> [ADR-004](0004-revert-presentation-and-real-lighting.md).
 
 ## Context
 

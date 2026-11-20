@@ -129,7 +129,7 @@ jobs:
             fi
           }
 
-          run_suite "10_review/ArtAnimTest.tscn"    "ART_ANIM_TEST failures=0"
+          run_suite "10_review/VisualStyleTest.tscn" "VISUAL_STYLE_TEST failures=0"
           run_suite "10_review/FxDecalTest.tscn"    "FX_DECAL_TEST failures=0"
           run_suite "10_review/HitStopTest.tscn"    "HIT_STOP_TEST failures=0"
           run_suite "10_review/GameFeelTest.tscn"   "GAME_FEEL_TEST failures=0"
@@ -138,7 +138,8 @@ jobs:
           run_suite "10_review/BossTest.tscn"       "BOSS_TEST failures=0"
           run_suite "10_review/ExtractionTensionTest.tscn" "EXTRACTION_TENSION_TEST failures=0"
           run_suite "10_review/MenuFlowTest.tscn"      "MENU_FLOW_TEST failures=0"
-          run_suite "10_review/MusicTest.tscn"         "MUSIC_TEST failures=0"
+          run_suite "10_review/AudioPolicyTest.tscn"   "AUDIO_POLICY_TEST failures=0"
+          run_suite "10_review/LightingTest.tscn"      "LIGHTING_TEST failures=0"
           run_suite "10_review/TutorialTest.tscn"      "TUTORIAL_TEST failures=0"
           run_suite "10_review/TestFixes.tscn"      "HARD_GATE failures=0"
           run_suite "10_review/SeparationTest.tscn" "SEPARATION_TEST failures=0"
@@ -146,6 +147,7 @@ jobs:
           run_suite "10_review/AiWaveTest.tscn"     "AI_WAVE_TEST failures=0"
           run_suite "10_review/NightGlareTest.tscn" "NIGHT_GLARE_TEST failures=0"
           run_suite "10_review/MechanicsAudit.tscn" "MECHANICS_AUDIT failures=0"
+          run_suite "10_review/VictoryTest.tscn"      "VICTORY_TEST failures=0"
           run_suite "10_review/StressTest.tscn"      "STRESS_TEST failures=0"
 
           echo "=== QA mechanics ==="
