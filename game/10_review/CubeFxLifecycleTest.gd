@@ -1,31 +1,33 @@
 extends Node
 ## ============================================================================
-## CUBE FX LIFECYCLE TEST (R1-polish) — contrato del ciclo de vida de los FX.
+## CUBE FX LIFECYCLE TEST (R1-polish / ADR-005) — ciclo de vida de los FX.
 ## ============================================================================
 ## Cubre los riesgos latentes que encontró la revisión de código de R1:
 ##
 ## 1. ESCALA BASE ATÓMICA. Antes, `_cube_base_scales` era una INSTANTÁNEA y
 ##    el orden "asignar escala → set_type()" era un protocolo implícito entre
-##    `Zombie.gd` y `ZombieVisual.gd`. Si la escala del arquetipo cambiaba
-##    después, el FX restauraba la instantánea vieja. Ahora existe UNA
-##    operación (`set_cube_base_scales`) que fija escala y base a la vez.
+##    `Zombie.gd` y `ZombieVisual.gd`. Ahora existe UNA operación
+##    (`set_cube_base_scales`) que fija escala y base a la vez.
 ##
 ## 2. UN SOLO DUEÑO DEL CICLO DE VIDA. `telegraph()` creaba un tween por
 ##    polígono y conectaba `finished` solo al ÚLTIMO: si uno acababa más
-##    tarde, podía escribir escala/tinte mientras otro FX ya hab��a empezado.
-##    Ahora hay un tween maestro único por efecto.
+##    tarde, podía escribir escala/tinte mientras otro FX ya había empezado.
+##    Ahora hay un tween maestro único por efecto (`_fx_tweens`).
 ##
-## 3. CANCELACIÓN COMPLETA. `set_type()` mataba los tweens pero no
-##    restauraba `_is_telegraphing` ni el tinte: el cubo se quedaba teñido.
+## 3. CANCELACIÓN COMPLETA. `set_type()` mata los tweens y restaura
+##    `_is_telegraphing`, el tinte y la escala.
 ##
-## Mezcla introspección determinista (el API existe y `Zombie.gd` lo usa) y
-## comprobación en runtime (el cubo vuelve a la escala base, el tinte se
-## restaura y solo queda un tween vivo).
+## ADR-005 mantiene el cubo para los rangos altos. Por eso el contrato de
+## cubo se prueba sobre TANK (tipo 2), NO sobre el WALKER: el WALKER usa skin
+## y sus FX van a la AnimatedSprite2D. Al final se comprueba también ese
+## camino híbrido (el FX afecta a la sprite y no al cubo oculto).
 ## ============================================================================
 
 const ZOMBIE_VISUAL: String = "res://03_zombies/ZombieVisual.gd"
 const ZOMBIE: String = "res://03_zombies/Zombie.gd"
 const ZOMBIE_SCENE: String = "res://03_zombies/Zombie.tscn"
+const TANK_TYPE: int = 2
+const WALKER_TYPE: int = 0
 
 var _failures: Array[String] = []
 var _zombie: Node
@@ -62,8 +64,8 @@ func _ready() -> void:
 	_api_checks()
 	await _runtime_checks()
 	print("CUBE_FX_LIFECYCLE_TEST failures=%d" % _failures.size())
-	for f in _failures:
-		print("  - " + f)
+	for failure in _failures:
+		print("  - " + failure)
 	get_tree().quit(1 if not _failures.is_empty() else 0)
 	_asserts()
 
@@ -79,6 +81,8 @@ func _api_checks() -> void:
 	_check(setter_body.contains("_cube_base_scales.clear()")
 			or setter_body.contains("_capture_cube_base_scales()"),
 		"ZombieVisual.set_cube_base_scales actualiza la base del cubo")
+	_check(zv.contains("var _fx_tweens:"),
+		"ZombieVisual usa el array maestro _fx_tweens")
 
 	var zombie_src: String = _read(ZOMBIE)
 	var apply_kind: String = _func_body(zombie_src, "func _apply_kind(", 140)
@@ -93,7 +97,7 @@ func _api_checks() -> void:
 
 
 ## ---------------------------------------------------------------------------
-## 2. Runtime: base atómica, un solo tween y cancelación completa.
+## 2. Runtime: base atómica, un solo tween y cancelación completa sobre TANK.
 ## ---------------------------------------------------------------------------
 func _runtime_checks() -> void:
 	_zombie = load(ZOMBIE_SCENE).instantiate()
@@ -106,6 +110,13 @@ func _runtime_checks() -> void:
 		_check(false, "Runtime: Zombie.tscn expone ZombieVisual y Body")
 		return
 	_check(true, "Runtime: Zombie.tscn expone ZombieVisual y Body")
+
+	# TANK conserva el cubo. La decisión debe hacerse antes de cualquier FX.
+	_visual.call("set_type", TANK_TYPE)
+	await get_tree().process_frame
+	_check(not bool(_visual.call("uses_skin")),
+		"Runtime: TANK usa el cubo y no la skin del WALKER")
+	_check(_body.visible, "Runtime: el cubo Body de TANK está visible")
 
 	# --- Base atómica: la escala del arquetipo se fija con UNA operación ---
 	var has_api: bool = _visual.has_method("set_cube_base_scales")
@@ -122,16 +133,18 @@ func _runtime_checks() -> void:
 			"Runtime: el FX restaura la base NUEVA (%.4f, esperado 2.0)" % _body.scale.x)
 
 	# --- Un solo dueño del ciclo de vida -----------------------------------
-	_visual.call("telegraph", 2)
+	_visual.call("telegraph", TANK_TYPE)
 	await get_tree().process_frame
-	var live: int = _visual.get("_cube_tweens").size()
+	var live: int = _visual.get("_fx_tweens").size()
 	_check(live == 1,
 		"Runtime: la telegrafía usa UN tween maestro (%d vivos)" % live)
 
 	# --- Cancelación completa: set_type() restaura tinte y estado ---------
-	_visual.call("telegraph", 2)
+	_visual.call("telegraph", TANK_TYPE)
 	await get_tree().process_frame
-	_visual.call("set_type", 0)
+	# Se mantiene TANK: cambiar a WALKER ocultaría el cubo y no probaría el
+	# contrato de cancelación del cubo.
+	_visual.call("set_type", TANK_TYPE)
 	await get_tree().process_frame
 	var tint: Color = _body.modulate
 	_check(absf(tint.r - 1.0) < 0.01 and absf(tint.g - 1.0) < 0.01 \
@@ -145,6 +158,9 @@ func _runtime_checks() -> void:
 	_check(absf(_body.scale.x - expected_base) < 0.002,
 		"Runtime: set_type() restaura la escala base del cubo (%.4f, esperado %.4f)" % [
 			_body.scale.x, expected_base])
+	var cancelled_tweens: Array = _visual.get("_fx_tweens") as Array
+	_check(cancelled_tweens != null and cancelled_tweens.is_empty(),
+		"Runtime: set_type() cancela todos los tweens de FX")
 
 	# --- Tras el efecto, nada sigue escribiendo la escala -------------------
 	await _settle(0.6)
@@ -154,11 +170,52 @@ func _runtime_checks() -> void:
 		"Runtime: ningún tween residual escribe la escala (%.4f -> %.4f)" % [
 			settled, _body.scale.x])
 
+	await _skin_fx_checks()
+
+
+## ---------------------------------------------------------------------------
+## 3. ADR-005: con skin, el FX se aplica a la sprite y no al cubo oculto.
+## ---------------------------------------------------------------------------
+func _skin_fx_checks() -> void:
+	var sprite: AnimatedSprite2D = _visual.get_node_or_null(
+		"AnimatedSprite2D") as AnimatedSprite2D
+	if sprite == null:
+		_check(false, "Runtime: el WALKER expone AnimatedSprite2D para el FX con skin")
+		return
+	_visual.call("set_type", WALKER_TYPE)
+	await get_tree().process_frame
+	_check(bool(_visual.call("uses_skin")) and sprite.visible and not _body.visible,
+		"Runtime: WALKER usa skin (sprite visible, cubo oculto)")
+	var sprite_base: Vector2 = sprite.scale
+	var cube_base: Vector2 = _body.scale
+	_visual.call("squash", 0.8, 0.12)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(sprite.scale.distance_to(sprite_base) > 0.001,
+		"Runtime con skin: squash deforma la AnimatedSprite2D visible")
+	_check(_body.scale.distance_to(cube_base) < 0.001,
+		"Runtime con skin: squash NO deforma el cubo oculto")
+	await _wait_for_fx_finish(_visual)
+	_check(sprite.scale.distance_to(Vector2(0.5, 0.5)) < 0.002,
+		"Runtime con skin: squash restaura la escala base de la sprite")
+	_check(_body.scale.distance_to(cube_base) < 0.002,
+		"Runtime con skin: el cubo conserva su escala durante todo el FX")
+
 
 func _settle(seconds: float) -> void:
 	var frames: int = int(seconds * 60.0)
 	for i in range(frames):
 		await get_tree().process_frame
+
+
+func _wait_for_fx_finish(visual: Node, max_frames: int = 240) -> bool:
+	for i in range(max_frames):
+		var tweens: Array = visual.get("_fx_tweens") as Array
+		if tweens != null and tweens.is_empty():
+			return true
+		await get_tree().process_frame
+	var remaining: Array = visual.get("_fx_tweens") as Array
+	return remaining != null and remaining.is_empty()
 
 
 func _asserts() -> void:

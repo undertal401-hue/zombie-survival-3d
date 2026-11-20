@@ -1213,8 +1213,19 @@ func _die() -> void:
 	if zombie_visual != null:
 		zombie_visual.play_death()
 
+	# R2: con skin, la animacion de muerte dura 6 frames a 7 fps = 0.86 s. El
+	# desvanecido rapido de 0.3 s (el del cubo) la cortaba en el primer frame:
+	# el cadaver nunca llegaba a caerse y 4 de los 6 frames del pack se
+	# desperdiciaban. Con skin el cadaver se queda en pantalla hasta que
+	# termina la animacion y se desvanece en la ultima parte. La escala NO
+	# se toca: encoger un cadaver parece un popping, no una caida.
+	var skin_death: bool = zombie_visual != null and zombie_visual.uses_skin()
 	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(self, "modulate:a", 0.0, 0.3)
-	tween.tween_property(self, "scale", Vector2(0.6, 0.6), 0.3)
+	if skin_death:
+		tween.tween_interval(0.56)
+		tween.tween_property(self, "modulate:a", 0.0, 0.3)
+	else:
+		tween.set_parallel(true)
+		tween.tween_property(self, "modulate:a", 0.0, 0.3)
+		tween.tween_property(self, "scale", Vector2(0.6, 0.6), 0.3)
 	tween.finished.connect(queue_free)

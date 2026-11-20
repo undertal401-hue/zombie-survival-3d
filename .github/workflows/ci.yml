@@ -90,9 +90,28 @@ jobs:
       - name: "verify deterministic art pipeline"
         shell: bash
         run: |
+          # Se ejecutan los TRES checks aunque uno falle, para reportarlos
+          # todos en el mismo paso. `set -e` se reactiva antes de los `if`
+          # de salida: sin el, el primer fallo abortaria el paso y los otros
+          # dos no se ejecutarian.
+          set +e
           python3 game/tools/gen_art.py --check
-          if [ $? -ne 0 ]; then
+          art_status=$?
+          python3 game/tools/gen_zombie_skin.py --check
+          zombie_skin_status=$?
+          python3 game/tools/skin_pack.py check
+          skin_pack_status=$?
+          set -e
+          if [ $art_status -ne 0 ]; then
             echo "::error::El generador de arte determinista fallo su verificacion"
+            exit 1
+          fi
+          if [ $zombie_skin_status -ne 0 ]; then
+            echo "::error::El generador del skin de zombi fallo su verificacion determinista"
+            exit 1
+          fi
+          if [ $skin_pack_status -ne 0 ]; then
+            echo "::error::El verificador del pack de skins fallo su comprobacion"
             exit 1
           fi
 
@@ -130,6 +149,7 @@ jobs:
           }
 
           run_suite "10_review/VisualStyleTest.tscn" "VISUAL_STYLE_TEST failures=0"
+          run_suite "10_review/ZombieSkinTest.tscn" "ZOMBIE_SKIN_TEST failures=0"
           run_suite "10_review/FxDecalTest.tscn"    "FX_DECAL_TEST failures=0"
           run_suite "10_review/HitStopTest.tscn"    "HIT_STOP_TEST failures=0"
           run_suite "10_review/GameFeelTest.tscn"   "GAME_FEEL_TEST failures=0"

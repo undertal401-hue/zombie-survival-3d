@@ -88,3 +88,75 @@ python3 tools/gen_art.py --check    # solo verifica; no escribe nada
 El modo `--check` valida firma PNG, IHDR, dimensiones múltiplos de 32 y que
 todos los píxeles opacos pertenecen a la paleta. La salida es determinista:
 regenerar produce bytes idénticos.
+
+## 7. Addendum — Skin de zombi de rango bajo
+
+El pack de skin del walker vive en `assets/enemies/zombie/` y sigue una
+retícula propia, separada de las hojas canónicas de 32×32:
+
+- Celda de **64×64 px**, **PPU 64** y pivot de nodo en el **centro
+  `(0.5, 0.5)`**.
+- El personaje queda **centrado en la celda**, no anclado a los pies. El ancla
+  se calcula una sola vez a partir del bbox opaco de la **unión de todos los
+  frames del pack, de todas las animaciones**; esa caja se centra en 64×64 y
+  todos los frames reciben la misma traslación global. Nunca se reencuadra un
+  frame usando el bbox de su propio frame: así el personaje no patina entre
+  frames ni entre animaciones.
+- La paleta es exactamente la misma paleta canónica de **16 colores** de la
+  sección 2. No se permiten colores nuevos.
+
+Layout y mapa al runtime canónico:
+
+| Clip del pack | Frames | Animación canónica del runtime |
+|---|---:|---|
+| `idle` | 2 | `idle` |
+| `walk` | 5 | `walk` |
+| `walk_alt` | 3 | `run` |
+| `attack` | 6 | `attack` |
+| `attack_alt` | 2 | `hit` |
+| `special` | 4 | `hurt` |
+| `rise` | 5 | `crawl` |
+| `death` | 6 | `death` |
+
+`rise` representa un **arrastre continuo en el suelo** (la acción canónica
+`crawl`), no un levantamiento: el runtime lo reproduce en bucle. El clip usa
+un bob vertical lógico de `[0, -1, 0, 1, 0]` y no desplaza el sprite en
+horizontal.
+
+El pack tiene su propia puerta de CI:
+
+```
+python3 tools/gen_zombie_skin.py            # genera/sobrescribe el pack
+python3 tools/gen_zombie_skin.py --check    # verifica; no escribe nada
+```
+
+`gen_zombie_skin.py --check` regenera los 33 frames y 8 strips en memoria y
+compara dimensiones, píxeles y bytes PNG con el disco, además de validar el contrato
+estructural. Este pack queda **fuera del alcance de `gen_art.py --check`**:
+esa puerta valida únicamente las 9 hojas canónicas de 32×32.
+
+`game/tools/skin_pack.py` audita e importa packs externos. El pack entregado
+por el autor (`~/zombie_sprites/`) es el ejemplo canónico de pack defectuoso:
+contiene tarjetas de color sin silueta, cuatro frames vacíos, tamaños variables
+y strips que no se pueden rebanar en celdas de 64 px. La importación exige un
+`--out` explícito y se niega a sobrescribir `assets/enemies/zombie/` sin
+`--force`.
+
+Además, `import` **rechaza** (código 2, sin escribir nada) cualquier pack con
+frames «tarjeta de color»: una tarjeta no tiene silueta y ninguna
+normalización —recuadrar, rellenar frames vacíos o cuantizar la paleta— puede
+inventarla. Importar una tarjeta dejaría un rectángulo de color en pantalla.
+`--force` permite la importación aun así, con un aviso explícito.
+
+Comandos:
+
+```
+python3 tools/skin_pack.py audit <pack>      # informa; rc=1 si hay incidencias
+python3 tools/skin_pack.py import <pack> --out <destino> [--force]
+python3 tools/skin_pack.py check              # valida el pack canonico
+```
+
+`audit` distingue las incidencias **mecánicas** (frames vacíos, tamaños
+variables, strips no rebanables, colores fuera de paleta) de las **de calidad**
+(tarjetas sin silueta). Las mecánicas se pueden reparar al importar; las de
+calidad no.

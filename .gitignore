@@ -3,3 +3,5 @@
 export/
 build/
 addons/orca/
+__pycache__/
+*.pyc
