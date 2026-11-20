@@ -1,18 +1,23 @@
 extends Node
 ## ============================================================================
-## VISUAL STYLE TEST (R2 / ADR-005) — contrato de la PRESENTACIÓN del juego.
+## VISUAL STYLE TEST (R3 / ADR-006) — contrato de la PRESENTACIÓN del juego.
 ## ============================================================================
-## ADR-005 sustituye el contrato R1 «todos los personajes son cubos» por una
-## presentación híbrida:
+## ADR-005 sustituyó el contrato R1 «todos los personajes son cubos» por una
+## presentación híbrida. ADR-006 (R3) la simplifica: el juego tiene UN SOLO
+## arquetipo de zombi.
 ##
 ##   - El Player conserva el CUBO visible y su sprite oculta. No carga PNG.
-##   - El zombi WALKER (rango bajo) usa el skin pixel-art de 64x64: la
-##     AnimatedSprite2D queda visible, Body/Nose quedan ocultos y las ocho
-##     animaciones canónicas tienen frames reales.
-##   - RUNNER/TANK/SPITTER/SCREAMER/BOSS conservan el CUBO para mantener la
-##     lectura de arquetipo de los rangos altos.
-##   - No hay sombras falsas (`pixel_shadows`): la sombra es proyectada de
-##     verdad. Hay faro real (PointLight2D con cono) y acabado nocturno.
+##   - El zombi WALKER usa el skin pixel-art de 64x64: la AnimatedSprite2D
+##     queda visible, Body/Nose quedan ocultos y las ocho animaciones
+##     canónicas tienen frames reales.
+##   - El perfil de jefe "Tanque Alfa" usa la MISMA skin (es el mismo zombi,
+##     más grande): no hay una segunda familia de presentación.
+##   - El CUBO es el FALLBACK (pack de skin ausente o incompleto), no la
+##     presentación de otro arquetipo.
+##   - No hay sombras falsas (`pixel_shadows`): la sombra nocturna es
+##     proyectada de verdad (faro real) y la diurna son manchas ACOTADAS
+##     (`SunShadowController`), porque la sombra direccional 2D de Godot llega
+##     hasta el borde de pantalla.
 ##
 ## El banco de arte y el pipeline determinista se conservan como fuente del
 ## skin y como puertas de CI. La introspección es 100% dinámica (FileAccess /
@@ -26,6 +31,7 @@ const GEN_ZOMBIE_SKIN: String = "res://tools/gen_zombie_skin.py"
 const SKIN_PACK_TOOL: String = "res://tools/skin_pack.py"
 const SPRITES_DIR: String = "res://assets/art/sprites/"
 const LIGHTS_DIR: String = "res://assets/art/lights/"
+const SHADOWS_DIR: String = "res://assets/art/shadows/"
 const ZOMBIE_SKIN_ROOT: String = "res://assets/enemies/zombie/"
 const PLAYER_SCENE: String = "res://02_player/Player.tscn"
 const ZOMBIE_SCENE: String = "res://03_zombies/Zombie.tscn"
@@ -33,6 +39,13 @@ const PLAYER_VISUAL: String = "res://02_player/PlayerVisual.gd"
 const ZOMBIE_VISUAL: String = "res://03_zombies/ZombieVisual.gd"
 const SOLAR_LIGHTING: String = "res://08_ui/SolarLighting.gd"
 const SOLAR_SCENE: String = "res://08_ui/SolarLighting.tscn"
+
+## Hojas del banco de arte tras R3: el jugador, el caminante, el jefe, los
+## efectos y los tiles. Los sheets de los arquetipos eliminados se retiraron.
+const EXPECTED_BANK_SHEETS: Array[String] = [
+	"player_sheet.png", "zombie_walker.png", "boss_sheet.png",
+	"effects.png", "tiles.png",
+]
 
 var _player_canonical: Array[String] = ["idle", "walk", "hurt", "death"]
 var _player_attack_variants: Array[String] = [
@@ -154,13 +167,23 @@ func _run_generator_check(script_path: String, arguments: PackedStringArray,
 		"%s no escribe archivos" % label.replace(" sale 0", ""))
 
 
-# --- 3. Assets: 9 hojas (banco) + 2 mapas de luz (runtime) -------------------
+# --- 3. Assets: 5 hojas (banco) + 2 mapas de luz + 1 mascara de sombra -----
 
 func _asset_checks() -> void:
 	var pngs: Array[String] = []
 	_collect_files(SPRITES_DIR, pngs, ".png")
-	_check(pngs.size() >= 9,
-		"al menos 9 PNG de sprites conservados como banco de arte (encontrados %d)" % pngs.size())
+	_check(pngs.size() == EXPECTED_BANK_SHEETS.size(),
+		"el banco de arte tiene exactamente %d hojas (encontradas %d)" % [
+			EXPECTED_BANK_SHEETS.size(), pngs.size()])
+	for sheet in EXPECTED_BANK_SHEETS:
+		_check(FileAccess.file_exists(SPRITES_DIR.path_join(sheet)),
+			"el banco de arte conserva %s" % sheet)
+	# R3: el repo ya no fabrica ni distribuye arte de arquetipos que no
+	# existen en el juego.
+	for dead_sheet in ["zombie_runner.png", "zombie_tank.png",
+			"zombie_spitter.png", "zombie_screamer.png"]:
+		_check(not FileAccess.file_exists(SPRITES_DIR.path_join(dead_sheet)),
+			"el banco de arte ya no tiene %s (arquetipo eliminado)" % dead_sheet)
 	var lights: Array[String] = []
 	_collect_files(LIGHTS_DIR, lights, ".png")
 	_check(lights.size() >= 2,
@@ -169,6 +192,13 @@ func _asset_checks() -> void:
 		"existe el mapa del cono de faro")
 	_check(FileAccess.file_exists("res://assets/art/lights/light_halo.png"),
 		"existe el mapa del halo del jugador")
+	# R3: la mascara de la sombra diurna acotada.
+	var shadows: Array[String] = []
+	_collect_files(SHADOWS_DIR, shadows, ".png")
+	_check(shadows.size() >= 1,
+		"existe la mascara de la sombra solar acotada (encontradas %d)" % shadows.size())
+	_check(FileAccess.file_exists("res://assets/art/shadows/sun_shadow.png"),
+		"existe assets/art/shadows/sun_shadow.png")
 
 
 func _snapshot_outputs() -> Array[String]:
@@ -213,7 +243,7 @@ func _collect_files(path: String, out: Array[String], filter: String) -> void:
 	dir.list_dir_end()
 
 
-# --- 4. Presentación híbrida: Player=cubo; WALKER=skin; altos=cubo ----------
+# --- 4. Presentación: Player=cubo; el zombi (y su perfil de jefe)=skin ------
 
 func _presentation_checks(actor: String, inst: Node, expect_skin: bool) -> void:
 	if inst == null:
@@ -377,6 +407,14 @@ func _no_fake_shadows_checks() -> void:
 	var solar_src: String = _read(SOLAR_LIGHTING)
 	_check(not solar_src.contains("PixelShadowController"),
 		"SolarLighting.gd: fuera del PixelShadowController (sombras proyectadas reales)")
+	# R3: la sombra DIURNA es acotada (manchas) y la NOCTURNA es real (faro).
+	_check(FileAccess.file_exists("res://08_ui/SunShadowController.gd"),
+		"existe el controlador de sombras solares acotadas")
+	var solar_scene: String = _read(SOLAR_SCENE)
+	_check(solar_scene.contains("[node name=\"SunShadows\" type=\"Node2D\""),
+		"SolarLighting.tscn: monta el controlador de sombras acotadas")
+	_check(solar_scene.contains("shadow_enabled = false"),
+		"SolarLighting.tscn: el sol no proyecta la sombra direccional ilimitada")
 
 
 # --- 8. Faro real y acabado nocturno ----------------------------------------

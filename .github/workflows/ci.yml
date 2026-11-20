@@ -177,6 +177,12 @@ jobs:
           run_suite "10_review/ZombieEventPayloadTest.tscn" "ZOMBIE_EVENT_PAYLOAD_TEST failures=0"
           run_suite "10_review/CubeFxLifecycleTest.tscn" "CUBE_FX_LIFECYCLE_TEST failures=0"
           run_suite "10_review/ZombieAlertBusTest.tscn" "ZOMBIE_ALERT_BUS_TEST failures=0"
+          # R3 (ADR-006): roster de un solo arquetipo, deteccion y sombras
+          # solares acotadas (el faro nocturno se queda con sus sombras
+          # reales).
+          run_suite "10_review/ZombieRosterTest.tscn" "ZOMBIE_ROSTER_TEST failures=0"
+          run_suite "10_review/ZombiePerceptionTest.tscn" "ZOMBIE_PERCEPTION_TEST failures=0"
+          run_suite "10_review/SunShadowTest.tscn" "SUN_SHADOW_TEST failures=0"
           run_suite "10_review/CodeIntegrityTest.tscn" "CODE_INTEGRITY_TEST failures=0"
           # La puerta de integridad DEBE cubrir exactamente los scripts
           # versionados: si una exclusion, un renombrado o un error de

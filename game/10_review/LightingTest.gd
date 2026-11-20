@@ -1,16 +1,21 @@
 extends Node
 ## ============================================================================
-## LIGHTING TEST (R1) — contrato de la ILUMINACIÓN REAL.
+## LIGHTING TEST (R1 + R3 / ADR-006) — contrato de la ILUMINACIÓN REAL.
 ## ============================================================================
-## Verifica que la oscuridad y la luz son de verdad las de Godot 4 (luces 2D,
-## sombras proyectadas, CanvasModulate) y no los trucos de C0-C3:
+## Verifica que la oscuridad y la luz son las de Godot 4 (luces 2D, sombras
+## proyectadas, CanvasModulate) y no los trucos de C0-C3:
 ##
 ##   - El CanvasModulate tiene alpha 1.0 y su RGB multiplica la escena.
 ##     (Antes el alpha era la "energía": el canvas se desvanecía contra el
 ##     fondo plano y la noche salía lavada.)
 ##   - La tabla de fase real: day > dawn > dusk > night en oscuridad, y la
 ##     noche es AZUL mientras el crepúsculo es CÁLIDO.
-##   - DirectionalLight2D con sombras proyectadas activadas.
+##   - R3 (ADR-006): el SOL ya NO proyecta sombra direccional. La sombra 2D
+##     direccional de Godot no tiene largo (llega hasta el borde de pantalla:
+##     `z_far = 2*to_edge_distance + cull_distance` en el motor), asi que las
+##     sombras DIURNAS son manchas ACOTADAS (`SunShadowController`). El faro
+##     NOCTURNO conserva sus sombras proyectadas reales, que es la parte que
+##     el usuario valora expresamente.
 ##   - Flashlight (PointLight2D) con textura de cono y sombras propias.
 ##   - MuzzleLight para el fogonazo.
 ##   - Shader NightGrade (viñeta + grano) montado en pantalla.
@@ -68,8 +73,12 @@ func _scene_checks() -> void:
 		"SolarLighting.tscn: existe el CanvasModulate")
 	_check(src.contains("[node name=\"SunLight\" type=\"DirectionalLight2D\""),
 		"SolarLighting.tscn: existe la DirectionalLight2D")
-	_check(src.contains("shadow_enabled = true"),
-		"SolarLighting.tscn: la DirectionalLight2D proyecta sombras")
+	_check(src.contains("shadow_enabled = false"),
+		"SolarLighting.tscn: el sol NO proyecta la sombra direccional ilimitada")
+	_check(src.contains("[node name=\"SunShadows\" type=\"Node2D\""),
+		"SolarLighting.tscn: monta las sombras solares ACOTADAS")
+	_check(not src.contains("max_distance"),
+		"SolarLighting.tscn: fuera el limite ficticio max_distance")
 	_check(src.contains("NightGradeRect"),
 		"SolarLighting.tscn: montada la capa de acabado nocturna")
 	_check(src.contains("light_mask = 0"),
@@ -328,11 +337,15 @@ func _runtime_checks() -> void:
 		_check(luma < 0.95,
 			"runtime: el CanvasModulate atenúa la escena (luma %.3f)" % luma)
 	var sun: DirectionalLight2D = _solar.get_node_or_null("SunLight") as DirectionalLight2D
-	_check(sun != null and sun.shadow_enabled,
-		"runtime: la DirectionalLight2D tiene sombras activadas")
+	_check(sun != null and not sun.shadow_enabled,
+		"runtime: el sol NO proyecta la sombra direccional ilimitada (R3)")
 	if sun != null:
 		_check(is_equal_approx(sun.color.a, 1.0),
 			"runtime: el color del sol es opaco (alpha 1.0)")
+	# El faro NOCTURNO es intocable: conserva sus sombras reales.
+	var player_scene: String = _read(PLAYER_SCENE)
+	_check(player_scene.contains("shadow_enabled = true"),
+		"runtime: el faro del jugador conserva sus sombras reales")
 	var grade_rect: ColorRect = _solar.get_node_or_null("GlareLayer/NightGradeRect") as ColorRect
 	_check(grade_rect != null, "runtime: la capa NightGradeRect existe")
 	if grade_rect != null:

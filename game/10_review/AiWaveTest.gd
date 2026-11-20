@@ -1,14 +1,31 @@
 extends Node
-## Regresión de Fase 3: dificultad unificada, perfiles tácticos por arquetipo,
-## botín por riesgo y composición escalonada de hordas.
+## ============================================================================
+## AI WAVE TEST (Fase 3 + R3 / ADR-006) — dificultad, PERFILES, botín y hordas.
+## ============================================================================
+## R3 (ADR-006) deja UN SOLO arquetipo de zombi (el caminante) mas el perfil
+## de jefe "Tanque Alfa". Este arnés deja de exigir perfiles por arquetipo y
+## pasa a exigir el contrato nuevo:
+##
+##   1. La dificultad unificada sigue igual (horda x1.0..x1.8, daño x1.0..x1.45).
+##   2. El caminante conserva su perfil táctico (flanqueo 0.18, separación 1.0).
+##   3. El perfil de jefe tiene el suyo (sin flanqueo, separación 2.2, 800 HP).
+##   4. El botín se reparte por RIESGO: el jefe asegura 5-8 de chatarra y el
+##      caminante normal suelta como mucho 1 pieza.
+##   5. La horda es HOMOGENEA: todos sus miembros son caminantes (Kind 0).
+## ============================================================================
+
+const ZOMBIE_SCRIPT: String = "res://03_zombies/Zombie.gd"
+const WORLD_DIRECTOR_SCRIPT: String = "res://01_core/WorldDirector.gd"
 
 var _failures: Array[String] = []
 var _main: Node
+
 
 func _check(condition: bool, label: String) -> void:
 	print(("OK   " if condition else "FAIL ") + label)
 	if not condition:
 		_failures.append(label)
+
 
 func _ready() -> void:
 	await get_tree().process_frame
@@ -18,66 +35,117 @@ func _ready() -> void:
 	for i in range(10):
 		await get_tree().process_frame
 
-	# --- Unificación de dificultad ---
+	await _difficulty_checks()
+	await _profile_checks()
+	await _loot_checks()
+	await _horde_checks()
+	await _finish()
+
+
+# --- 1. Unificación de dificultad --------------------------------------------
+func _difficulty_checks() -> void:
 	var previous: float = GameState.difficulty()
 	GameState.set_difficulty(0.0)
 	_check(is_equal_approx(GameState.multiplier(&"horde"), 1.0), "horda x1.0 al inicio")
-	_check(is_equal_approx(GameState.multiplier(&"zombie", &"damage"), 1.0), "daño zombi x1.0 al inicio")
+	_check(is_equal_approx(GameState.multiplier(&"zombie", &"damage"), 1.0),
+		"daño zombi x1.0 al inicio")
 	GameState.set_difficulty(1.0)
 	_check(is_equal_approx(GameState.multiplier(&"horde"), 1.8), "horda x1.8 al máximo")
-	_check(is_equal_approx(GameState.multiplier(&"zombie", &"damage"), 1.45), "daño zombi x1.45 al máximo")
+	_check(is_equal_approx(GameState.multiplier(&"zombie", &"damage"), 1.45),
+		"daño zombi x1.45 al máximo")
 	GameState.set_difficulty(previous)
 
-	# --- Perfiles tácticos por arquetipo ---
+
+# --- 2. Perfiles tácticos: caminante y jefe ----------------------------------
+func _profile_checks() -> void:
 	var scene: PackedScene = load("res://03_zombies/Zombie.tscn") as PackedScene
-	var flank: Array = []
-	var separation: Array = []
-	var preferred: Array = []
-	for kind_index in range(5):
-		var z: Node2D = scene.instantiate() as Node2D
-		get_tree().root.add_child(z)
-		z.set("kind", kind_index)
-		z.call("_apply_kind")
-		flank.append(float(z.get("flank_strength")))
-		separation.append(float(z.get("separation_scale")))
-		preferred.append(float(z.get("preferred_range")))
-		z.queue_free()
+	var kinds: Dictionary = _kind_map()
+	var walker: int = int(kinds.get("WALKER", 0))
+	var boss: int = int(kinds.get("BOSS", 1))
 
-	_check(is_equal_approx(flank[0], 0.18) and is_equal_approx(flank[1], 0.42),
-		"caminante/corredor flanquean distinto")
-	_check(separation[2] > 1.5, "tanque empuja más en la separación")
-	_check(preferred[3] >= 200.0 and preferred[4] == 0.0,
-		"escupidor mantiene distancia; gritón no")
+	var walker_z: Node2D = scene.instantiate() as Node2D
+	get_tree().root.add_child(walker_z)
+	walker_z.set("kind", walker)
+	walker_z.call("_apply_kind")
+	_check(is_equal_approx(float(walker_z.get("flank_strength")), 0.18),
+		"el caminante conserva su flanqueo (0.18)")
+	_check(is_equal_approx(float(walker_z.get("separation_scale")), 1.0),
+		"el caminante conserva su empuje de separación (1.0)")
+	_check(is_equal_approx(float(walker_z.get("preferred_range")), 0.0),
+		"el caminante va a por el cuerpo a cuerpo")
+	walker_z.queue_free()
 
-	# --- Botín por riesgo (flujo 'loot' determinista) ---
-	var tank: Node2D = scene.instantiate() as Node2D
-	get_tree().root.add_child(tank)
-	tank.set("kind", 2)
-	tank.call("_apply_kind")
+	var boss_z: Node2D = scene.instantiate() as Node2D
+	get_tree().root.add_child(boss_z)
+	boss_z.set("kind", boss)
+	boss_z.call("_apply_kind")
+	_check(is_equal_approx(float(boss_z.get("flank_strength")), 0.0),
+		"el jefe no flanquea (va de frente)")
+	_check(float(boss_z.get("separation_scale")) > 1.5,
+		"el jefe empuja mas en la separación (%.2f)" % float(boss_z.get("separation_scale")))
+	_check(float(boss_z.get("max_hp")) >= 500.0,
+		"el jefe conserva vida alta (%.0f)" % float(boss_z.get("max_hp")))
+	boss_z.queue_free()
+
+
+# --- 3. Botín por riesgo ------------------------------------------------------
+func _loot_checks() -> void:
+	var scene: PackedScene = load("res://03_zombies/Zombie.tscn") as PackedScene
+	var kinds: Dictionary = _kind_map()
+	var boss: int = int(kinds.get("BOSS", 1))
+	var walker: int = int(kinds.get("WALKER", 0))
+
+	var boss_z: Node2D = scene.instantiate() as Node2D
+	get_tree().root.add_child(boss_z)
+	boss_z.set("kind", boss)
+	boss_z.call("_apply_kind")
 	var scrap_before: int = Inventory.count("scrap")
-	tank.call("_drop_loot")
-	_check(Inventory.count("scrap") >= scrap_before + 2, "tanque suelta 2-3 chatarra")
-	tank.queue_free()
+	boss_z.call("_drop_loot")
+	var scrap_after: int = Inventory.count("scrap")
+	_check(scrap_after >= scrap_before + 5,
+		"el jefe suelta 5-8 de chatarra (%d)" % (scrap_after - scrap_before))
+	boss_z.queue_free()
 
-	# --- Composición de hordas ---
+	var walker_z: Node2D = scene.instantiate() as Node2D
+	get_tree().root.add_child(walker_z)
+	walker_z.set("kind", walker)
+	walker_z.call("_apply_kind")
+	var scrap_walker_before: int = Inventory.count("scrap")
+	var cloth_walker_before: int = Inventory.count("cloth")
+	walker_z.call("_drop_loot")
+	_check(Inventory.count("scrap") - scrap_walker_before <= 1
+			and Inventory.count("cloth") - cloth_walker_before <= 1,
+		"el caminante suelta como mucho 1 pieza")
+	walker_z.queue_free()
+
+
+# --- 4. Hordas homogéneas -----------------------------------------------------
+func _horde_checks() -> void:
 	var director: Node = _main.get_node_or_null("WaveManager")
 	_check(director != null, "WaveManager presente")
-	if director != null:
-		director.set("_horde_wave", 1)
-		var early_only: bool = true
-		for i in range(10):
-			var k: int = int(director.call("_horde_kind_for", i))
-			if k != 0 and k != 1:
-				early_only = false
-		_check(early_only, "oleada 1: solo caminantes/corredores")
+	var constants: Dictionary = _constants(WORLD_DIRECTOR_SCRIPT)
+	var horde_kind: int = int(constants.get("HORDE_KIND", -1))
+	_check(horde_kind == 0,
+		"la horda es de caminantes (HORDE_KIND = %d)" % horde_kind)
+	_check(not constants.has("HORDE_EARLY_KINDS"),
+		"la horda ya no se compone por arquetipo")
+	_check(director != null and int(director.get("horde_base_count")) >= 4,
+		"la horda base es de al menos 4 zombis")
+	_check(director != null and int(director.get("horde_max_alive")) >= 14,
+		"la horda admite al menos 14 vivos simultaneos")
 
-		director.set("_horde_wave", 4)
-		var seen: Dictionary = {}
-		for i in range(60):
-			seen[int(director.call("_horde_kind_for", i))] = true
-		_check(seen.has(2) and seen.has(3) and seen.has(4),
-			"oleada 4 incluye tanque, escupidor y gritón")
-	await _finish()
+
+# --- Utilidades ---------------------------------------------------------------
+func _constants(path: String) -> Dictionary:
+	var script: Script = load(path)
+	if script == null:
+		return {}
+	return script.get_script_constant_map()
+
+
+func _kind_map() -> Dictionary:
+	return _constants(ZOMBIE_SCRIPT).get("Kind", {}) as Dictionary
+
 
 func _finish() -> void:
 	if is_instance_valid(_main):

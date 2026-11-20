@@ -1,6 +1,12 @@
 extends CharacterBody2D
 
-enum Kind { WALKER, RUNNER, TANK, SPITTER, SCREAMER, BOSS }
+## R3 (ADR-006): el juego tiene UN SOLO arquetipo de zombi, el WALKER (el
+## normal, el que lleva la skin pixel-art). RUNNER, TANK, SPITTER y SCREAMER
+## se eliminaron por decision del usuario. "Tanque Alfa" NO es un arquetipo
+## distinto: es un PERFIL del mismo zombi (mismo arte, mas grande, mas vida,
+## barra de jefe y carga+slam en dos fases), para conservar el encuentro con
+## el jefe, el meta-arbol v2 y la extraccion de 12 s.
+enum Kind { WALKER, BOSS }
 enum State { PATROL, INVESTIGATE, CHASE, ATTACK, STUNNED, DEAD }
 
 const HIT_TORSO: int = 0
@@ -28,15 +34,11 @@ const ALERT_TIME := 5.0
 @export var max_hp: float = 68.0
 @export var attack_damage: float = 10.0
 @export var attack_cooldown_time: float = 1.0
-@export var detect_radius: float = 430.0
+@export var detect_radius: float = 520.0
 @export var lose_radius: float = 700.0
 
-## Nuevas propiedades para tipos especiales
-@export var spit_range: float = 300.0
-@export var spit_damage: float = 15.0
-@export var spit_cooldown: float = 3.0
-@export var scream_radius: float = 500.0
-@export var scream_cooldown: float = 8.0
+## Carga del jefe. Es la UNICA habilidad especial que queda: pertenece al
+## perfil de Tanque Alfa, no a un arquetipo de zombi.
 @export var charge_speed: float = 250.0
 @export var charge_cooldown: float = 5.0
 
@@ -49,23 +51,28 @@ const ALERT_TIME := 5.0
 
 ## Percepcion / IA
 @export var vision_half_angle_degrees: float = 100.0
-@export var close_sense_radius: float = 105.0
+@export var close_sense_radius: float = 120.0
 @export var hearing_shot_radius: float = 950.0
 @export var hearing_impact_radius: float = 540.0
 @export var hearing_melee_radius: float = 250.0
 @export var alert_propagation_radius: float = 420.0
 
-## Perfil táctico por arquetipo (lo fija _apply_kind).
-## flank_strength: desvío lateral al perseguir para no llegar en línea recta.
+## Linea de vision: TRES rayos (centro + dos "hombros" a +/- este offset
+## lateral). El jugador mide 16x16, asi que 6 px caen dentro de su cuerpo:
+## un poste estrecho que solo tapa el centro NO lo oculta, pero una pared que
+## lo tapa entero SI. Con un solo rayo al centro, el oclusor mas pequeno
+## (un poste) ocultaba al jugador completo.
+const SIGHT_SHOULDER_OFFSET: float = 6.0
+
+## Perfil tactico (lo fija _apply_kind).
+## flank_strength: desvio lateral al perseguir para no llegar en linea recta.
 ## preferred_range: distancia que intenta mantener; 0 = cuerpo a cuerpo.
-## separation_scale: cuánto empuje ejerce en la separación vecinal.
+## separation_scale: cuanto empuje ejerce en la separacion vecinal.
 @export var flank_strength: float = 0.0
 @export var preferred_range: float = 0.0
 @export var separation_scale: float = 1.0
 var _flank_side: float = 1.0
 
-var _spit_timer: float = 0.0
-var _scream_timer: float = 0.0
 var _charge_timer: float = 0.0
 var _charge_duration: float = 0.0
 var _is_charging: bool = false
@@ -176,8 +183,6 @@ func _physics_process(delta: float) -> void:
 	_update_flash(delta)
 
 	# Timers para habilidades especiales
-	_spit_timer = maxf(_spit_timer - delta, 0.0)
-	_scream_timer = maxf(_scream_timer - delta, 0.0)
 	_charge_timer = maxf(_charge_timer - delta, 0.0)
 	_boss_slam_timer = maxf(_boss_slam_timer - delta, 0.0)
 
@@ -244,7 +249,13 @@ func _update_perception(delta: float) -> void:
 		distance = global_position.distance_to(target.global_position)
 		sees_player = _can_detect(target)
 		if sees_player:
-			_become_alerted(target.global_position, target, false)
+			# `propagate = true`: VER al jugador tambIEN alerta al grupo. Antes
+			# solo propagaban el golpe y el ruido, asi que una horda no se
+			# convergia cuando uno de los suyos veia al jugador. El efecto
+			# "bola de nieve" esta acotado: `_propagate_alert()` solo actua en la
+			# transicion calma->alerta y tiene un cooldown de 1.2 s, y el
+			# zombi que RECIBE la alerta no la repropaga (`propagate = false`).
+			_become_alerted(target.global_position, target, true)
 		elif distance > lose_radius and _alert_timer <= 0.0:
 			_last_known = _spawn_position
 
@@ -289,18 +300,9 @@ func _pursue(delta: float) -> void:
 	var sees: bool = _can_detect(target)
 	var move_speed: float = speed * _speed_multiplier()
 
-	# Habilidades especiales por tipo (mantienen el comportamiento original).
-	if kind == Kind.SPITTER and spit_range > 0.0:
-		if distance <= spit_range and distance > ATTACK_RANGE and _spit_timer <= 0.0 and sees:
-			state = State.CHASE
-			_spit_attack()
-			velocity = Vector2.ZERO
-			return
-	elif kind == Kind.SCREAMER and scream_radius > 0.0:
-		if _scream_timer <= 0.0 and distance <= scream_radius:
-			_scream_attack()
-	elif kind == Kind.BOSS:
-		# Fase 1: carga telegrafiada. Fase 2: además un slam de área más cercano.
+	# Habilidad especial: SOLO el perfil de jefe (Tanque Alfa).
+	# Fase 1: carga telegrafiada. Fase 2: ademas un slam de area mas cercano.
+	if kind == Kind.BOSS:
 		if phase == 2 and distance <= BOSS_SLAM_RANGE and _boss_slam_timer <= 0.0 and sees:
 			state = State.CHASE
 			_boss_attack()
@@ -309,12 +311,6 @@ func _pursue(delta: float) -> void:
 		if distance <= BOSS_CHARGE_RANGE and distance > ATTACK_RANGE and _charge_timer <= 0.0 and sees:
 			state = State.CHASE
 			_start_boss_charge(target.global_position)
-			velocity = _charge_direction * charge_speed
-			return
-	elif kind == Kind.TANK and charge_speed > 0.0:
-		if distance <= 200.0 and distance > ATTACK_RANGE and _charge_timer <= 0.0 and sees:
-			state = State.CHASE
-			_start_charge(target.global_position)
 			velocity = _charge_direction * charge_speed
 			return
 
@@ -332,7 +328,7 @@ func _pursue(delta: float) -> void:
 			var to_player: Vector2 = (target.global_position - global_position).normalized()
 			var side: Vector2 = Vector2(-to_player.y, to_player.x) * _flank_side
 			destination += side * (70.0 * flank_strength)
-		# Kiting del escupidor / grito: si está demasiado cerca se retira.
+		# Kiting: si esta demasiado cerca y su perfil lo pide, se retira.
 		if preferred_range > 0.0 and distance < preferred_range * 0.7:
 			var away: Vector2 = (global_position - target.global_position).normalized()
 			destination = global_position + away * 120.0
@@ -376,15 +372,42 @@ func _can_detect(node: Node2D) -> bool:
 	return true
 
 
+## Linea de vision: TRES rayos (centro + dos hombros). Si CUALQUIERA llega al
+## objetivo sin golpear nada, el zombi lo ve.
+##
+## BUG CRITICO (R3, verificado con sonda en Godot 4.7.2): antes el codigo
+## hacia `query.exclude = [get_rid()]` y despues `query.exclude.append(...)`.
+## La propiedad `exclude` de PhysicsRayQueryParameters2D es un ARRAY sin tipo:
+## el getter devuelve una COPIA, asi que el `append` se hacia sobre la copia y
+## NUNCA llegaba al motor. El rayo terminaba impactando al propio jugador
+## (collider = el CharacterBody2D del jugador) y la linea de vision era
+## SIEMPRE falsa: el zombi solo detectaba al jugador a menos de
+## `close_sense_radius` (105 px). Ahora el array se construye ENTERO antes de
+## asignarlo, que es el patron que ya usaban Player.gd y DriveableVehicle.gd.
 func _has_line_of_sight_to(node: Node2D) -> bool:
 	if node == null or not is_instance_valid(node):
 		return false
-	var query := PhysicsRayQueryParameters2D.create(global_position, node.global_position)
-	query.collision_mask = 1
-	query.exclude = [get_rid()]
+	var excluded: Array[RID] = [get_rid()]
 	if node is CollisionObject2D:
-		query.exclude.append(node.get_rid())
-	return get_world_2d().direct_space_state.intersect_ray(query).is_empty()
+		excluded.append((node as CollisionObject2D).get_rid())
+	# Puntos de vision: el centro del objetivo y dos "hombros" laterales.
+	var to_target: Vector2 = node.global_position - global_position
+	var side: Vector2 = Vector2.ZERO
+	if to_target.length() > 0.001:
+		side = Vector2(-to_target.y, to_target.x).normalized() * SIGHT_SHOULDER_OFFSET
+	var aim_points: Array[Vector2] = [
+		node.global_position,
+		node.global_position + side,
+		node.global_position - side,
+	]
+	var space: PhysicsDirectSpaceState2D = get_world_2d().direct_space_state
+	for point in aim_points:
+		var query := PhysicsRayQueryParameters2D.create(global_position, point)
+		query.collision_mask = 1
+		query.exclude = excluded
+		if space.intersect_ray(query).is_empty():
+			return true
+	return false
 
 
 func _connect_hearing_sources() -> void:
@@ -691,68 +714,6 @@ func _attack() -> void:
 		target.call("receive_damage", attack_damage * float(_difficulty.get("damage", 1.0)))
 
 
-## Ataque escupitajo (Spitter)
-func _spit_attack() -> void:
-	if _spit_timer > 0.0 or target == null:
-		return
-	_spit_timer = spit_cooldown
-
-	_telegraph(kind)
-	if zombie_visual != null:
-		zombie_visual.play_attack()
-
-	var spit_scene: PackedScene = preload("res://03_zombies/projectiles/AcidSpit.tscn")
-	var spit: Node2D = spit_scene.instantiate()
-	# Parentear a la escena, no a root: un escupitajo en vuelo podría sobrevivir
-	# a reload_current_scene() y dañar al jugador de la partida nueva.
-	var parent: Node = get_tree().current_scene if get_tree().current_scene != null else get_tree().root
-	parent.add_child(spit)
-
-	var direction: Vector2 = (target.global_position - global_position).normalized()
-	spit.global_position = global_position + direction * 20.0
-	spit.rotation = direction.angle()
-	spit.call("launch", direction, spit_damage * float(_difficulty.get("damage", 1.0)), spit_range)
-
-
-## Grito de alerta (Screamer)
-func _scream_attack() -> void:
-	if _scream_timer > 0.0:
-		return
-	_scream_timer = scream_cooldown
-
-	_telegraph(kind)
-	if zombie_visual != null:
-		zombie_visual.play_attack()
-
-	if ParticleManager.instance != null:
-		ParticleManager.instance.spawn_impact_flesh(global_position, Vector2.ZERO)
-
-	_propagate_alert(global_position, scream_radius, self)
-
-	if target != null and global_position.distance_to(target.global_position) <= 80.0:
-		if target.has_method("receive_damage"):
-			target.call("receive_damage", attack_damage * 0.5 * float(_difficulty.get("damage", 1.0)))
-
-
-## Carga (Tank)
-func _start_charge(target_pos: Vector2) -> void:
-	if _charge_timer > 0.0:
-		return
-	_charge_timer = charge_cooldown
-	_charge_duration = 1.5  # Duración de la carga
-	_is_charging = true
-
-	var direction: Vector2 = (target_pos - global_position).normalized()
-	_charge_direction = direction
-
-	_telegraph(kind)
-	if zombie_visual != null:
-		zombie_visual.play_attack()
-
-	if ParticleManager.instance != null:
-		ParticleManager.instance.spawn_impact_concrete(global_position, _charge_direction)
-
-
 # --- Jefe "Tanque Alfa" (CAPA 2 / ÍTEM 12) ---------------------------------
 
 ## Fase 2: al caer por debajo del 50 % de vida el patrón se acelera y se añade
@@ -924,109 +885,21 @@ func _apply_kind() -> void:
 			max_hp = 68.0
 			attack_damage = 10.0
 			attack_cooldown_time = 1.0
-			detect_radius = 430.0
+			detect_radius = 520.0
 			lose_radius = 700.0
 			body_visual.color = Color(0.62, 0.22, 0.18)
 			nose.color = Color(0.8, 0.5, 0.45)
 			_apply_cube_scale(Vector2(1.0, 1.0))
-			spit_range = 0.0
-			spit_damage = 0.0
-			spit_cooldown = 0.0
-			scream_radius = 0.0
-			scream_cooldown = 0.0
 			charge_speed = 0.0
 			charge_cooldown = 0.0
 			if zombie_visual != null:
 				zombie_visual.set_type(ZombieVisual.ZombieType.WALKER)
 			alert_label.text = "?"
 
-		Kind.RUNNER:
-			speed = 150.0
-			max_hp = 30.0
-			attack_damage = 7.0
-			attack_cooldown_time = 0.8
-			detect_radius = 560.0
-			lose_radius = 800.0
-			body_visual.color = Color(0.82, 0.58, 0.2)
-			nose.color = Color(0.95, 0.8, 0.5)
-			_apply_cube_scale(Vector2(0.82, 0.82))
-			spit_range = 0.0
-			spit_damage = 0.0
-			spit_cooldown = 0.0
-			scream_radius = 0.0
-			scream_cooldown = 0.0
-			charge_speed = 0.0
-			charge_cooldown = 0.0
-			if zombie_visual != null:
-				zombie_visual.set_type(ZombieVisual.ZombieType.RUNNER)
-			alert_label.text = "!"
-
-		Kind.TANK:
-			speed = 45.0
-			max_hp = 250.0
-			attack_damage = 25.0
-			attack_cooldown_time = 1.5
-			detect_radius = 350.0
-			lose_radius = 600.0
-			body_visual.color = Color(0.4, 0.4, 0.5)
-			nose.color = Color(0.6, 0.6, 0.7)
-			_apply_cube_scale(Vector2(1.5, 1.5))
-			spit_range = 0.0
-			spit_damage = 0.0
-			spit_cooldown = 0.0
-			scream_radius = 0.0
-			scream_cooldown = 0.0
-			charge_speed = 250.0
-			charge_cooldown = 5.0
-			if zombie_visual != null:
-				zombie_visual.set_type(ZombieVisual.ZombieType.TANK)
-			alert_label.text = "!!"
-
-		Kind.SPITTER:
-			speed = 70.0
-			max_hp = 50.0
-			attack_damage = 8.0
-			attack_cooldown_time = 1.2
-			detect_radius = 500.0
-			lose_radius = 700.0
-			body_visual.color = Color(0.4, 0.7, 0.4)
-			nose.color = Color(0.6, 0.9, 0.6)
-			_apply_cube_scale(Vector2(0.9, 0.9))
-			spit_range = 300.0
-			spit_damage = 15.0
-			spit_cooldown = 3.0
-			scream_radius = 0.0
-			scream_cooldown = 0.0
-			charge_speed = 0.0
-			charge_cooldown = 0.0
-			if zombie_visual != null:
-				zombie_visual.set_type(ZombieVisual.ZombieType.SPITTER)
-			alert_label.text = "~"
-
-		Kind.SCREAMER:
-			speed = 100.0
-			max_hp = 40.0
-			attack_damage = 12.0
-			attack_cooldown_time = 1.0
-			detect_radius = 400.0
-			lose_radius = 650.0
-			body_visual.color = Color(0.8, 0.3, 0.8)
-			nose.color = Color(1.0, 0.5, 1.0)
-			_apply_cube_scale(Vector2(0.85, 0.85))
-			spit_range = 0.0
-			spit_damage = 0.0
-			spit_cooldown = 0.0
-			scream_radius = 500.0
-			scream_cooldown = 8.0
-			charge_speed = 0.0
-			charge_cooldown = 0.0
-			if zombie_visual != null:
-				zombie_visual.set_type(ZombieVisual.ZombieType.SCREAMER)
-			alert_label.text = "~~"
-
 		Kind.BOSS:
-			# "Tanque Alfa": vida alta, velocidad media, daño alto y detección
-			# amplia. Parte en fase 1; el 50 % de vida dispara la fase 2.
+			# "Tanque Alfa": NO es un arquetipo distinto, es el PERFIL del mismo
+			# zombi normal: mismo arte (skin), mas grande, mas vida, barra de
+			# jefe y carga+slam en dos fases.
 			speed = 110.0
 			max_hp = 800.0
 			attack_damage = 32.0
@@ -1036,11 +909,6 @@ func _apply_kind() -> void:
 			body_visual.color = Color(0.431, 0.09, 0.071)   # BLOOD_DARK
 			nose.color = Color(0.604, 0.671, 0.714)          # STEEL_LIGHT
 			_apply_cube_scale(Vector2(1.9, 1.9))
-			spit_range = 0.0
-			spit_damage = 0.0
-			spit_cooldown = 0.0
-			scream_radius = 0.0
-			scream_cooldown = 0.0
 			charge_speed = 330.0
 			charge_cooldown = 4.5
 			boss_slam_cooldown = BOSS_SLAM_COOLDOWN
@@ -1052,28 +920,12 @@ func _apply_kind() -> void:
 				zombie_visual.set_type(ZombieVisual.ZombieType.BOSS)
 			alert_label.text = "!!"
 
-	# Perfil táctico por arquetipo (independiente del aspecto visual).
+	# Perfil táctico (independiente del aspecto visual).
 	match kind:
 		Kind.WALKER:
 			flank_strength = 0.18
 			preferred_range = 0.0
 			separation_scale = 1.0
-		Kind.RUNNER:
-			flank_strength = 0.42
-			preferred_range = 0.0
-			separation_scale = 0.9
-		Kind.TANK:
-			flank_strength = 0.0
-			preferred_range = 0.0
-			separation_scale = 1.7
-		Kind.SPITTER:
-			flank_strength = 0.55
-			preferred_range = 210.0
-			separation_scale = 1.2
-		Kind.SCREAMER:
-			flank_strength = 0.30
-			preferred_range = 0.0
-			separation_scale = 1.1
 		Kind.BOSS:
 			flank_strength = 0.0
 			preferred_range = 0.0
@@ -1083,9 +935,9 @@ func _apply_kind() -> void:
 	hp = max_hp
 
 
-## Recompensa por riesgo: tanques sueltan chatarra, escupidores tela y el
-## resto tiene una probabilidad pequeña. Usa el flujo 'loot' para que el botín
-## siga siendo determinista dentro de la misma partida.
+## Recompensa por riesgo: el jefe asegura chatarra; el zombi normal tiene una
+## probabilidad pequeña. Usa el flujo 'loot' para que el botín siga siendo
+## determinista dentro de la misma partida.
 func _drop_loot() -> void:
 	if not is_instance_valid(Inventory):
 		return
@@ -1093,16 +945,10 @@ func _drop_loot() -> void:
 	var item_id: String = ""
 	var amount: int = 1
 	match kind:
-		Kind.TANK:
-			item_id = "scrap"
-			amount = rng.randi_range(2, 3)
 		Kind.BOSS:
 			# El jefe asegura una recompensa proporcional a su riesgo.
 			item_id = "scrap"
 			amount = rng.randi_range(5, 8)
-		Kind.SPITTER:
-			item_id = "cloth"
-			amount = rng.randi_range(1, 2)
 		_:
 			if rng.randf() < 0.18:
 				item_id = "scrap" if rng.randf() < 0.6 else "cloth"

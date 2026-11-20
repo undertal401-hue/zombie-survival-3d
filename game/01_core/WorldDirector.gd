@@ -26,8 +26,10 @@ const WEATHER_TINTS: Array[Color] = [
 	Color(0.82, 0.88, 0.98), Color(0.96, 0.97, 1.0),
 ]
 const EVENT_NAMES: Array[String] = ["convoy", "campamento", "ruido"]
-const HORDE_KINDS: Array[int] = [0, 0, 1, 2, 3]
-const HORDE_EARLY_KINDS: Array[int] = [0, 1]
+## R3 (ADR-006): la horda ya no se compone por arquetipo. TODOS son
+## caminantes (Kind.WALKER = 0), asi que la composicion por oleada se
+## elimina y la horda crece en cantidad.
+const HORDE_KIND: int = 0
 ## ÍTEM 14: el ruido del motor/claxon acumula "calor" que acelera el enfriamiento
 ## de hordas y puede disparar una anticipada. Todo con RNG determinista.
 const NOISE_HORDE_HEAT_MAX: float = 3.0
@@ -55,8 +57,10 @@ const WEATHER_EPSILON: float = 0.002
 @export var event_lifetime: float = 90.0
 @export var max_active_events: int = 3
 @export_group("Hordas nocturnas")
-@export var horde_base_count: int = 2
-@export var horde_max_alive: int = 10
+## R3 (ADR-006): al quedar un solo arquetipo, la horda compensa en cantidad:
+## base 2 -> 4, maximo simultaneo 10 -> 14 y tope por oleada 6 -> 8.
+@export var horde_base_count: int = 4
+@export var horde_max_alive: int = 14
 @export var horde_lifetime: float = 45.0
 @export var horde_cooldown: float = 50.0
 
@@ -426,28 +430,11 @@ func _horde_count() -> int:
 	var difficulty: float = _difficulty()
 	var wanted: int = int(ceil(float(horde_base_count + _horde_wave) * difficulty))
 	var alive: int = _horde_zombies.size()
-	return clampi(mini(wanted, horde_max_alive - alive), 0, 6)
+	return clampi(mini(wanted, horde_max_alive - alive), 0, 8)
 
 
-## Composición de la horda según la oleada. Las primeras son solo
-## caminantes/corredores; a partir de la 2 aparecen tanques y desde la 3
-## escupidores y gritones. Determinista: usa el RNG 'world' del director.
-func _horde_kind_for(index: int) -> int:
-	if _horde_wave <= 1:
-		return HORDE_EARLY_KINDS[index % HORDE_EARLY_KINDS.size()]
-	var roll: float = _rng.randf()
-	if _horde_wave >= 3:
-		if roll < 0.10:
-			return 4  # SCREAMER
-		if roll < 0.22:
-			return 3  # SPITTER
-		if roll < 0.38:
-			return 2  # TANK
-	elif roll < 0.20:
-		return 2      # TANK
-	return HORDE_EARLY_KINDS[index % HORDE_EARLY_KINDS.size()]
-
-
+## Composición de la horda: R3 (ADR-006) deja un SOLO arquetipo de zombi, asi
+## que TODOS los miembros de la horda son caminantes.
 func _spawn_horde(count: int) -> void:
 	if count <= 0 or _forest == null or not is_instance_valid(_forest):
 		return
@@ -464,7 +451,7 @@ func _spawn_horde(count: int) -> void:
 			continue
 		zombie.name = "HordeZombie_w%d_%d" % [_horde_wave, i]
 		zombie.set_meta("horde_zombie", true)
-		zombie.set("kind", _horde_kind_for(i))
+		zombie.set("kind", HORDE_KIND)
 		# Hijo del director, nunca de Level: no entra en "nav_obstacles".
 		add_child(zombie)
 		zombie.global_position = point

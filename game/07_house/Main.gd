@@ -7,11 +7,17 @@ const MAIN_MENU_SCENE: PackedScene = preload("res://08_ui/MainMenu.tscn")
 const GAME_OVER_SCENE: PackedScene = preload("res://08_ui/GameOver.tscn")
 const NAV_INSET := 42.0
 
-## CAPA 2 / ÍTEM 12: índice de Zombie.Kind.BOSS y oleada a partir de la cual
-## aparece el "Tanque Alfa". Se spawn EA (extra) al inicial: no altera
-## ZOMBIE_SPAWN_COUNT ni la distribución ponderada de los 26 zombies de barrio.
-const BOSS_KIND: int = 5
+## CAPA 2 / ÍTEM 12: oleada a partir de la cual aparece el "Tanque Alfa".
+## Se spawn EA (extra) al inicial: no altera ZOMBIE_SPAWN_COUNT ni la
+## distribucion de los zombis de barrio.
 const BOSS_WAVE_THRESHOLD: int = 5
+
+## Indice de `Zombie.Kind.BOSS`. NO es un numero magico: se resuelve desde el
+## propio script del zombi, de modo que un cambio en el orden del enum no
+## pueda dejar al jefe fuera del roster. Antes era la constante
+## `BOSS_KIND = 5`, que en el roster R3 (WALKER = 0, BOSS = 1) spawneaba un
+## zombi SIN perfil: sin vida de jefe, sin barra, sin carga ni slam.
+const ZOMBIE_SCRIPT: Script = preload("res://03_zombies/Zombie.gd")
 
 # Huecos de muro compartidos por paredes y puertas (valor unico).
 const WALL_GAP_X: float = 1200.0
@@ -262,8 +268,9 @@ func start_wave(wave: int) -> void:
 
 
 ## El boss aparece en hordas nocturnas avanzadas (wave >= 5). Se mantiene el
-## spawn base intacto: los 26 zombies del barrio y su distribución de tipos
-## siguen gobernados por Neighborhood.ZOMBIE_SPAWN_COUNT y _spawn_zombies().
+## spawn base intacto: los zombis del barrio y su cantidad siguen gobernados
+## por Neighborhood.ZOMBIE_SPAWN_COUNT y _spawn_zombies(), que en R3 spawnan
+## SOLO caminantes.
 func _on_horde_started_for_boss(wave) -> void:
 	_maybe_spawn_boss_for_wave(int(wave))
 
@@ -281,6 +288,17 @@ func _maybe_spawn_boss_for_wave(wave: int) -> void:
 		return
 	if spawn_boss() != null:
 		_boss_spawned_wave = wave
+
+
+## Indice real de `Zombie.Kind.BOSS`, leido del propio script del zombi.
+## Fallar aqui (devolver un indice que no existe) es preferible a spawnear
+## un zombi que no pertenece al roster: un kind invalido deja al zombi sin
+## perfil (sin vida de jefe, sin barra, sin carga ni slam) y el fallo seria
+## invisible.
+func _boss_kind() -> int:
+	var kinds: Dictionary = ZOMBIE_SCRIPT.get_script_constant_map().get(
+		"Kind", {}) as Dictionary
+	return int(kinds.get("BOSS", 1))
 
 
 ## API pública: genera "Tanque Alfa" con sus stats de Kind.BOSS (fase 1).
@@ -308,7 +326,7 @@ func spawn_boss(at_position: Vector2 = Vector2.ZERO) -> CharacterBody2D:
 						best = distance
 						spawn_pos = point
 	boss.position = spawn_pos
-	boss.set("kind", BOSS_KIND)
+	boss.set("kind", _boss_kind())
 	GameState.register_actor(boss, &"zombie")
 	add_child(boss)
 	_boss_spawned_wave = 0
@@ -628,38 +646,13 @@ func _bake_navigation() -> void:
 func _spawn_zombies() -> void:
 	var points: Array[Vector2] = neighborhood.zombie_spawn_points()
 	var count: int = mini(zombie_count, points.size())
-	
-	# Distribución de tipos: 40% Walker, 20% Runner, 15% Tank, 15% Spitter, 10% Screamer
-	var type_weights: Array = [
-		{ "type": 0, "weight": 40 },  # WALKER
-		{ "type": 1, "weight": 20 },  # RUNNER
-		{ "type": 2, "weight": 15 },  # TANK
-		{ "type": 3, "weight": 15 },  # SPITTER
-		{ "type": 4, "weight": 10 },  # SCREAMER
-	]
-	
-	var total_weight: int = 0
-	for t in type_weights:
-		total_weight += t.weight
-	
-	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
-	rng.seed = zombie_count * 12345
-	
+
+	# R3 (ADR-006): el juego tiene UN SOLO arquetipo de zombi (el WALKER, el
+	# normal, el que lleva la skin pixel-art). Ya no hay reparto por pesos:
+	# TODOS los zombis del barrio son caminantes.
 	for i in range(count):
 		var zombie := ZOMBIE_SCENE.instantiate() as CharacterBody2D
 		zombie.name = "Zombie%d" % (i + 1)
 		zombie.position = points[i]
 		GameState.register_actor(zombie, &"zombie")
-		
-		# Seleccionar tipo basado en pesos
-		var r: int = rng.randi_range(1, total_weight)
-		var acc: int = 0
-		var selected_type: int = 0
-		for t in type_weights:
-			acc += t.weight
-			if r <= acc:
-				selected_type = t.type
-				break
-		
-		zombie.set("kind", selected_type)
 		add_child(zombie)

@@ -17,16 +17,19 @@ extends Node
 ## 3. CANCELACIÓN COMPLETA. `set_type()` mata los tweens y restaura
 ##    `_is_telegraphing`, el tinte y la escala.
 ##
-## ADR-005 mantiene el cubo para los rangos altos. Por eso el contrato de
-## cubo se prueba sobre TANK (tipo 2), NO sobre el WALKER: el WALKER usa skin
-## y sus FX van a la AnimatedSprite2D. Al final se comprueba también ese
-## camino híbrido (el FX afecta a la sprite y no al cubo oculto).
+## R3 (ADR-006) cambio el contrato: ya NO hay rangos altos que usen el cubo
+## como presentacion propia. El cubo es el FALLBACK (pack de skin ausente o
+## incompleto), asi que el contrato de cubo se prueba sobre ese camino REAL:
+## se fuerza el fallback y se comprueba que los FX van al cubo. Al final se
+## comprueba tambien el camino con skin (el FX afecta a la sprite y no al cubo
+## oculto).
 ## ============================================================================
 
 const ZOMBIE_VISUAL: String = "res://03_zombies/ZombieVisual.gd"
 const ZOMBIE: String = "res://03_zombies/Zombie.gd"
 const ZOMBIE_SCENE: String = "res://03_zombies/Zombie.tscn"
-const TANK_TYPE: int = 2
+## Ruta de pack inexistente: fuerza el fallback al cubo (ADR-005 §4).
+const MISSING_SKIN_DIR: String = "res://assets/enemies/NO_EXISTE/"
 const WALKER_TYPE: int = 0
 
 var _failures: Array[String] = []
@@ -97,7 +100,8 @@ func _api_checks() -> void:
 
 
 ## ---------------------------------------------------------------------------
-## 2. Runtime: base atómica, un solo tween y cancelación completa sobre TANK.
+## 2. Runtime: base atómica, un solo tween y cancelación completa sobre el
+##    camino de fallback al CUBO.
 ## ---------------------------------------------------------------------------
 func _runtime_checks() -> void:
 	_zombie = load(ZOMBIE_SCENE).instantiate()
@@ -111,12 +115,13 @@ func _runtime_checks() -> void:
 		return
 	_check(true, "Runtime: Zombie.tscn expone ZombieVisual y Body")
 
-	# TANK conserva el cubo. La decisión debe hacerse antes de cualquier FX.
-	_visual.call("set_type", TANK_TYPE)
+	# R3: el cubo se alcanza por el FALLBACK (pack ausente), no por un
+	# arquetipo eliminado. La decisión debe hacerse antes de cualquier FX.
+	_visual.call("install_skin", MISSING_SKIN_DIR)
 	await get_tree().process_frame
 	_check(not bool(_visual.call("uses_skin")),
-		"Runtime: TANK usa el cubo y no la skin del WALKER")
-	_check(_body.visible, "Runtime: el cubo Body de TANK está visible")
+		"Runtime: sin pack el zombi usa el cubo y no la skin")
+	_check(_body.visible, "Runtime: el cubo Body está visible en el fallback")
 
 	# --- Base atómica: la escala del arquetipo se fija con UNA operación ---
 	var has_api: bool = _visual.has_method("set_cube_base_scales")
@@ -133,18 +138,18 @@ func _runtime_checks() -> void:
 			"Runtime: el FX restaura la base NUEVA (%.4f, esperado 2.0)" % _body.scale.x)
 
 	# --- Un solo dueño del ciclo de vida -----------------------------------
-	_visual.call("telegraph", TANK_TYPE)
+	_visual.call("telegraph", WALKER_TYPE)
 	await get_tree().process_frame
 	var live: int = _visual.get("_fx_tweens").size()
 	_check(live == 1,
 		"Runtime: la telegrafía usa UN tween maestro (%d vivos)" % live)
 
 	# --- Cancelación completa: set_type() restaura tinte y estado ---------
-	_visual.call("telegraph", TANK_TYPE)
+	_visual.call("telegraph", WALKER_TYPE)
 	await get_tree().process_frame
-	# Se mantiene TANK: cambiar a WALKER ocultaría el cubo y no probaría el
-	# contrato de cancelación del cubo.
-	_visual.call("set_type", TANK_TYPE)
+	# Se mantiene el fallback al cubo: cambiar al skin ocultaría el cubo y no
+	# probaría el contrato de cancelación del cubo.
+	_visual.call("set_type", WALKER_TYPE)
 	await get_tree().process_frame
 	var tint: Color = _body.modulate
 	_check(absf(tint.r - 1.0) < 0.01 and absf(tint.g - 1.0) < 0.01 \
@@ -174,7 +179,7 @@ func _runtime_checks() -> void:
 
 
 ## ---------------------------------------------------------------------------
-## 3. ADR-005: con skin, el FX se aplica a la sprite y no al cubo oculto.
+## 3. ADR-005/R3: con skin, el FX se aplica a la sprite y no al cubo oculto.
 ## ---------------------------------------------------------------------------
 func _skin_fx_checks() -> void:
 	var sprite: AnimatedSprite2D = _visual.get_node_or_null(
@@ -182,6 +187,10 @@ func _skin_fx_checks() -> void:
 	if sprite == null:
 		_check(false, "Runtime: el WALKER expone AnimatedSprite2D para el FX con skin")
 		return
+	# Se reinstala el pack bueno: el fallback anterior dejo `_skin_ready` a
+	# false, y sin reinstalar el skin no se puede probar el camino con skin.
+	_visual.call("install_skin")
+	await get_tree().process_frame
 	_visual.call("set_type", WALKER_TYPE)
 	await get_tree().process_frame
 	_check(bool(_visual.call("uses_skin")) and sprite.visible and not _body.visible,

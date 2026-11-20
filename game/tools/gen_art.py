@@ -249,15 +249,15 @@ PACK = ("LEATHER_DARK", "LEATHER_MID", "SKIN_MID")
 STEEL = ("STEEL_DARK", "STEEL_DARK", "STEEL_LIGHT")
 BLOODY = ("BLOOD_DARK", "BLOOD", "BLOOD_BRIGHT")
 
+## R3 (ADR-006): el juego tiene UN SOLO arquetipo de zombi (el caminante) mas
+## el perfil de jefe "Tanque Alfa". Los sheets de los arquetipos eliminados se
+## retiraron del banco de arte: el repo ya no fabrica ni distribuye arte de
+## zombis que no existen en el juego.
 ZOMBIE_TRIPLES = {
     "walker":   ("OLIVE_DARK", "OLIVE_MID", "OLIVE_LIGHT"),
-    "runner":   ("BLOOD_DARK", "LEATHER_MID", "BLOOD_BRIGHT"),
-    "tank":     ("SHADOW_GREEN", "STEEL_DARK", "STEEL_LIGHT"),
-    "spitter":  ("OLIVE_DARK", "OLIVE_LIGHT", "OLIVE_HI"),
-    "screamer": ("BLOOD_DARK", "BLOOD", "BLOOD_BRIGHT"),
     # CAPA 2 / ÍTEM 12: "Tanque Alfa". Acero con sombra de sangre seca y un
-    # núcleo de sangre canónica; se distingue del tank por las hombreras
-    # punteadas y el pecho encendido (misma semilla y paleta de 16 colores).
+    # núcleo de sangre canónica; hombreras punteadas y pecho encendido
+    # (misma semilla y paleta de 16 colores).
     "boss":     ("BLOOD_DARK", "STEEL_DARK", "STEEL_LIGHT"),
 }
 
@@ -323,9 +323,6 @@ def draw_humanoid(c: Canvas, frame: int, action: str, flesh, cloth,
     if not survivor:
         for (x, y) in [(12, 19 + bob), (20, 21 + bob), (16, 23 + bob)]:
             c.set(x, y, IDX["BLOOD_DARK"])
-        if kind in ("runner", "screamer", "spitter"):
-            for (x, y) in [(13, 17 + bob), (19, 19 + bob), (15, 22 + bob)]:
-                c.set(x, y, IDX["BLOOD_BRIGHT"])
 
     # Head — round, with hair/helmet arc on top.
     head_cy = 10 + bob + (3 if crawling else 0)
@@ -371,21 +368,10 @@ def draw_humanoid(c: Canvas, frame: int, action: str, flesh, cloth,
         c.set(13, 18 + bob, IDX["LEATHER_DARK"])
         c.set(19, 18 + bob, IDX["LEATHER_DARK"])
     else:
-        # Undead details: one arm reaching forward, bite marks, spit/scream.
+        # Undead details: one arm reaching forward, bite marks.
         if action in ("attack", "crawl"):
             blit(c, rect_mask(14, 5 + bob, 18, 11 + bob), flesh, outline=True)
             stamp(c, rect_mask(15, 4 + bob, 17, 6 + bob), "BLOOD")
-        if kind == "spitter":
-            stamp(c, disc_mask(16, 6 + bob, 2), "OLIVE_HI")
-            c.set(16, 3 + bob, IDX["OLIVE_HI"])
-        if kind == "screamer":
-            c.line(16, 6 + bob, 12, 2 + bob, "BLOOD_BRIGHT")
-            c.line(16, 6 + bob, 20, 2 + bob, "BLOOD_BRIGHT")
-            c.line(16, 6 + bob, 16, 1 + bob, "BLOOD_BRIGHT")
-        if kind == "tank":
-            # Armoured plates on the shoulders.
-            c.rect(6, arm_y - 1 + swing, 11, arm_y + 2 + swing, "STEEL_LIGHT")
-            c.rect(21, arm_y - 1 - swing, 26, arm_y + 2 - swing, "STEEL_LIGHT")
         if kind == "boss":
             # Hombreras de jefe con pinchos hueso y núcleo de sangre (#b52b20).
             # Todo sale de la paleta canónica y respeta el outline 1 px de blit.
@@ -549,7 +535,7 @@ def build_all():
             c, f, a, ZOMBIE_TRIPLES[kind], ZOMBIE_TRIPLES[kind],
             survivor=False, kind=kind)
 
-    for kind in ("walker", "runner", "tank", "spitter", "screamer", "boss"):
+    for kind in ("walker", "boss"):
         # El jefe usa el nombre canónico `boss_sheet.png` (no zombie_boss.png).
         name = "boss_sheet.png" if kind == "boss" else "zombie_%s.png" % kind
         outputs[name] = make_actor_sheet(ZOMBIE_ANIMS, zombie_draw(kind))
@@ -578,8 +564,7 @@ def build_all():
 def do_check() -> int:
     expected = [name for name in (
         "player_sheet.png",
-        "zombie_walker.png", "zombie_runner.png", "zombie_tank.png",
-        "zombie_spitter.png", "zombie_screamer.png", "boss_sheet.png",
+        "zombie_walker.png", "boss_sheet.png",
         "effects.png", "tiles.png",
     )]
     ok = True
@@ -611,8 +596,9 @@ def do_check() -> int:
             ok = False
         else:
             print("OK      %s (%dx%d)" % (name, w, h))
-    if ok and check_lights():
-        print("CHECK OK: %d sheets, palette-locked + 2 light maps" % len(expected))
+    if ok and check_lights() and check_shadows():
+        print("CHECK OK: %d sheets, palette-locked + 2 light maps + 1 shadow map"
+              % len(expected))
         return 0
     print("CHECK FAILED")
     return 1
@@ -730,9 +716,84 @@ def check_lights() -> bool:
     return ok
 
 
+# ---------------------------------------------------------------------------
+# Mapas de sombra (R3 / ADR-006): la sombra direccional 2D de Godot NO tiene
+# largo (llega hasta el borde de pantalla), asi que las sombras DIURNAS son
+# "manchas" (blobs) acotadas. Este asset es la MASCARA de esa mancha: una
+# elipse suave, opaca en el centro y transparente en el borde. El color y la
+# elongacion los pone el runtime (SunShadowController).
+# ---------------------------------------------------------------------------
+
+SHADOW_DIR = os.path.normpath(os.path.join(HERE, "..", "assets", "art", "shadows"))
+SUN_SHADOW_SIZE = 64
+
+
+def make_sun_shadow(size: int = SUN_SHADOW_SIZE):
+    """Mascara de sombra solar: elipse suave de `size`x`size`."""
+    radius = size / 2.0
+    pixels = bytearray(size * size * 4)
+    for y in range(size):
+        dy = y + 0.5 - radius
+        for x in range(size):
+            dx = x + 0.5 - radius
+            dist = ((dx * dx + dy * dy) ** 0.5) / radius
+            if dist >= 1.0:
+                continue
+            alpha = int((1.0 - dist) ** 1.6 * 255.0)
+            if alpha == 0:
+                continue
+            idx = (y * size + x) * 4
+            pixels[idx] = 255
+            pixels[idx + 1] = 255
+            pixels[idx + 2] = 255
+            pixels[idx + 3] = alpha
+    return size, size, pixels
+
+
+def build_shadows():
+    return {"sun_shadow.png": make_sun_shadow()}
+
+
+def check_shadows() -> bool:
+    """Valida la mascara de sombra: existe, es PNG y tiene degradado radial."""
+    ok = True
+    name = "sun_shadow.png"
+    path = os.path.join(SHADOW_DIR, name)
+    if not os.path.isfile(path):
+        print("MISSING shadows/%s" % name)
+        return False
+    try:
+        w, h, px = read_png(path)
+    except Exception as exc:  # noqa: BLE001
+        print("INVALID shadows/%s: %s" % (name, exc))
+        return False
+    if w != SUN_SHADOW_SIZE or h != SUN_SHADOW_SIZE:
+        print("INVALID shadows/%s: expected %dx%d, got %dx%d" % (
+            name, SUN_SHADOW_SIZE, SUN_SHADOW_SIZE, w, h))
+        return False
+    alphas = set()
+    for i in range(3, len(px), 4):
+        alphas.add(px[i])
+    center = ((h // 2) * w + (w // 2)) * 4
+    corner = 3
+    if len(alphas) < 8:
+        print("INVALID shadows/%s: sin degradado de alpha (%d valores)" % (name, len(alphas)))
+        ok = False
+    elif px[center + 3] < 240:
+        print("INVALID shadows/%s: el centro no es opaco (alpha %d)" % (name, px[center + 3]))
+        ok = False
+    elif px[corner] != 0:
+        print("INVALID shadows/%s: la esquina no es transparente (alpha %d)" % (name, px[corner]))
+        ok = False
+    else:
+        print("OK      shadows/%s (%dx%d, %d niveles de alpha)" % (name, w, h, len(alphas)))
+    return ok
+
+
 def do_generate() -> int:
     os.makedirs(OUT_DIR, exist_ok=True)
     os.makedirs(LIGHT_DIR, exist_ok=True)
+    os.makedirs(SHADOW_DIR, exist_ok=True)
     outputs = build_all()
     for name in sorted(outputs):
         w, h, px = outputs[name]
@@ -743,6 +804,10 @@ def do_generate() -> int:
         path = os.path.join(LIGHT_DIR, name)
         write_png(path, w, h, px)
         print("WROTE   lights/%s (%dx%d, %d bytes)" % (name, w, h, os.path.getsize(path)))
+    for name, (w, h, px) in sorted(build_shadows().items()):
+        path = os.path.join(SHADOW_DIR, name)
+        write_png(path, w, h, px)
+        print("WROTE   shadows/%s (%dx%d, %d bytes)" % (name, w, h, os.path.getsize(path)))
     return 0
 
 

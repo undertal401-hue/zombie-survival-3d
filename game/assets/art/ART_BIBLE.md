@@ -62,10 +62,16 @@ solo para el contorno. Nunca se mezclan tonos nuevos por interpolación.
 
 - `assets/art/sprites/<subject>.png` — minúsculas, `snake_case`, extensión
   `.png`. Nunca espacios ni mayúsculas.
-- Hojas de actor: `player_sheet.png`, `zombie_<kind>.png` donde
-  `<kind> ∈ {walker, runner, tank, spitter, screamer}`.
+- Hojas de actor: `player_sheet.png`, `zombie_walker.png` y `boss_sheet.png`.
+  **R3 (ADR-006)**: el juego tiene UN SOLO arquetipo de zombi (el caminante);
+  el «Tanque Alfa» es un perfil del mismo zombi y usa `boss_sheet.png` como
+  hoja de banco. Ya no se fabrican hojas de arquetipos eliminados.
 - Hojas de apoyo: `effects.png` (fogonazos, salpicaduras, impactos),
   `tiles.png` (suelo, muro, escombros, manchas).
+- Mapas de luz (no son hojas de personaje): `assets/art/lights/light_cone.png`
+  (cono del faro) y `assets/art/lights/light_halo.png` (halo del jugador).
+- Máscara de sombra: `assets/art/shadows/sun_shadow.png` (64×64). Es una
+  **máscara en canal alfa**, no una hoja con silueta: ver §8.
 - Layout canónico: actor = 4 frames por animación, 8 columnas por fila;
   `player_sheet` = 12 animaciones × 4 = 48 frames (8×6); cada hoja zombi =
   8 animaciones × 4 = 32 frames (8×4). Las celdas se numeran en orden de
@@ -133,7 +139,8 @@ python3 tools/gen_zombie_skin.py --check    # verifica; no escribe nada
 `gen_zombie_skin.py --check` regenera los 33 frames y 8 strips en memoria y
 compara dimensiones, píxeles y bytes PNG con el disco, además de validar el contrato
 estructural. Este pack queda **fuera del alcance de `gen_art.py --check`**:
-esa puerta valida únicamente las 9 hojas canónicas de 32×32.
+esa puerta valida las 5 hojas canónicas de 32×32, los 2 mapas de luz y la
+máscara de sombra (§8).
 
 `game/tools/skin_pack.py` audita e importa packs externos. El pack entregado
 por el autor (`~/zombie_sprites/`) es el ejemplo canónico de pack defectuoso:
@@ -180,3 +187,23 @@ escribir fuera, (3) un PNG corrupto produce un diagnóstico (`ValueError`) y no
 un *traceback*, y (4) `audit` de un pack inválido devuelve rc=1. También
 comprueba que un pack **válido** se importa con rc=0, para que los rechazos no
 sean verdes triviales.
+
+## 8. Addendum — R3: máscara de sombra solar acotada (ADR-006)
+
+La sombra direccional 2D de Godot **no tiene largo**: llega hasta el borde de
+pantalla (`z_far = 2 * to_edge_distance + cull_distance` en el motor), y
+`DirectionalLight2D.max_distance` no la acorta. Las sombras **diurnas** son por
+tanto **manchas** dibujadas por `game/08_ui/SunShadowController.gd`, con una
+cota dura de 48 px.
+
+- `assets/art/shadows/sun_shadow.png` — **64×64**, elipse suave: opaca en el
+  centro y transparente en el borde (`alpha = (1 - d)^1.6`, `d` = distancia
+  normalizada al centro).
+- Es una **máscara en canal alfa**, no una hoja con silueta: **no** está
+  bloqueada por la paleta de 16 colores de la sección 2. El color y la
+  elongación los pone el runtime; la máscara solo aporta la forma.
+- `gen_art.py --check` la valida aparte (`check_shadows()`): exige 64×64, un
+  centro opaco (alpha ≥ 240), una esquina transparente (alpha = 0) y al menos
+  8 niveles de alpha distintos (es decir, un degradado real, no un disco duro).
+- El faro **nocturno** no usa esta máscara: sigue siendo una `PointLight2D` con
+  `light_cone.png` y **sombras reales del motor**.

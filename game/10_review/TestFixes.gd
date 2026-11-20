@@ -319,21 +319,13 @@ func _ready() -> void:
 		target.queue_free()
 		wc.call("_equip_slot", 1)
 
-	# 29. C5: el escupitajo daña al jugador, crea charco y se destruye
-	var hp_acid_start: float = player.hp
-	var puddles_start: int = get_tree().get_nodes_in_group("acid_puddles").size()
-	var spit: Node2D = load("res://03_zombies/projectiles/AcidSpit.tscn").instantiate()
-	var acid_has_signal: bool = spit.has_signal("body_entered")
-	main.add_child(spit)
-	spit.global_position = player.global_position + Vector2(60.0, 0.0)
-	spit.call("launch", Vector2.LEFT, 15.0, 200.0)
-	var acid_start_ms: int = Time.get_ticks_msec()
-	while is_instance_valid(spit) and Time.get_ticks_msec() - acid_start_ms < 1200:
-		await get_tree().process_frame
-	print("29. C5 ácido: body_entered=", acid_has_signal,
-		" hp ", hp_acid_start, " -> ", player.hp,
-		" charcos=", get_tree().get_nodes_in_group("acid_puddles").size() - puddles_start,
-		" proyectil_vivo=", is_instance_valid(spit))
+	# 29. R3: la mecánica de escupitajo (SPITTER) ya NO existe. El proyectil
+	# AcidSpit se borró con el arquetipo: el repo no debe fabricar ni cargar
+	# proyectiles de arquetipos eliminados (ADR-006).
+	var spit_scene_exists: bool = ResourceLoader.exists(
+		"res://03_zombies/projectiles/AcidSpit.tscn")
+	print("29. R3 escupitajo eliminado: escena_AcidSpit=", spit_scene_exists,
+		" charcos_acido=", get_tree().get_nodes_in_group("acid_puddles").size())
 
 	# 30. Gating: inventario abierto, juego pausado y jugador muerto no disparan
 	if wc != null:
@@ -406,7 +398,6 @@ func _ready() -> void:
 		"res://assets/particles/BloodParticles.tscn",
 		"res://assets/particles/ImpactParticles.tscn",
 		"res://assets/particles/MuzzleFlashParticles.tscn",
-		"res://03_zombies/projectiles/AcidSpit.tscn",
 	]
 	var particle_report: Array[String] = []
 	for path in particle_paths:

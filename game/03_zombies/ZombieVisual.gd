@@ -2,8 +2,8 @@ extends Node2D
 class_name ZombieVisual
 
 ## =============================================================================
-## ZOMBIE VISUAL - presentacion HIBRIDA: skin de sprites para el rango bajo,
-## cubo (Polygon2D) para los rangos altos.
+## ZOMBIE VISUAL - presentacion HIBRIDA: skin de sprites para el zombi
+## (rango bajo Y jefe), cubo (Polygon2D) como FALLBACK si el pack falla.
 ## =============================================================================
 ## R1 (2026-11-20): el usuario decide que los personajes se quedan como CUBO
 ## y que él hará el arte pixel después.
@@ -22,6 +22,12 @@ class_name ZombieVisual
 ##   - El arte canonico del repo es CENITAL (view from above): el personaje
 ##     rota hacia la direccion de marcha, igual que el cubo.
 ##   - Se conserva la barra de vida del jefe (Ítem 12) y las 8 animaciones.
+##
+## R3 (2026-11-20 / ADR-006): el juego tiene UN SOLO arquetipo (el WALKER).
+## Los rangos altos se eliminaron y "Tanque Alfa" paso a ser un PERFIL del
+## mismo zombi normal: usa la MISMA skin, solo que mas grande y con barra de
+## jefe. El cubo queda como FALLBACK (pack ausente o incompleto), no como
+## presentacion propia de otro arquetipo.
 ## =============================================================================
 
 ## `get_node_or_null` y no `$`: el script debe tolerar una escena sin sprite
@@ -55,8 +61,10 @@ const ATTACK_FALLBACK: float = 0.5
 var _hit_timer: float = 0.0
 const HIT_FALLBACK: float = 0.2
 
-## Tipos de zombi (coincide con Zombie.Kind)
-enum ZombieType { WALKER, RUNNER, TANK, SPITTER, SCREAMER, BOSS }
+## Tipos de zombi (coincide con Zombie.Kind).
+## R3 (ADR-006): solo hay UN arquetipo. BOSS es el perfil "Tanque Alfa" del
+## mismo zombi normal (misma skin, mas grande), no una familia de zombis.
+enum ZombieType { WALKER, BOSS }
 
 ## -----------------------------------------------------------------------------
 ## SKIN DE SPRITES (rango bajo) - ADR-005
@@ -72,11 +80,12 @@ const SKIN_DIR: String = "res://assets/enemies/zombie/"
 ## Lado de la celda del pack (px). El strip es rebanable: celda N en x=N*64.
 const SKIN_CELL: int = 64
 
-## Tipos que llevan skin. "Rango bajo" = el zombi normal (WALKER).
+## Tipos que llevan skin. R3 (ADR-006): el zombi normal y su perfil de jefe
+## ("Tanque Alfa") usan la MISMA skin; el jefe es el mismo sprite mas grande.
 ## Allowlist EXPLICITA: anadir un tipo aqui es una decision de diseno, no un
 ## efecto colateral. El orden del enum NO se toca (los spawners, el audio y
 ## los FX usan enteros magicos derivados de el).
-const SKIN_TYPES: Array[int] = [ZombieType.WALKER]
+const SKIN_TYPES: Array[int] = [ZombieType.WALKER, ZombieType.BOSS]
 
 ## Mapa pack -> animacion canonica del runtime, con fps y bucle.
 ## Los fps vienen de la ficha del pack: el ataque dura 6/12 = 0.5 s, que es
@@ -108,8 +117,8 @@ const CANONICAL_LOOP: Dictionary = {
 	"hit": false, "hurt": false, "death": false, "crawl": true,
 }
 
-## Umbral walk/run (px/s). El WALKER camina a 80 px/s y el RUNNER a 150: con
-## el umbral viejo (50) el zombi normal NUNCA teachinga 'walk' y el pack
+## Umbral walk/run (px/s). El WALKER camina a 80 px/s y el jefe corre a 110:
+## con el umbral viejo (50) el zombi normal NUNCA teachinga 'walk' y el pack
 ## gastaba la animacion 'run' en practicamente todo el juego.
 const WALK_RUN_THRESHOLD: float = 120.0
 
@@ -133,7 +142,7 @@ var _skin_atlas: Dictionary = {}
 
 ## Ultimo tipo aplicado por `set_type()`. Lo necesita `install_skin()` para
 ## saber si al terminar de cargar el pack debe ACTIVAR la skin o dejar al
-## zombi con el cubo (un TANK nunca lleva skin aunque el pack este bien).
+## zombi con el cubo (fallback si el pack no esta disponible).
 var _current_type: int = ZombieType.WALKER
 
 ## Cache de texturas por directorio: las 8 texturas se cargan UNA vez por
@@ -415,28 +424,8 @@ func set_type(type: int) -> void:
 			animated_sprite.scale = Vector2(0.5, 0.5)
 			frames.set_animation_speed("walk", 8)
 			frames.set_animation_speed("run", 10)
-		ZombieType.RUNNER:
-			animated_sprite.scale = Vector2(0.45, 0.45)
-			animated_sprite.modulate = Color(1.0, 0.7, 0.7, 1.0)  # Tinte rojizo
-			frames.set_animation_speed("walk", 12)
-			frames.set_animation_speed("run", 18)
-		ZombieType.TANK:
-			animated_sprite.scale = Vector2(0.7, 0.7)
-			animated_sprite.modulate = Color(0.6, 0.6, 0.7, 1.0)  # Tinte azulado/blindaje
-			frames.set_animation_speed("walk", 5)
-			frames.set_animation_speed("run", 7)
-		ZombieType.SPITTER:
-			animated_sprite.scale = Vector2(0.5, 0.5)
-			animated_sprite.modulate = Color(0.7, 1.0, 0.7, 1.0)  # Tinte verdoso
-			frames.set_animation_speed("walk", 7)
-			frames.set_animation_speed("run", 9)
-		ZombieType.SCREAMER:
-			animated_sprite.scale = Vector2(0.45, 0.45)
-			animated_sprite.modulate = Color(1.0, 0.5, 1.0, 1.0)  # Tinte magenta
-			frames.set_animation_speed("walk", 9)
-			frames.set_animation_speed("run", 14)
 		ZombieType.BOSS:
-			# "Tanque Alfa": corpulento, acero con sangre y animación más pesada.
+			# "Tanque Alfa": el MISMO zombi normal, pero mas grande y pesado.
 			animated_sprite.scale = Vector2(0.95, 0.95)
 			animated_sprite.modulate = Color(0.85, 0.75, 0.75, 1.0)
 			frames.set_animation_speed("walk", 4)
@@ -674,10 +663,10 @@ func punch_scale(amount: float = 0.88, duration: float = 0.12) -> void:
 	stretch(amount, duration)
 
 
-## Telegrafía por arquetipo (kind coincide con Zombie.Kind / ZombieType).
-## TANK: aura roja + tamaño. SPITTER: inflado previo. SCREAMER: onda pulsante.
-## BOSS: dos pulsos rojos anchos (carga/slam). WALKER/RUNNER: aviso sutil.
-## Todo se hace sobre el CUBO, nunca hitboxes.
+## Telegrafía (kind coincide con Zombie.Kind / ZombieType).
+## BOSS: dos pulsos rojos anchos (carga/slam). WALKER: aviso sutil.
+## Todo se hace sobre lo que se VE (skin si la hay, cubo si no), nunca sobre
+## las hitboxes.
 func telegraph(kind: int) -> void:
 	if _is_dying:
 		return
@@ -688,28 +677,11 @@ func telegraph(kind: int) -> void:
 	var hold: float = 0.07
 	var pulses: int = 1
 	match kind:
-		2:  # TANK - aura roja y ensanchamiento antes de la carga
-			factor = 1.18
-			tint = Color(1.0, 0.30, 0.30, 1.0)
-			hold = 0.12
-		3:  # SPITTER - se infla antes de escupir
-			factor = 1.34
-			tint = Color(0.65, 1.0, 0.60, 1.0)
-			hold = 0.10
-		4:  # SCREAMER - onda expansiva (tres pulsos)
-			factor = 1.10
-			tint = Color(1.0, 0.70, 1.0, 1.0)
-			hold = 0.06
-			pulses = 3
-		5:  # BOSS "Tanque Alfa" - dos pulsos rojos anchos antes de la carga
+		1:  # BOSS "Tanque Alfa" - dos pulsos rojos anchos antes de la carga
 			factor = 1.28
 			tint = BOSS_BAR_PHASE_2  # BLOOD_BRIGHT, paleta canónica
 			hold = 0.14
 			pulses = 2
-		1:  # RUNNER - aviso breve
-			factor = 1.07
-			tint = Color(1.0, 0.82, 0.82, 1.0)
-			hold = 0.04
 		_:  # WALKER - aviso mínimo
 			factor = 1.04
 			tint = Color(1.0, 0.92, 0.92, 1.0)

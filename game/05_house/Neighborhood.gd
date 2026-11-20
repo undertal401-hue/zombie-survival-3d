@@ -11,7 +11,10 @@ const GROUND_TILEMAP_SCENE: PackedScene = preload("res://05_house/GroundTileMap.
 
 ## Fuente unica del numero de puntos de spawn del barrio. Main hereda este
 ## valor como defecto de zombie_count para que ambas cifras no diverjan.
-const ZOMBIE_SPAWN_COUNT: int = 26
+## R3 (ADR-006): al quedar un solo arquetipo de zombi (el WALKER), el numero
+## sube de 26 a 42 para compensar la descompensacion que dejan los arquetipos
+## eliminados y mantener la presion de zombis del barrio.
+const ZOMBIE_SPAWN_COUNT: int = 42
 
 enum Zone { NW, NORTH, NE, WEST, CENTER, EAST, SW, SOUTH, SE }
 

@@ -54,7 +54,6 @@ color = Color(1, 0.965, 0.878, 1)
 shadow_enabled = true
 shadow_filter = 1
 shadow_filter_smooth = 2.0
-max_distance = 700.0
 range_layer_min = 0
 range_layer_max = 0
 

@@ -5,12 +5,12 @@ extends Node2D
 ## mundo ni contaminar las comprobaciones de QA.
 
 const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
-const MAX_ZOMBIES: int = 6
+## R3 (ADR-006): el bosque spawnea MAS caminantes (6 -> 9) porque el juego
+## tiene un solo arquetipo de zombi.
+const MAX_ZOMBIES: int = 9
 const MIN_PLAYER_DISTANCE: float = 700.0
 const PUSH_DISTANCE: float = 900.0
 const RNG_SEED: int = 20261117
-# Reparto fijo: 3 Walker, 1 Runner, 1 Tank, 1 Spitter.
-const ZOMBIE_KINDS: Array[int] = [0, 0, 0, 1, 2, 3]
 
 var _forest: Node2D = null
 var _spawned: Array[CharacterBody2D] = []
@@ -64,7 +64,7 @@ func _spawn_zombies() -> void:
 			continue
 		zombie.name = "ForestZombie%d" % (i + 1)
 		zombie.set_meta("forest_zombie", true)
-		zombie.set("kind", ZOMBIE_KINDS[i % ZOMBIE_KINDS.size()])
+		# R3 (ADR-006): todos son caminantes (un solo arquetipo de zombi).
 		# Misma IA que el resto: Zombie.tscn ya trae NavigationAgent2D, FSM,
 		# percepcion y alerta en grupo; aqui solo se controla el ciclo de vida.
 		# Hijo de este nodo, nunca de Level: asi no entra en "nav_obstacles".

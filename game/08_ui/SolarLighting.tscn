@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://08_ui/SolarLighting.gd" id="1"]
 [ext_resource type="Material" path="res://08_ui/SolarGlareMaterial.tres" id="2"]
 [ext_resource type="Material" path="res://08_ui/NightGradeMaterial.tres" id="3"]
+[ext_resource type="Script" path="res://08_ui/SunShadowController.gd" id="4"]
 
 [node name="SolarLighting" type="Node2D"]
 script = ExtResource("1")
@@ -14,11 +15,14 @@ id = 1
 id = 2
 energy = 0.18
 color = Color(1, 0.9490196108818054, 0.8235294222831726, 1)
-shadow_enabled = true
+shadow_enabled = false
 blend_mode = 0
 range_z_min = -1024
 range_z_max = 1024
-max_distance = 800.0
+
+[node name="SunShadows" type="Node2D" parent="."]
+z_index = -1
+script = ExtResource("4")
 
 [node name="GlareLayer" type="CanvasLayer" parent="."]
 layer = 0

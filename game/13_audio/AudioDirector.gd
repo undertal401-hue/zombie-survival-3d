@@ -53,15 +53,13 @@ const ALIASES: Dictionary = {
 	"night": "night_loop", "tension": "tension_loop", "forest": "forest_loop",
 }
 
-## Telegrafía por arquetipo (kind = Zombie.Kind). Cada tipo usa un effects
-## distinto y un pitch propio: no se crean assets nuevos, solo síntesis ya
+## Telegrafía (kind = Zombie.Kind). El juego tiene un SOLO arquetipo (el
+## caminante) más el perfil de jefe "Tanque Alfa": dos sonidos distintos, no
+## una familia de arquetipos. No se crean assets nuevos, solo síntesis ya
 ## existente reutilizada con otro tono (ADR game feel, ÍTEM 7).
 const TELEGRAPH_SFX: Dictionary = {
 	0: {"id": "footstep", "pitch": 0.85},        # WALKER: paso sordo
-	1: {"id": "zombie_alert", "pitch": 1.35},    # RUNNER: jadeo agudo
-	2: {"id": "horn", "pitch": 0.62},            # TANK: corneta grave
-	3: {"id": "zombie_hurt", "pitch": 1.55},     # SPITTER: burbujeo
-	4: {"id": "horde_alert", "pitch": 1.20},     # SCREAMER: alarma
+	1: {"id": "horde_alert", "pitch": 1.20},     # BOSS "Tanque Alfa": alarma grave
 }
 
 ## ÍTEM 13: mismo PCM de 'loot' con pitch creciente según rareza; un rare

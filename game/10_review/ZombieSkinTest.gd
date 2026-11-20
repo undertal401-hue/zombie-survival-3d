@@ -363,7 +363,7 @@ func _collect_files(path: String, out: Array[String], filter: String) -> void:
 ## ---------------------------------------------------------------------------
 func _runtime_checks() -> void:
 	await _runtime_with_skin_checks()
-	await _high_rank_cube_checks()
+	await _boss_profile_skin_checks()
 	await _fallback_checks()
 	await _malformed_pack_checks()
 	await _visible_fx_checks()
@@ -460,10 +460,13 @@ func _runtime_with_skin_checks() -> void:
 		"runtime: cada WALKER tiene su propio objeto SpriteFrames")
 
 
-func _high_rank_cube_checks() -> void:
+## R3 (ADR-006): ya NO hay rangos altos con presentacion propia. El unico
+## arquetipo es el WALKER y el jefe "Tanque Alfa" es un PERFIL del mismo zombi:
+## usa la MISMA skin, solo que mas grande. El cubo queda como FALLBACK.
+func _boss_profile_skin_checks() -> void:
 	var zombie: Node = await _instantiate_zombie()
 	if zombie == null:
-		_check(false, "runtime: se puede instanciar un zombi para los rangos altos")
+		_check(false, "runtime: se puede instanciar un zombi para el perfil de jefe")
 		return
 	var visual: Node = zombie.get_node_or_null("ZombieVisual")
 	var sprite: AnimatedSprite2D = zombie.get_node_or_null(
@@ -471,23 +474,27 @@ func _high_rank_cube_checks() -> void:
 	var body: Polygon2D = zombie.get_node_or_null("Body") as Polygon2D
 	var nose: Polygon2D = zombie.get_node_or_null("Nose") as Polygon2D
 	if visual == null or sprite == null or body == null or nose == null:
-		_check(false, "runtime: los rangos altos exponen los nodos visuales")
+		_check(false, "runtime: el perfil de jefe expone los nodos visuales")
 		return
-	for type in range(1, 6):
-		visual.call("set_type", type)
-		await get_tree().process_frame
-		_check(not _call_bool(visual, "uses_skin"),
-			"runtime tipo %d: uses_skin() es false" % type)
-		_check(body.visible and nose.visible,
-			"runtime tipo %d: Body y Nose están visibles" % type)
-		_check(not sprite.visible,
-			"runtime tipo %d: la sprite está oculta" % type)
+	# Tipo 1 = BOSS (el unico perfil que queda).
+	visual.call("set_type", 1)
+	await get_tree().process_frame
+	_check(_call_bool(visual, "uses_skin"),
+		"runtime jefe: uses_skin() es true (misma skin que el caminante)")
+	_check(sprite.visible and not body.visible and not nose.visible,
+		"runtime jefe: la skin es la presentacion visible")
+	_check(_vector_close(sprite.scale, Vector2(0.95, 0.95), 0.0001),
+		"runtime jefe: el perfil se presenta mas grande (0.95)")
+	# El unico arquetipo sigue siendo el caminante: al volver, la skin del
+	# caminante se restaura con su escala.
 	visual.call("set_type", 0)
 	await get_tree().process_frame
 	_check(_call_bool(visual, "uses_skin"),
 		"runtime: al volver a WALKER el skin vuelve")
 	_check(sprite.visible and not body.visible and not nose.visible,
 		"runtime: al volver a WALKER la skin vuelve a ser la presentación visible")
+	_check(_vector_close(sprite.scale, Vector2(0.5, 0.5), 0.0001),
+		"runtime: al volver a WALKER la escala vuelve a la del caminante")
 
 
 func _fallback_checks() -> void:
@@ -666,20 +673,25 @@ func _visible_fx_checks() -> void:
 	_check(_color_close(sprite.modulate, base_modulate, 0.0001),
 		"FX WALKER: telegraph() restaura el tinte base")
 
-	visual.call("set_type", 2)
+	# R3 (ADR-006): ya no hay arquetipos "altos" con el cubo como
+	# presentacion propia. El cubo es el FALLBACK (pack ausente o
+	# incompleto), y los FX tienen que aplicarse a lo que se VE.
+	visual.call("install_skin", "res://assets/enemies/NO_EXISTE/")
 	await get_tree().process_frame
+	_check(not _call_bool(visual, "uses_skin"),
+		"FX fallback: sin pack el zombi vuelve al cubo")
 	var cube_base: Vector2 = body.scale
 	var hidden_sprite_scale: Vector2 = sprite.scale
 	visual.call("squash", 0.8, 0.12)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	_check(not _vector_close(body.scale, cube_base, 0.0001),
-		"FX TANK: squash cambia la escala del cubo visible")
+		"FX fallback: squash cambia la escala del cubo visible")
 	_check(_vector_close(sprite.scale, hidden_sprite_scale, 0.0001),
-		"FX TANK: squash no deforma la sprite oculta")
+		"FX fallback: squash no deforma la sprite oculta")
 	await _wait_for_fx_finish(visual)
 	_check(_vector_close(body.scale, cube_base, 0.0001),
-		"FX TANK: squash restaura la escala base del cubo")
+		"FX fallback: squash restaura la escala base del cubo")
 
 
 func _state_orientation_checks() -> void:

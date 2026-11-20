@@ -79,20 +79,23 @@ const MUZZLE_FLASH_ENERGY: float = 2.4
 @onready var sun_light: DirectionalLight2D = $SunLight
 @onready var glare_rect: ColorRect = $GlareLayer/GlareRect
 @onready var night_grade_rect: ColorRect = $GlareLayer/NightGradeRect
+## Sombras solares ACOTADAS (R3 / ADR-006). Es opcional: si el nodo no esta
+## en la escena, el juego sigue funcionando (solo se pierde la sombra diurna).
+@onready var sun_shadows: Node2D = get_node_or_null("SunShadows") as Node2D
 
 ## Parámetros ajustables (expuestos en inspector)
 @export_group("Ambiente Base")
 @export var ambient_color: Color = Color(0.95, 0.92, 0.85, 1.0)  # Pálido, cálido, sucio
 @export var ambient_energy: float = 0.85  # Intensidad global (0-1)
 
-@export_group("Sol Direccional (DirectionalLight2D) - Sombras Globales")
+@export_group("Sol Direccional (DirectionalLight2D)")
 @export var sun_color: Color = Color(1.0, 0.95, 0.82, 1.0)  # Cálido, opaco
 @export var sun_energy: float = 0.18
-@export var sun_shadow_enabled: bool = true  # Sombras direccionales globales
+## R3 (ADR-006): sombras DIURNAS acotadas (manchas). La sombra direccional
+## 2D de Godot NO tiene largo: llega hasta el borde de pantalla, asi que el
+## sol deja de proyectarla y la sustituye `SunShadowController`.
+@export var bounded_shadows_enabled: bool = true
 @export var shadow_filter: int = 1  # 0=PCF3, 1=PCF5, 2=PCF7, 3=PCF13 (suavizado)
-## Los objetos a más de esta distancia del centro de la cámara no proyectan sombra.
-## 800px cubre la pantalla (1280x720) con margen y evita sombras de todo el mapa.
-@export var shadow_max_distance: float = 800.0
 
 @export_group("Dirección Solar Global (+X = Este, +Y = Sur)")
 @export var solar_angle: float = 0.0  # Rad: 0 = Este, PI/2 = Sur, PI = Oeste, -PI/2 = Norte
@@ -109,6 +112,9 @@ var _phase_grade: Color = Color.WHITE
 var _phase_grade_target: Color = Color.WHITE
 var _grade_director: Node = null
 var _grade_cache_t: float = 0.0
+## Ultimo estado ya publicado al controlador de sombras acotadas.
+var _shadow_phase_sent: String = ""
+var _shadow_angle_sent: float = -999.0
 
 ## Faro del jugador (PointLight2D) y fogonazo de disparo.
 var _player_node: Node2D = null
@@ -172,6 +178,24 @@ func _process(delta: float) -> void:
 
 	_update_flashlight(delta)
 	_update_muzzle(delta)
+	_update_sun_shadows()
+
+## La fase y el angulo del sol se mandan al controlador de sombras acotadas.
+## De noche la mancha es invisible (alpha 0) y el sol no aporta energia: el
+## unico cono de luz con sombras es el faro del jugador.
+##
+## Solo se manda cuando CAMBIA: si se reenviara cada frame, pisaria cualquier
+## ajuste que otro sistema hiciese sobre el controlador.
+func _update_sun_shadows() -> void:
+	if sun_shadows == null or not is_instance_valid(sun_shadows):
+		return
+	if not sun_shadows.has_method("set_sun_state"):
+		return
+	if _phase == _shadow_phase_sent and is_equal_approx(solar_angle, _shadow_angle_sent):
+		return
+	_shadow_phase_sent = _phase
+	_shadow_angle_sent = solar_angle
+	sun_shadows.call("set_sun_state", _phase, solar_angle)
 
 func _grade_close(a: Color, b: Color) -> bool:
 	return absf(a.r - b.r) < 0.0005 and absf(a.g - b.g) < 0.0005 and absf(a.b - b.b) < 0.0005
@@ -254,10 +278,23 @@ func _setup_canvas_modulate() -> void:
 func _setup_sun_light() -> void:
 	sun_light.color = sun_color
 	sun_light.energy = sun_energy
-	sun_light.shadow_enabled = sun_shadow_enabled
+	# R3 (ADR-006): la sombra DIRECCIONAL 2D de Godot no tiene largo. En el
+	# motor el `z_far` del atlas es `to_edge_distance * 2 + cull_distance` y el
+	# fragmento queda en sombra si su profundidad supera la del oclusor: la
+	# sombra se prolonga hasta el BORDE DE LA PANTALLA en la direccion opuesta
+	# a la luz. `max_distance` NO la acorta (solo amplia el rect de oclusores
+	# considerados y suma al z_far) y `Light2D.shadow_max_distance` no existe
+	# en Godot 4. Por eso el sol deja de proyectar sombra y las sombras
+	# DIURNAS las dibuja `SunShadowController` como manchas acotadas.
+	#
+	# El faro NOCTURNO (PointLight2D del jugador) NO se toca: conserva sus
+	# sombras reales del motor, acotadas por la textura del cono.
+	sun_light.shadow_enabled = false
 	sun_light.shadow_filter = shadow_filter
-	sun_light.max_distance = shadow_max_distance
 	# light_mode ya configurado en la escena (0 = ADD)
+	if sun_shadows != null and is_instance_valid(sun_shadows):
+		if sun_shadows.has_method("set_bounded_shadows_enabled"):
+			sun_shadows.call("set_bounded_shadows_enabled", bounded_shadows_enabled)
 
 func _apply_lighting() -> void:
 	# El tinte del clima aporta el MATIZ; la tabla de fase decide la
