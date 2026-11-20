@@ -184,6 +184,11 @@ func _ready() -> void:
 		_sprite_base_scale = animated_sprite.scale
 		# Muestreo puntual (sin interpolación): el objetivo es pixel art.
 		animated_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		# El pivot va en el CENTRO de la celda (equivalente a un pivot
+		# 0.5, 0.5). Se fija de forma explicita en vez de confiar en el
+		# valor por defecto: la invariante del ADR debe ser exigible, no
+		# accidental.
+		animated_sprite.centered = true
 		if animated_sprite.material is CanvasItemMaterial:
 			(animated_sprite.material as CanvasItemMaterial).texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		animated_sprite.play("idle")

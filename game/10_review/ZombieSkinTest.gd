@@ -441,6 +441,8 @@ func _runtime_with_skin_checks() -> void:
 
 	_check(int(sprite.texture_filter) == CanvasItem.TEXTURE_FILTER_NEAREST,
 		"runtime WALKER: texture_filter NEAREST (valor 1)")
+	_check(sprite.centered,
+		"runtime WALKER: la sprite está centrada en su origen (pivot 0.5,0.5)")
 	_check(_vector_close(sprite.offset, Vector2.ZERO, 0.0001),
 		"runtime WALKER: offset == (0,0)")
 	_check(_vector_close(sprite.scale, Vector2(0.5, 0.5), 0.0001),
