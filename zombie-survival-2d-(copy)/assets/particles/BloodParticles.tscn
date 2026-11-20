@@ -1,0 +1,36 @@
+[gd_scene load_steps=5 format=3 uid="uid://blood_particles_hd"]
+
+[ext_resource type="Script" path="res://assets/particles/BloodParticles.gd" id="1"]
+
+[sub_resource type="Gradient" id="1_grad"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(1, 1, 1, 1, 1, 1, 1, 0)
+
+[sub_resource type="GradientTexture2D" id="1_tex"]
+gradient = SubResource("1_grad")
+width = 16
+height = 16
+fill_from = Vector2(0.5, 0.5)
+fill_to = Vector2(0.0, 0.5)
+fill = 1
+
+[sub_resource type="ParticleProcessMaterial" id="1_mat"]
+spread = 60.0
+gravity = Vector3(0, 400, 0)
+initial_velocity_min = 120.0
+initial_velocity_max = 200.0
+angular_velocity_min = -720.0
+angular_velocity_max = 720.0
+scale_min = 0.9
+scale_max = 1.5
+color = Color(0.55, 0.05, 0.05, 1)
+
+[node name="BloodParticles" type="GPUParticles2D"]
+process_material = SubResource("1_mat")
+texture = SubResource("1_tex")
+script = ExtResource("1")
+emitting = false
+amount = 60
+lifetime = 2.0
+one_shot = true
+explosiveness = 0.9

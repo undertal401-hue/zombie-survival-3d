@@ -1,0 +1,44 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://08_ui/SolarLighting.gd" id="1"]
+[ext_resource type="Material" path="res://08_ui/SolarGlareMaterial.tres" id="2"]
+[ext_resource type="Material" path="res://08_ui/NightGradeMaterial.tres" id="3"]
+[ext_resource type="Script" path="res://08_ui/SunShadowController.gd" id="4"]
+
+[node name="SolarLighting" type="Node2D"]
+script = ExtResource("1")
+
+[node name="CanvasModulate" type="CanvasModulate" parent="."]
+id = 1
+
+[node name="SunLight" type="DirectionalLight2D" parent="."]
+id = 2
+energy = 0.18
+color = Color(1, 0.9490196108818054, 0.8235294222831726, 1)
+shadow_enabled = false
+blend_mode = 0
+range_z_min = -1024
+range_z_max = 1024
+
+[node name="SunShadows" type="Node2D" parent="."]
+z_index = -1
+script = ExtResource("4")
+
+[node name="GlareLayer" type="CanvasLayer" parent="."]
+layer = 0
+
+[node name="GlareRect" type="ColorRect" parent="GlareLayer"]
+material = ExtResource("2")
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+light_mask = 0
+color = Color(1, 1, 1, 1)
+
+[node name="NightGradeRect" type="ColorRect" parent="GlareLayer"]
+material = ExtResource("3")
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+light_mask = 0
+color = Color(1, 1, 1, 1)

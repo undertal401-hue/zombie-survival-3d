@@ -1,0 +1,390 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://08_ui/HUD.gd" id="1"]
+[ext_resource type="Script" path="res://08_ui/Minimap.gd" id="2"]
+[ext_resource type="Script" path="res://08_ui/Compass.gd" id="3"]
+
+[sub_resource type="StyleBoxFlat" id="panel_dark"]
+content_margin_left = 8.0
+content_margin_top = 8.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+bg_color = Color(0.07, 0.08, 0.07, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.35, 0.42, 0.32, 0.8)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="bar_bg"]
+bg_color = Color(0.14, 0.14, 0.14, 0.95)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="hp_fill"]
+bg_color = Color(0.72, 0.18, 0.18, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="stamina_fill"]
+bg_color = Color(0.32, 0.72, 0.4, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="hunger_fill"]
+bg_color = Color(0.82, 0.55, 0.18, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="reload_fill"]
+bg_color = Color(1, 0.78, 0.28, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="combo_bar_bg"]
+bg_color = Color(0.102, 0.051, 0.051, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.043, 0.051, 0.043, 1)
+
+[sub_resource type="StyleBoxFlat" id="combo_fill"]
+bg_color = Color(0.824, 0.659, 0.404, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.043, 0.051, 0.043, 1)
+
+[sub_resource type="StyleBoxFlat" id="end_panel"]
+bg_color = Color(0.07, 0.08, 0.07, 0.97)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.55, 0.55, 0.4, 0.9)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[node name="HUD" type="CanvasLayer"]
+process_mode = 3
+script = ExtResource("1")
+layer = 1
+
+[node name="Status" type="Panel" parent="."]
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 332.0
+offset_bottom = 218.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("panel_dark")
+
+[node name="Margin" type="MarginContainer" parent="Status"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+mouse_filter = 2
+
+[node name="VBox" type="VBoxContainer" parent="Status/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="HPLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.72, 0.72, 1)
+theme_override_font_sizes/font_size = 14
+text = "VIDA 100 / 100"
+
+[node name="HPBar" type="ProgressBar" parent="Status/Margin/VBox"]
+custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
+max_value = 100.0
+value = 100.0
+show_percentage = false
+theme_override_styles/background = SubResource("bar_bg")
+theme_override_styles/fill = SubResource("hp_fill")
+
+[node name="StaminaLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.72, 1, 0.76, 1)
+theme_override_font_sizes/font_size = 14
+text = "AGUANTE 100 / 100"
+
+[node name="StaminaBar" type="ProgressBar" parent="Status/Margin/VBox"]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+max_value = 100.0
+value = 100.0
+show_percentage = false
+theme_override_styles/background = SubResource("bar_bg")
+theme_override_styles/fill = SubResource("stamina_fill")
+
+[node name="HungerLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.82, 0.55, 1)
+theme_override_font_sizes/font_size = 14
+text = "HAMBRE 100 / 100"
+
+[node name="HungerBar" type="ProgressBar" parent="Status/Margin/VBox"]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+max_value = 100.0
+value = 100.0
+show_percentage = false
+theme_override_styles/background = SubResource("bar_bg")
+theme_override_styles/fill = SubResource("hunger_fill")
+
+[node name="ResourcesLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.55, 1)
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 2
+text = "Bidones: 0/3   Botiquines: 1   Comida: 0"
+
+[node name="ReloadLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.78, 0.28, 1)
+theme_override_font_sizes/font_size = 13
+text = "RECARGANDO 0%"
+visible = false
+
+[node name="ReloadBar" type="ProgressBar" parent="Status/Margin/VBox"]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+max_value = 1.0
+step = 0.01
+show_percentage = false
+theme_override_styles/background = SubResource("bar_bg")
+theme_override_styles/fill = SubResource("reload_fill")
+visible = false
+
+[node name="WaveClockLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.824, 0.659, 0.404, 1)
+theme_override_colors/font_outline_color = Color(0.043, 0.051, 0.043, 1)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 13
+text = "OLEADA 0  ·  RELOJ 00:00"
+
+[node name="ComboMultLabel" type="Label" parent="Status/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.824, 0.659, 0.404, 1)
+theme_override_colors/font_outline_color = Color(0.043, 0.051, 0.043, 1)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 14
+text = "COMBO x1.0"
+visible = false
+
+[node name="ComboBar" type="ProgressBar" parent="Status/Margin/VBox"]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+max_value = 3.0
+value = 1.0
+show_percentage = false
+theme_override_styles/background = SubResource("combo_bar_bg")
+theme_override_styles/fill = SubResource("combo_fill")
+visible = false
+
+[node name="Objective" type="Panel" parent="."]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -392.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = 140.0
+grow_horizontal = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("panel_dark")
+
+[node name="Margin" type="MarginContainer" parent="Objective"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+mouse_filter = 2
+
+[node name="VBox" type="VBoxContainer" parent="Objective/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ObjectiveTitle" type="Label" parent="Objective/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.4, 1)
+theme_override_font_sizes/font_size = 14
+text = "OBJETIVO"
+
+[node name="ObjectiveLabel" type="Label" parent="Objective/Margin/VBox"]
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.95, 0.9, 1)
+theme_override_font_sizes/font_size = 13
+text = "Explora, saquea y sobrevive."
+autowrap_mode = 2
+
+[node name="Prompt" type="Label" parent="."]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -280.0
+offset_top = -76.0
+offset_right = 280.0
+offset_bottom = -42.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 0.95, 0.75, 1)
+theme_override_colors/font_outline_color = Color(0.03, 0.03, 0.02, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 17
+horizontal_alignment = 1
+
+[node name="Toast" type="Label" parent="."]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 226.0
+offset_right = 300.0
+offset_bottom = 260.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.55, 1)
+theme_override_colors/font_outline_color = Color(0.03, 0.03, 0.02, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 18
+horizontal_alignment = 1
+
+[node name="Compass" type="Control" parent="."]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -160.0
+offset_top = 8.0
+offset_right = 160.0
+offset_bottom = 44.0
+grow_horizontal = 2
+mouse_filter = 2
+script = ExtResource("3")
+
+[node name="Minimap" type="Control" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -196.0
+offset_top = -196.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("2")
+
+[node name="Controls" type="Label" parent="."]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = -30.0
+offset_right = 620.0
+offset_bottom = -8.0
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.75, 0.78, 0.7, 0.85)
+theme_override_font_sizes/font_size = 12
+text = "WASD mover · Shift correr · Click izq. disparar · Click der./Space atacar · F comer · E saquear · Q botiquín · Tab inventario"
+
+[node name="DamageFlash" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.75, 0, 0, 0)
+
+[node name="EndOverlay" type="ColorRect" parent="."]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 0.72)
+
+[node name="EndPanel" type="Panel" parent="EndOverlay"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -130.0
+offset_right = 280.0
+offset_bottom = 130.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("end_panel")
+
+[node name="EndTitle" type="Label" parent="EndOverlay/EndPanel"]
+offset_left = 20.0
+offset_top = 30.0
+offset_right = 540.0
+offset_bottom = 72.0
+theme_override_colors/font_color = Color(0.6, 1, 0.6, 1)
+theme_override_colors/font_outline_color = Color(0.02, 0.03, 0.02, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 28
+text = "FIN DE LA PARTIDA"
+horizontal_alignment = 1
+
+[node name="EndText" type="Label" parent="EndOverlay/EndPanel"]
+offset_left = 30.0
+offset_top = 88.0
+offset_right = 530.0
+offset_bottom = 136.0
+theme_override_colors/font_color = Color(0.9, 0.9, 0.85, 1)
+theme_override_font_sizes/font_size = 15
+text = "Sobreviviste."
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="EndHint" type="Label" parent="EndOverlay/EndPanel"]
+offset_left = 20.0
+offset_top = 178.0
+offset_right = 540.0
+offset_bottom = 206.0
+theme_override_colors/font_color = Color(1, 0.9, 0.55, 1)
+theme_override_font_sizes/font_size = 16
+text = "R para reintentar"
+horizontal_alignment = 1
