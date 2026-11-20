@@ -290,6 +290,17 @@ nunca adelanta el desbloqueo no estaba respaldada por el código. El lock de
 ataque sigue siendo el mecanismo de gameplay; esta enmienda no promete una
 garantía que el runtime no tiene.
 
+**E6 — el alcance de `gen_art.py --check` cambió con ADR-006.** Hasta `8d4a4dd`
+(R3) la puerta verificaba las nueve hojas canónicas de entonces; los commits
+etiquetados R2 posteriores (`de970db` y sus hotfixes, incluido `7f16a2d`) ya
+usaban cinco. En el estado vigente de R3 el banco se redujo a **cinco hojas** (`player_sheet.png`,
+`zombie_walker.png`, `boss_sheet.png`, `effects.png`, `tiles.png`), además de
+los dos mapas de luz y la máscara `sun_shadow.png`. El pack del skin sigue
+teniendo sus propias puertas (`gen_zombie_skin.py --check` y
+`skin_pack.py check|selftest`) y **no** forma parte del alcance de
+`gen_art.py --check`. Esta enmienda deja explícita la diferencia sin reescribir
+la decisión histórica de R2.
+
 ### Correcciones de runtime y de puertas
 
 - **C1 — lock derivado del pack.** Con skin, el lock es
@@ -341,6 +352,58 @@ lock del golpe se deriva del pack, la puerta de `fps` cruza generador y runtime,
 el importador no puede sobrescribir su propia entrada y el reintento de skin
 ocurre en el ciclo de vida real con backoff compartido.
 
+## Enmienda R2-hotfix4 — importador transaccional y backoff observable (2026-11-20)
+
+Esta enmienda amplía el cierre R2 sin reescribir el registro `accepted` del ADR.
+La segunda revisión adversarial exigía que el contrato de entrada del skin y el
+reintento runtime fueran comprobables **por comportamiento**, no solo por
+búsquedas de texto o por un caso feliz.
+
+### Correcciones del importador
+
+- **Relación de rutas por identidad real.** El destino no puede ser el origen,
+  un alias del mismo directorio, un descendiente del origen ni un ancestro que
+  lo contenga. La comparación usa `samefile()` y `realpath()`; `commonpath()`
+  resuelve la contención y trata `ValueError` (por ejemplo, volúmenes
+  distintos) como «no contenido», nunca como una coincidencia por prefijo de
+  texto.
+- **Preflight completo antes de escribir.** Se calculan primero todos los
+  directorios y ficheros planificados. Se rechazan los enlaces simbólicos, los
+  directorios que ya son ficheros y los ficheros que ya son directorios. El
+  rechazo ocurre antes de construir el staging y no modifica origen ni destino.
+- **Publicación transaccional.** El pack completo se construye en un staging
+  sibling. La publicación mueve el destino anterior a un backup sibling y
+  publica el staging mediante `os.replace`; si falla, restaura el destino
+  anterior. Un fallo intermedio limpia el staging y devuelve **rc=2** sin
+  salida parcial.
+- **Destino no vacío por defecto.** Sin `--force`, un destino no vacío se
+  rechaza sin borrar contenido ajeno. Con `--force`, el destino se reemplaza
+  por el conjunto exacto importado —**33 frames y 8 strips**—, por lo que no
+  conserva frames obsoletos ni ficheros extra.
+- **Errores de filesystem sin traceback.** Un `OSError` se traduce en un
+  diagnóstico y **rc=2**; la puerta nunca afirma que existe una salida parcial
+  cuando el pack completo ya se publicó.
+
+### Correcciones del reintento runtime
+
+El cooldown compartido por ruta queda fijado a la secuencia exacta
+**250 → 500 → 1000 → 2000 → 4000 → 5000 → 5000 ms**. El cálculo es una función
+pura y cada fallo posterior duplica el intervalo hasta el tope de 5000 ms. Una
+carga exitosa borra el estado de retry de la ruta y restaura la skin visible;
+por tanto, el siguiente fallo vuelve al primer intervalo y no hereda un
+cooldown de una recuperación anterior. El `HIT_FALLBACK = 0,2 s` del cubo sigue
+siendo un valor **independiente** del lock derivado `count / fps * 1,5` de la
+skin.
+
+### Puertas exigibles
+
+`skin_pack.py selftest` cubre ahora la identidad de rutas, el preflight, el
+rollback de una publicación sobre un destino existente, el conjunto exacto de
+`--force`, el destino no vacío y el `OSError` intermedio. `ZombieSkinTest`
+exige la secuencia completa del backoff, la recuperación posterior de la misma
+ruta y la cancelación del estado de retry tras un éxito. Los controles
+negativos revierten cada corrección y deben producir una puerta roja.
+
 ### 6. Puertas de CI propias, sin ampliar el alcance del pipeline antiguo
 
 El pack nuevo tiene **tres** verificaciones independientes (comandos ejecutados
@@ -366,12 +429,14 @@ Las tres se ejecutan en el mismo paso del CI y se reportan juntas: un fallo no
 impide ver el resultado de las otras
 (`.github/workflows/ci.yml:90-123`).
 
-`python3 tools/gen_art.py --check` sigue igual: verifica las nueve hojas
-canónicas y sus mapas de luz, no el pack nuevo
-(`game/tools/gen_art.py:578-618`,
-`game/tools/gen_art.py:701-730`,
-`.github/workflows/ci.yml:98`). El pack canónico del skin tiene su propio
-generador y queda fuera del alcance de la comprobación de `gen_art.py`.
+Hasta `8d4a4dd` (R3), `python3 tools/gen_art.py --check` verificaba las nueve
+hojas canónicas de entonces y sus mapas de luz, **no** el pack nuevo; los
+hotfix de R2 ya usaban cinco hojas. **El alcance vigente cambió con ADR-006:**
+la puerta verifica ahora las **cinco hojas** del banco R3, los dos mapas de luz
+y la máscara `sun_shadow.png`; el pack canónico del skin sigue teniendo su
+propio generador y queda fuera de su alcance. Esta enmienda añade además la
+comparación byte-a-byte, la allowlist de seis efectos, el rechazo de PNG extra
+en los tres directorios y `rc=2` para argumentos CLI desconocidos.
 
 ### 7. Relación con ADR-004
 

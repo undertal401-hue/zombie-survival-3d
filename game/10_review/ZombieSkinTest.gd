@@ -21,6 +21,7 @@ const ART_BIBLE: String = "res://assets/art/ART_BIBLE.md"
 const SKIN_DIR: String = "res://assets/enemies/zombie/"
 const GEN_ZOMBIE_SKIN: String = "res://tools/gen_zombie_skin.py"
 const SKIN_PACK_TOOL: String = "res://tools/skin_pack.py"
+const ZOMBIE_VISUAL_SCRIPT: String = "res://03_zombies/ZombieVisual.gd"
 const CELL: int = 64
 
 ## Pack de regresion: los ocho strips del contrato, pero con `idle_strip.png`
@@ -86,8 +87,27 @@ const CANONICAL_LOOP: Dictionary = {
 const HIT_LOCK_MARGIN: float = 1.5
 const HIT_FALLBACK: float = 0.2
 
+## Contrato observable del backoff de skin: el primer fallo espera 250 ms y
+## cada fallo posterior duplica el cooldown hasta el tope de 5000 ms. La
+## secuencia completa se fija aqui para que una puerta no dependa del reloj
+## ni de tiempos de espera reales.
+const EXPECTED_SKIN_RETRY_DELAYS_MS: Array[int] = [
+	250, 500, 1000, 2000, 4000, 5000, 5000,
+]
+
 var _failures: Array[String] = []
 var _instances: Array[Node] = []
+
+## Instantaneas del estado ESTATICO compartido por las instancias de skin. El
+## suite restaura el estado al terminar cada ambito y, como red de seguridad,
+## tambien en `_exit_tree()`: una interrupcion o un assert intermedio no puede
+## dejar cache/retry contaminando la siguiente ejecucion.
+var _skin_suite_cache_snapshot: Dictionary = {}
+var _skin_suite_retry_snapshot: Dictionary = {}
+var _skin_scope_cache_snapshot: Dictionary = {}
+var _skin_scope_retry_snapshot: Dictionary = {}
+var _skin_suite_state_captured: bool = false
+var _skin_scope_active: bool = false
 
 
 func _check(condition: bool, label: String) -> void:
@@ -98,11 +118,13 @@ func _check(condition: bool, label: String) -> void:
 
 func _ready() -> void:
 	await get_tree().process_frame
+	_capture_skin_suite_state()
 	_pack_integrity_checks()
 	_generator_checks()
 	await _runtime_checks()
 	await _adversarial_contract_checks()
 	await _cleanup()
+	_restore_skin_suite_state()
 	print("ZOMBIE_SKIN_TEST failures=%d" % _failures.size())
 	for failure in _failures:
 		print("  - " + failure)
@@ -133,10 +155,31 @@ func _ready() -> void:
 ##      `_physics_process` se desactiva y `_update_flash()` ya no restaura el
 ##      tinte blanco.
 func _adversarial_contract_checks() -> void:
+	_begin_skin_state_scope()
 	await _generator_runtime_cross_check()
 	await _hit_lock_derivation_check()
+	_end_skin_state_scope()
+
+	_begin_skin_state_scope()
 	await _failed_load_retry_check()
+	_end_skin_state_scope()
+
+	_begin_skin_state_scope()
+	await _skin_retry_backoff_check()
+	await _skin_retry_state_backoff_check()
+	_end_skin_state_scope()
+
+	_begin_skin_state_scope()
+	await _skin_route_alias_check()
+	_end_skin_state_scope()
+
+	_begin_skin_state_scope()
+	await _successful_load_clears_retry_check()
+	_end_skin_state_scope()
+
+	_begin_skin_state_scope()
 	await _death_tint_check()
+	_end_skin_state_scope()
 
 
 ## 1. Generador <-> runtime: la tabla del generador no puede quedar muerta.
@@ -332,6 +375,251 @@ func _failed_load_retry_check() -> void:
 	var second_next_frame: int = int(second_visual.call("skin_load_attempts"))
 	_check(first_next_frame == first_after and second_next_frame == second_after,
 		"reintento: el backoff evita repetir el intento en el frame siguiente")
+
+
+## El backoff se exige por su SECUENCIA COMPLETA, no solo por el hecho de que
+## exista un cooldown. El calculo se extrae a una funcion pura para que la
+## puerta no dependa del reloj ni tenga que esperar 17,75 s en tiempo real.
+func _skin_retry_backoff_check() -> void:
+	var delay_callable := Callable(ZombieVisual, "_skin_retry_delay_ms")
+	_check(delay_callable.is_valid(),
+		"reintento: el runtime implementa _skin_retry_delay_ms() como calculo testeable")
+	if not delay_callable.is_valid():
+		return
+	var actual_delays: Array[int] = []
+	for failure_count in range(1, EXPECTED_SKIN_RETRY_DELAYS_MS.size() + 1):
+		actual_delays.append(int(delay_callable.call(failure_count)))
+	_check(actual_delays == EXPECTED_SKIN_RETRY_DELAYS_MS,
+		"reintento: backoff exacto 250->500->1000->2000->4000->5000->5000 ms (obtenido %s)"
+			% str(actual_delays))
+
+
+## Contrato del ESTADO REAL de retry. No basta con que el helper puro devuelva
+## la secuencia: el registro inicial y cada avance runtime tienen que dejar el
+## mismo resultado en `retry_at_ms`, `failures` y `delay_ms`.
+##
+## Para que una desconexion silenciosa no pueda pasar por equivalencia
+## numerica (la antigua duplicacion del `delay_ms` anterior producia la misma
+## serie), la puerta comprueba ademas que ambas funciones mantienen la llamada
+## explicita al helper. El reloj se manipula de forma determinista poniendo el
+## cooldown vencido; no se esperan 17,75 s.
+func _skin_retry_state_backoff_check() -> void:
+	var zombie: Node = await _instantiate_zombie()
+	if zombie == null:
+		_check(false, "reintento: se puede instanciar un zombi para observar el estado")
+		return
+	var visual: Node = zombie.get_node_or_null("ZombieVisual")
+	if visual == null:
+		_check(false, "reintento: el zombi tiene ZombieVisual")
+		return
+
+	_check(_script_function_contains(ZOMBIE_VISUAL_SCRIPT,
+			"_register_skin_retry", "_skin_retry_delay_ms("),
+		"reintento: _register_skin_retry() usa el helper de backoff")
+	_check(_script_function_contains(ZOMBIE_VISUAL_SCRIPT,
+			"_advance_skin_retry", "_skin_retry_delay_ms("),
+		"reintento: _advance_skin_retry() usa el helper de backoff")
+
+	var bad_dir: String = "res://assets/enemies/NO_EXISTE_R2_HOTFIX4/"
+	var retry_state: Dictionary = ZombieVisual._skin_retry_after
+	retry_state.clear()
+
+	# REGISTRO INICIAL real. `install_skin()` falla y delega en
+	# `_register_skin_retry()`; se observan los tres campos mutados.
+	var before_register_ms: int = Time.get_ticks_msec()
+	var failed_result: bool = not bool(visual.call("install_skin", bad_dir))
+	var after_register_ms: int = Time.get_ticks_msec()
+	_check(failed_result,
+		"reintento: el intento inicial de una ruta inexistente falla")
+	if retry_state.size() != 1:
+		_check(false,
+			"reintento: el registro inicial deja una sola entrada (entradas=%d)"
+				% retry_state.size())
+		return
+	var entry_values: Array = retry_state.values()
+	var entry: Dictionary = entry_values[0] as Dictionary
+	var initial_delay_ms: int = EXPECTED_SKIN_RETRY_DELAYS_MS[0]
+	_check(int(entry.get("failures", -1)) == 1,
+		"reintento: el registro inicial deja failures=1")
+	_check(int(entry.get("delay_ms", -1)) == initial_delay_ms,
+		"reintento: el registro inicial deja delay_ms=%d (obtenido %d)"
+			% [initial_delay_ms, int(entry.get("delay_ms", -1))])
+	var initial_retry_at_ms: int = int(entry.get("retry_at_ms", -1))
+	_check(initial_retry_at_ms >= before_register_ms + initial_delay_ms
+			and initial_retry_at_ms <= after_register_ms + initial_delay_ms,
+		"reintento: el registro inicial programa retry_at_ms con +%d ms"
+			% initial_delay_ms)
+
+	# AVANCES RUNTIME reales. En cada iteracion se vence el cooldown sin
+	# esperar: `_process()` reclama el intento, lo falla y deja el siguiente
+	# estado REAL en el diccionario compartido.
+	for index in range(1, EXPECTED_SKIN_RETRY_DELAYS_MS.size()):
+		entry["retry_at_ms"] = 0
+		var attempts_before: int = int(visual.call("skin_load_attempts"))
+		var before_advance_ms: int = Time.get_ticks_msec()
+		visual.call("_process", 0.0)
+		var after_advance_ms: int = Time.get_ticks_msec()
+		var attempts_after: int = int(visual.call("skin_load_attempts"))
+		if retry_state.size() != 1:
+			_check(false,
+				"reintento: el avance runtime conserva una sola entrada (entradas=%d)"
+					% retry_state.size())
+			return
+		entry_values = retry_state.values()
+		entry = entry_values[0] as Dictionary
+		var expected_delay_ms: int = EXPECTED_SKIN_RETRY_DELAYS_MS[index]
+		var expected_failures: int = index + 1
+		_check(attempts_after == attempts_before + 1,
+			"reintento: el avance runtime %d realiza un intento" % index)
+		_check(int(entry.get("failures", -1)) == expected_failures,
+			"reintento: el avance runtime %d deja failures=%d (obtenido %d)"
+				% [index, expected_failures, int(entry.get("failures", -1))])
+		_check(int(entry.get("delay_ms", -1)) == expected_delay_ms,
+			"reintento: el avance runtime %d deja delay_ms=%d (obtenido %d)"
+				% [index, expected_delay_ms, int(entry.get("delay_ms", -1))])
+		var retry_at_ms: int = int(entry.get("retry_at_ms", -1))
+		_check(retry_at_ms >= before_advance_ms + expected_delay_ms
+				and retry_at_ms <= after_advance_ms + expected_delay_ms,
+			"reintento: el avance runtime %d programa retry_at_ms con +%d ms"
+				% [index, expected_delay_ms])
+
+
+## Los alias de una ruta deben compartir la MISMA clave de cache y de retry.
+## La ruta inyectada sigue siendo observable tal cual en `skin_attempted_dir()`:
+## la normalizacion es solo interna y no reescribe la API publica.
+func _skin_route_alias_check() -> void:
+	var route_key_callable := Callable(ZombieVisual, "_skin_route_key")
+	_check(route_key_callable.is_valid(),
+		"alias: el runtime implementa _skin_route_key()")
+	var resource_pack: String = "res://assets/enemies/zombie"
+	var resource_pack_slash: String = "res://assets/enemies/zombie/"
+	var absolute_pack: String = ProjectSettings.globalize_path(resource_pack)
+	if route_key_callable.is_valid():
+		var resource_key: String = String(route_key_callable.call(resource_pack))
+		var slash_key: String = String(route_key_callable.call(resource_pack_slash))
+		var absolute_key: String = String(route_key_callable.call(absolute_pack))
+		_check(resource_key == slash_key and resource_key == absolute_key,
+			"alias: res://pack, res://pack/ y su absoluto comparten clave (obtenido %s | %s | %s)"
+				% [resource_key, slash_key, absolute_key])
+
+	# CACHE: cargar la ruta resource deja una sola entrada; sus dos alias deben
+	# reutilizar ese atlas, no crear caches paralelas.
+	var skin_cache: Dictionary = ZombieVisual._skin_cache
+	var cache_size_before: int = skin_cache.size()
+	var atlas_callable := Callable(ZombieVisual, "_load_skin_atlas")
+	_check(atlas_callable.is_valid(),
+		"alias: el runtime expone el seam privado _load_skin_atlas()")
+	if atlas_callable.is_valid():
+		var resource_atlas: Dictionary = atlas_callable.call(resource_pack) as Dictionary
+		var slash_atlas: Dictionary = atlas_callable.call(resource_pack_slash) as Dictionary
+		var absolute_atlas: Dictionary = atlas_callable.call(absolute_pack) as Dictionary
+		_check(not resource_atlas.is_empty(),
+			"alias: el pack resource se puede cargar para la prueba de cache")
+		_check(not slash_atlas.is_empty() and not absolute_atlas.is_empty()
+				and slash_atlas == resource_atlas and absolute_atlas == resource_atlas,
+			"alias: los tres alias recuperan el MISMO atlas")
+		_check(skin_cache.size() == cache_size_before + 1,
+			"alias: los tres alias comparten una sola entrada de cache (entradas anadidas=%d)"
+				% (skin_cache.size() - cache_size_before))
+
+	# RETRY: tres instancias reciben tres alias de la misma ruta inexistente.
+	# Solo puede existir una entrada y, al vencer el cooldown, una sola instancia
+	# puede reclamar el intento automatico.
+	var retry_state: Dictionary = ZombieVisual._skin_retry_after
+	retry_state.clear()
+	var bad_resource: String = "res://assets/enemies/NO_EXISTE_ALIAS"
+	var bad_resource_slash: String = "res://assets/enemies/NO_EXISTE_ALIAS/"
+	var bad_absolute: String = ProjectSettings.globalize_path(bad_resource)
+	var visuals: Array[Node] = []
+	var injected_paths: Array[String] = [
+		bad_resource, bad_resource_slash, bad_absolute,
+	]
+	for injected_path in injected_paths:
+		var zombie: Node = await _instantiate_zombie()
+		var visual: Node = null
+		if zombie != null:
+			visual = zombie.get_node_or_null("ZombieVisual")
+		if visual == null:
+			_check(false, "alias: se puede instanciar un zombi para el retry")
+			return
+		visuals.append(visual)
+		var failed_result: bool = not bool(visual.call("install_skin", injected_path))
+		_check(failed_result,
+			"alias: la ruta inexistente '%s' falla" % injected_path)
+		_check(String(visual.call("skin_attempted_dir")) == injected_path,
+			"alias: la ruta inyectada '%s' se conserva observable" % injected_path)
+	_check(retry_state.size() == 1,
+		"alias: los tres alias comparten una sola entrada de retry (entradas=%d)"
+			% retry_state.size())
+	if retry_state.size() != 1:
+		return
+
+	for entry_value: Variant in retry_state.values():
+		var entry: Dictionary = entry_value as Dictionary
+		entry["retry_at_ms"] = 0
+	var runtime_attempts: int = 0
+	for visual in visuals:
+		var attempts_before: int = int(visual.call("skin_load_attempts"))
+		visual.call("_process", 0.0)
+		var attempts_after: int = int(visual.call("skin_load_attempts"))
+		runtime_attempts += attempts_after - attempts_before
+	_check(runtime_attempts == 1,
+		"alias: el cooldown compartido permite UN solo avance runtime entre alias (intentos=%d)"
+			% runtime_attempts)
+	var entry_values: Array = retry_state.values()
+	var shared_entry: Dictionary = entry_values[0] as Dictionary
+	_check(int(shared_entry.get("failures", -1)) == 2
+			and int(shared_entry.get("delay_ms", -1)) == EXPECTED_SKIN_RETRY_DELAYS_MS[1],
+		"alias: el estado compartido conserva failures/delay tras el avance")
+
+
+## Un intento posterior exitoso debe cerrar el estado de retry de ESA ruta y
+## restaurar la skin. Para observar el mismo contrato sin escribir fixtures,
+## se envenena solo la entrada de cache de la ruta canonica: el primer intento
+## falla por el atlas vacio y el siguiente vuelve a cargar el pack real.
+func _successful_load_clears_retry_check() -> void:
+	var zombie: Node = await _instantiate_zombie()
+	if zombie == null:
+		_check(false, "reintento: se puede instanciar un zombi para la recuperacion")
+		return
+	var visual: Node = zombie.get_node_or_null("ZombieVisual")
+	var sprite: AnimatedSprite2D = zombie.get_node_or_null(
+		"ZombieVisual/AnimatedSprite2D") as AnimatedSprite2D
+	if visual == null or sprite == null:
+		_check(false, "reintento: el zombi expone ZombieVisual y la sprite")
+		return
+
+	var skin_cache: Dictionary = ZombieVisual._skin_cache
+	var retry_state: Dictionary = ZombieVisual._skin_retry_after
+	var route_key_callable := Callable(ZombieVisual, "_skin_route_key")
+	var route_key: String = SKIN_DIR
+	if route_key_callable.is_valid():
+		route_key = String(route_key_callable.call(SKIN_DIR))
+	skin_cache[route_key] = {}
+	var failed_result: bool = bool(visual.call("install_skin", SKIN_DIR))
+	_check(not failed_result,
+		"reintento: el intento fallido deja un estado de retry para la ruta")
+	_check(retry_state.has(route_key),
+		"reintento: el estado de retry registra la ruta que fallo")
+
+	# La ruta deja de estar envenenada: el siguiente intento automatico puede
+	# cargar el pack canonico y debe reemplazar el estado de retry por una
+	# skin visible. Se vence el cooldown sin espera real.
+	var attempts_before_recovery: int = int(visual.call("skin_load_attempts"))
+	skin_cache.erase(route_key)
+	var retry_entry_value: Variant = retry_state.get(route_key, {})
+	if retry_entry_value is Dictionary:
+		var retry_entry: Dictionary = retry_entry_value as Dictionary
+		retry_entry["retry_at_ms"] = 0
+	visual.call("_process", 0.0)
+	var attempts_after_recovery: int = int(visual.call("skin_load_attempts"))
+	_check(attempts_after_recovery == attempts_before_recovery + 1,
+		"reintento: el ciclo automatico realiza un intento posterior (delta=%d)"
+			% (attempts_after_recovery - attempts_before_recovery))
+	_check(not retry_state.has(route_key),
+		"reintento: el intento exitoso cancela el estado de retry de la ruta")
+	_check(bool(visual.call("uses_skin")) and sprite.visible,
+		"reintento: el intento posterior restaura la skin visible")
 
 
 ## 4. El cadaver no conserva el tinte rojo del golpe.
@@ -608,6 +896,7 @@ func _collect_files(path: String, out: Array[String], filter: String) -> void:
 ## B-G. Runtime: skin, rangos altos, fallback, FX, estados, orientación e hit.
 ## ---------------------------------------------------------------------------
 func _runtime_checks() -> void:
+	_begin_skin_state_scope()
 	await _runtime_with_skin_checks()
 	await _boss_profile_skin_checks()
 	await _fallback_checks()
@@ -616,6 +905,7 @@ func _runtime_checks() -> void:
 	await _death_cancels_fx_checks()
 	await _state_orientation_checks()
 	await _hit_lock_checks()
+	_end_skin_state_scope()
 
 
 func _runtime_with_skin_checks() -> void:
@@ -1001,8 +1291,67 @@ func _hit_lock_checks() -> void:
 
 
 ## ---------------------------------------------------------------------------
-## Utilidades de instanciación y comparación.
+## Utilidades de instanciación, estado global y comparación.
 ## ---------------------------------------------------------------------------
+## Extrae el cuerpo de una funcion del script para comprobar el cableado
+## literal del helper. Esta comprobacion es intencionalmente arquitectónica:
+## protege contra la desconexion silenciosa que conserva el mismo resultado
+## numerico, no sustituye la observacion del estado real de arriba.
+func _script_function_contains(script_path: String, function_name: String,
+		needle: String) -> bool:
+	var source: String = FileAccess.get_file_as_string(script_path)
+	if source.is_empty():
+		return false
+	var marker: String = "func %s(" % function_name
+	var body_start: int = source.find(marker)
+	if body_start < 0:
+		return false
+	var body_end: int = source.find("\n\nfunc ", body_start + marker.length())
+	if body_end < 0:
+		body_end = source.length()
+	return source.substr(body_start, body_end - body_start).contains(needle)
+
+
+## Captura el estado global al inicio del suite. Se restaura tanto en el
+## camino normal como en `_exit_tree()`.
+func _capture_skin_suite_state() -> void:
+	_skin_suite_cache_snapshot = ZombieVisual._skin_cache.duplicate(true)
+	_skin_suite_retry_snapshot = ZombieVisual._skin_retry_after.duplicate(true)
+	_skin_suite_state_captured = true
+
+
+## Restaura el estado global del suite. Se reasignan los diccionarios, no se
+## mutan sus referencias: cualquier vista local deja de observar el estado
+## estatico compartido, como pretende el contrato de aislamiento.
+func _restore_skin_suite_state() -> void:
+	if not _skin_suite_state_captured:
+		return
+	ZombieVisual._skin_cache = _skin_suite_cache_snapshot.duplicate(true)
+	ZombieVisual._skin_retry_after = _skin_suite_retry_snapshot.duplicate(true)
+
+
+## Inicia un ambito aislado para una prueba que toque cache/retry.
+func _begin_skin_state_scope() -> void:
+	_skin_scope_cache_snapshot = ZombieVisual._skin_cache.duplicate(true)
+	_skin_scope_retry_snapshot = ZombieVisual._skin_retry_after.duplicate(true)
+	_skin_scope_active = true
+
+
+## Cierra el ambito aislado. Si una asercion interrumpe el flujo antes de esta
+## llamada, `_exit_tree()` ejecuta igualmente la misma restauracion.
+func _end_skin_state_scope() -> void:
+	if not _skin_scope_active:
+		return
+	ZombieVisual._skin_cache = _skin_scope_cache_snapshot.duplicate(true)
+	ZombieVisual._skin_retry_after = _skin_scope_retry_snapshot.duplicate(true)
+	_skin_scope_active = false
+
+
+func _exit_tree() -> void:
+	_end_skin_state_scope()
+	_restore_skin_suite_state()
+
+
 func _instantiate_zombie() -> Node:
 	if not ResourceLoader.exists(ZOMBIE_SCENE):
 		return null

@@ -11,8 +11,8 @@ class_name ZombieVisual
 ## R2 (2026-11-20): el usuario pide poner piel pixel-art a los zombis de rango
 ## bajo. Decisiones (ADR-005):
 ##   - El skin se aplica SOLO a los tipos de la allowlist `SKIN_TYPES` (hoy,
-##     el WALKER = zombi normal). RUNNER/TANK/SPITTER/SCREAMER/BOSS conservan
-##     el cubo: son los rangos altos y mantienen su lectura de arquetipo.
+##     el WALKER = zombi normal). BOSS es un PERFIL del mismo WALKER y usa la
+##     MISMA skin; el cubo queda como fallback si el pack no esta disponible.
 ##   - El pack (`assets/enemies/zombie/`) se carga en runtime como celdas de
 ##     64x64 (`AtlasTexture` por frame) en el `SpriteFrames` de CADA
 ##     instancia. Si el pack falta o esta incompleto, el zombi vuelve al
@@ -174,6 +174,35 @@ const SKIN_RETRY_BASE_MS: int = 250
 const SKIN_RETRY_MAX_MS: int = 5000
 static var _skin_retry_after: Dictionary = {}
 
+
+## Clave interna de una ruta de skin. Normaliza separadores, `.`/`..` y la
+## barra final; ademas convierte `res://` a su ruta absoluta para que un
+## alias filesystem del mismo pack comparta cache y cooldown. La ruta original
+## NO se modifica: `skin_attempted_dir()` sigue exponiendo la inyeccion exacta.
+static func _skin_route_key(base_dir: String) -> String:
+	if base_dir.is_empty():
+		return ""
+	var normalized: String = ProjectSettings.globalize_path(base_dir.strip_edges())
+	normalized = normalized.simplify_path()
+	var separator: String = String.chr(47)
+	while normalized.length() > 1 and normalized.ends_with(separator):
+		normalized = normalized.trim_suffix(separator)
+	return normalized
+
+
+## Cooldown que corresponde al numero de fallos indicado. Es una funcion pura:
+## el primer fallo espera 250 ms y cada fallo posterior duplica el intervalo
+## hasta el tope de 5000 ms (250, 500, 1000, 2000, 4000, 5000, 5000...).
+static func _skin_retry_delay_ms(failure_count: int) -> int:
+	if failure_count <= 1:
+		return SKIN_RETRY_BASE_MS
+	var delay_ms: int = SKIN_RETRY_BASE_MS
+	for _step in range(1, failure_count):
+		delay_ms = mini(delay_ms * 2, SKIN_RETRY_MAX_MS)
+		if delay_ms >= SKIN_RETRY_MAX_MS:
+			break
+	return delay_ms
+
 ## Orientacion de la sprite (arte cenital): gira hacia la direccion de
 ## marcha. El cubo lo rota Zombie.gd; la sprite lo rota este nodo.
 var _facing_target: float = PI * 0.5
@@ -256,7 +285,7 @@ func install_skin(base_dir: String = SKIN_DIR) -> bool:
 	_skin_ready = not atlas.is_empty()
 	if _skin_ready:
 		# Una carga correcta cierra cualquier reintento pendiente de ESA ruta.
-		_skin_retry_after.erase(base_dir)
+		_skin_retry_after.erase(_skin_route_key(base_dir))
 		_install_skin_frames()
 		_use_skin = USE_SPRITE_ART and SKIN_TYPES.has(_current_type)
 	else:
@@ -276,36 +305,40 @@ func install_skin(base_dir: String = SKIN_DIR) -> bool:
 ## venza el cooldown: cuenta como un intento manual, pero no reinicia el reloj
 ## ni permite una rafaga de reintentos automaticos.
 func _register_skin_retry(base_dir: String) -> void:
-	if base_dir.is_empty():
+	var route_key: String = _skin_route_key(base_dir)
+	if route_key.is_empty():
 		return
 	var now_ms: int = Time.get_ticks_msec()
-	var entry_value: Variant = _skin_retry_after.get(base_dir, {})
+	var entry_value: Variant = _skin_retry_after.get(route_key, {})
 	if entry_value is Dictionary:
 		var entry: Dictionary = entry_value
 		if not entry.is_empty():
 			if now_ms >= int(entry.get("retry_at_ms", 0)):
-				_advance_skin_retry(base_dir, entry)
+				_advance_skin_retry(route_key, entry)
 			return
-	_skin_retry_after[base_dir] = {
-		"retry_at_ms": now_ms + SKIN_RETRY_BASE_MS,
+	var initial_delay_ms: int = _skin_retry_delay_ms(1)
+	_skin_retry_after[route_key] = {
+		"retry_at_ms": now_ms + initial_delay_ms,
 		"failures": 1,
-		"delay_ms": SKIN_RETRY_BASE_MS,
+		"delay_ms": initial_delay_ms,
 	}
 
 
 ## Reclama un intento automatico vencido. Devuelve false si otra instancia ya
 ## reclamo la misma ruta en este frame (el cooldown es compartido).
 func _advance_skin_retry(base_dir: String, entry: Dictionary) -> bool:
+	var route_key: String = _skin_route_key(base_dir)
+	if route_key.is_empty():
+		return false
 	var now_ms: int = Time.get_ticks_msec()
 	if now_ms < int(entry.get("retry_at_ms", 0)):
 		return false
 	var failures: int = int(entry.get("failures", 1)) + 1
-	var delay_ms: int = mini(int(entry.get("delay_ms", SKIN_RETRY_BASE_MS)) * 2,
-		SKIN_RETRY_MAX_MS)
+	var delay_ms: int = _skin_retry_delay_ms(failures)
 	entry["failures"] = failures
 	entry["delay_ms"] = delay_ms
 	entry["retry_at_ms"] = now_ms + delay_ms
-	_skin_retry_after[base_dir] = entry
+	_skin_retry_after[route_key] = entry
 	return true
 
 
@@ -319,14 +352,15 @@ func _process_skin_retry() -> void:
 	if not USE_SPRITE_ART or not SKIN_TYPES.has(_current_type):
 		return
 	var base_dir: String = _skin_attempted_dir
+	var route_key: String = _skin_route_key(base_dir)
 	# Otra instancia puede haber cargado la ruta con exito: el cache permite
 	# recuperar esta presentacion sin tocar disco.
-	if _skin_cache.has(base_dir):
+	if _skin_cache.has(route_key):
 		install_skin(base_dir)
 		return
 	for candidate: Variant in _skin_retry_after.keys():
 		var route: String = String(candidate)
-		if route != base_dir:
+		if route != route_key:
 			continue
 		var entry_value: Variant = _skin_retry_after.get(route, {})
 		if not (entry_value is Dictionary):
@@ -334,7 +368,10 @@ func _process_skin_retry() -> void:
 		var entry: Dictionary = entry_value
 		if not _advance_skin_retry(route, entry):
 			break
-		install_skin(route)
+		# Se reinstala la ruta ORIGINAL inyectada, no la clave interna: la
+		# API observable `skin_attempted_dir()` no debe cambiar de forma
+		# silenciosa al normalizar alias.
+		install_skin(base_dir)
 		break
 
 ## Atlas de celdas por animacion canonica. Cacheado por ruta: las texturas se
@@ -351,8 +388,9 @@ func _process_skin_retry() -> void:
 ## las celdas. Un pack invalido debe producir el fallback al cubo, no una
 ## animacion estructuralmente rota.
 static func _load_skin_atlas(base_dir: String) -> Dictionary:
-	if _skin_cache.has(base_dir):
-		return _skin_cache[base_dir]
+	var route_key: String = _skin_route_key(base_dir)
+	if _skin_cache.has(route_key):
+		return _skin_cache[route_key]
 	var built: Dictionary = {}
 	for pack_anim in SKIN_ANIMATIONS.keys():
 		var spec: Dictionary = SKIN_ANIMATIONS[pack_anim]
@@ -387,7 +425,7 @@ static func _load_skin_atlas(base_dir: String) -> Dictionary:
 			"fps": float(spec["fps"]),
 			"loop": bool(spec["loop"]),
 		}
-	_skin_cache[base_dir] = built
+	_skin_cache[route_key] = built
 	return built
 
 ## Instala los frames del skin en el SpriteFrames de ESTA instancia.
