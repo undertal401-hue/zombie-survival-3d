@@ -23,6 +23,13 @@ const GEN_ZOMBIE_SKIN: String = "res://tools/gen_zombie_skin.py"
 const SKIN_PACK_TOOL: String = "res://tools/skin_pack.py"
 const CELL: int = 64
 
+## Pack de regresion: los ocho strips del contrato, pero con `idle_strip.png`
+## de 64x64 en vez de 128x64 (una celda en vez de dos). El runtime construye
+## una region `Rect2(i*64, 0, 64, 64)` por frame, asi que con este strip el
+## segundo frame caeria FUERA del atlas. Un pack estructuralmente invalido
+## debe producir el fallback al cubo, no una animacion rota.
+const BAD_STRIP_PACK: String = "res://10_review/fixtures/bad_strip_pack/"
+
 ## Recuento del pack, independiente del mapa canónico del runtime.
 const PACK_COUNTS: Dictionary = {
 	"idle": 2,
@@ -45,6 +52,32 @@ const CANONICAL_COUNTS: Dictionary = {
 	"hurt": 4,
 	"death": 6,
 	"crawl": 5,
+}
+
+## Fps y bucle de cada animación canónica CON skin. Son el contrato del pack
+## (ADR-005 §3.1): el runtime y el generador son dos fuentes de verdad
+## independientes, así que esta tabla es la que detecta una desincronización
+## entre ellos (cambiar el fps de un lado y no del otro).
+const CANONICAL_FPS: Dictionary = {
+	"idle": 4.0,
+	"walk": 8.0,
+	"run": 12.0,
+	"attack": 12.0,
+	"hit": 10.0,
+	"hurt": 10.0,
+	"death": 7.0,
+	"crawl": 8.0,
+}
+
+const CANONICAL_LOOP: Dictionary = {
+	"idle": true,
+	"walk": true,
+	"run": true,
+	"attack": false,
+	"hit": false,
+	"hurt": false,
+	"death": false,
+	"crawl": true,
 }
 
 var _failures: Array[String] = []
@@ -253,6 +286,11 @@ func _generator_checks() -> void:
 		"python3 tools/gen_zombie_skin.py --check sale 0")
 	_run_generator_check(SKIN_PACK_TOOL, PackedStringArray(["check"]),
 		"python3 tools/skin_pack.py check sale 0")
+	# Autopruebas del importador: rechazan los packs sin silueta, bloquean
+	# la escritura fuera del destino por symlinks y diagnostican los PNG
+	# corruptos. Trabajo en un directorio temporal, fuera de res://.
+	_run_generator_check(SKIN_PACK_TOOL, PackedStringArray(["selftest"]),
+		"python3 tools/skin_pack.py selftest sale 0")
 
 
 func _run_generator_check(script_path: String, arguments: PackedStringArray,
@@ -327,7 +365,9 @@ func _runtime_checks() -> void:
 	await _runtime_with_skin_checks()
 	await _high_rank_cube_checks()
 	await _fallback_checks()
+	await _malformed_pack_checks()
 	await _visible_fx_checks()
+	await _death_cancels_fx_checks()
 	await _state_orientation_checks()
 	await _hit_lock_checks()
 
@@ -367,6 +407,19 @@ func _runtime_with_skin_checks() -> void:
 			"runtime WALKER: existe la animación canónica '%s'" % anim)
 		if not frames.has_animation(anim):
 			continue
+		# Fps y bucle del pack: dos fuentes de verdad (runtime y generador)
+		# tienen que coincidir. Sin esta comprobacion, cambiar el fps en un
+		# solo sitio no lo detectaria ninguna puerta.
+		var expected_fps: float = float(CANONICAL_FPS.get(anim, 0.0))
+		_check(is_equal_approx(frames.get_animation_speed(StringName(anim)),
+				expected_fps),
+			"runtime WALKER: '%s' usa %.0f fps (contrato del pack)" % [
+				anim, expected_fps])
+		_check(frames.get_animation_loop(StringName(anim)) ==
+				bool(CANONICAL_LOOP.get(anim, false)),
+			"runtime WALKER: '%s' %s en bucle (contrato del pack)" % [
+				anim,
+				"va" if bool(CANONICAL_LOOP.get(anim, false)) else "no va"])
 		var actual_count: int = frames.get_frame_count(StringName(anim))
 		_check(actual_count == expected_count,
 			"runtime WALKER: '%s' tiene %d frames" % [anim, expected_count])
@@ -480,6 +533,88 @@ func _fallback_checks() -> void:
 	_check(_call_bool(visual, "uses_skin") and sprite.visible \
 			and not body.visible and not nose.visible,
 		"fallback: tras reinstalar el pack el skin vuelve a funcionar")
+
+
+## Un pack con un strip de dimensiones incorrectas NO puede instalarse: el
+## runtime construye una region por frame, asi que un strip corto deja los
+## ultimos frames fuera del atlas. La garantia de fallback (ADR-005 §4) exige
+## volver al cubo, no instalar una animacion estructuralmente rota.
+func _malformed_pack_checks() -> void:
+	var zombie: Node = await _instantiate_zombie()
+	if zombie == null:
+		_check(false, "runtime: se puede instanciar un zombi para el pack malformado")
+		return
+	var visual: Node = zombie.get_node_or_null("ZombieVisual")
+	var sprite: AnimatedSprite2D = zombie.get_node_or_null(
+		"ZombieVisual/AnimatedSprite2D") as AnimatedSprite2D
+	var body: Polygon2D = zombie.get_node_or_null("Body") as Polygon2D
+	var nose: Polygon2D = zombie.get_node_or_null("Nose") as Polygon2D
+	if visual == null or sprite == null or body == null or nose == null:
+		_check(false, "pack malformado: el zombi expone los nodos visuales")
+		return
+
+	_check(DirAccess.dir_exists_absolute(BAD_STRIP_PACK),
+		"pack malformado: existe el fixture de regresion")
+	_check(ResourceLoader.exists(BAD_STRIP_PACK.path_join("idle_strip.png")),
+		"pack malformado: el fixture tiene el strip defectuoso")
+	var bad_result: bool = _call_bool(visual, "install_skin", BAD_STRIP_PACK)
+	_check(not bad_result,
+		"pack malformado: install_skin() con un strip de ancho incorrecto devuelve false")
+	_check(not _call_bool(visual, "uses_skin"),
+		"pack malformado: el WALKER NO usa la skin invalida")
+	_check(body.visible and nose.visible and not sprite.visible,
+		"pack malformado: el cubo queda visible y la sprite oculta")
+	var bad_frames: SpriteFrames = sprite.sprite_frames
+	var no_residual_frames: bool = bad_frames != null
+	if bad_frames != null:
+		for canonical in CANONICAL_COUNTS.keys():
+			if bad_frames.get_frame_count(StringName(String(canonical))) != 0:
+				no_residual_frames = false
+				break
+	_check(no_residual_frames,
+		"pack malformado: no quedan frames residuales del pack invalido")
+
+	# Tras el rechazo, el pack canonico debe volver a instalarse sin problemas.
+	var good_result: bool = _call_bool(visual, "install_skin")
+	_check(good_result,
+		"pack malformado: tras el rechazo el pack canonico se reinstala")
+
+
+## La muerte cancela los FX: si el zombi muere durante una telegrafia o un
+## squash, el tween seguiria deformando y tiñendo el cadaver mientras se
+## reproduce el clip de muerte.
+func _death_cancels_fx_checks() -> void:
+	var zombie: Node = await _instantiate_zombie()
+	if zombie == null:
+		_check(false, "runtime: se puede instanciar un zombi para la muerte con FX")
+		return
+	var visual: Node = zombie.get_node_or_null("ZombieVisual")
+	var sprite: AnimatedSprite2D = zombie.get_node_or_null(
+		"ZombieVisual/AnimatedSprite2D") as AnimatedSprite2D
+	if visual == null or sprite == null:
+		_check(false, "muerte con FX: el zombi expone ZombieVisual y la sprite")
+		return
+
+	var base_modulate: Color = sprite.modulate
+	visual.call("telegraph", 0)
+	await get_tree().process_frame
+	var live_tweens: Array = visual.get("_fx_tweens") as Array
+	_check(live_tweens != null and live_tweens.size() == 1,
+		"muerte con FX: telegraph() deja un tween vivo antes de morir")
+
+	visual.call("play_death")
+	await get_tree().process_frame
+	var dead_tweens: Array = visual.get("_fx_tweens") as Array
+	_check(dead_tweens != null and dead_tweens.is_empty(),
+		"muerte con FX: play_death() cancela los tweens de FX")
+	_check(not bool(visual.get("_is_telegraphing")),
+		"muerte con FX: play_death() desactiva _is_telegraphing")
+	_check(_vector_close(sprite.scale, Vector2(0.5, 0.5), 0.0001),
+		"muerte con FX: play_death() restaura la escala base de la sprite")
+	_check(_color_close(sprite.modulate, base_modulate, 0.0001),
+		"muerte con FX: play_death() restaura el tinte base de la sprite")
+	_check(sprite.animation == "death",
+		"muerte con FX: play_death() reproduce el clip de muerte")
 
 
 func _visible_fx_checks() -> void:

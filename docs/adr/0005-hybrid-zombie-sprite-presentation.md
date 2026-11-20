@@ -110,7 +110,7 @@ Se reutiliza el `AnimatedSprite2D` que ya forma parte de `Zombie.tscn`
 (`game/03_zombies/Zombie.tscn:59-65`). Las ocho animaciones canónicas —`idle`,
 `walk`, `run`, `attack`, `hit`, `hurt`, `death` y `crawl`— se crean siempre,
 aunque el fallback al cubo las deje sin frames
-(`game/03_zombies/ZombieVisual.gd:274-298`).
+(`game/03_zombies/ZombieVisual.gd:295-317`).
 
 El runtime:
 
@@ -121,11 +121,11 @@ El runtime:
 4. usa filtrado `NEAREST`.
 
 La construcción de las regiones está en
-`game/03_zombies/ZombieVisual.gd:210-241`. El `SpriteFrames` nunca se
+`game/03_zombies/ZombieVisual.gd:242-259`. El `SpriteFrames` nunca se
 comparte entre zombis porque `set_type()` cambia las velocidades de animación
 y un recurso compartido contaminaría a otras instancias
-(`game/03_zombies/ZombieVisual.gd:242-259`). El filtrado `NEAREST` se fija en
-`game/03_zombies/ZombieVisual.gd:171-180`.
+(`game/03_zombies/ZombieVisual.gd:295-317`). El filtrado `NEAREST` se fija en
+`game/03_zombies/ZombieVisual.gd:179-190`.
 
 El WALKER usa escala `0.5`: 64 px de textura se convierten en 32 unidades.
 Es coherente con el cubo visible de 24×24 unidades
@@ -133,7 +133,7 @@ Es coherente con el cubo visible de 24×24 unidades
 `HouseBuilder.TILE_SIZE = 64` (`game/05_house/HouseBuilder.gd:11`), es decir,
 1 unidad de mundo equivale a 1 px. Con skin, el offset del sprite es `(0, 0)`
 porque el personaje ya está centrado en la celda
-(`game/03_zombies/ZombieVisual.gd:301-317`).
+(`game/03_zombies/ZombieVisual.gd:326-341`).
 
 El `z_index` también baja con la skin: de 5 (el de la escena, calibrado para
 el arte de 32×32 del cubo) a 0. El motivo es la coherencia de profundidad: el
@@ -142,13 +142,13 @@ cubo de los zombis vive en `z_index = 0` y el vehículo en `z_index = 4`
 sprite en `z = 5` se dibujaría **delante** del vehículo mientras el resto de
 zombis se dibujan detrás. Con skin a `z = 0`, el WALKER se ordena en
 profundidad igual que sus pares de rango alto
-(`game/03_zombies/ZombieVisual.gd:119-124`).
+(`game/03_zombies/ZombieVisual.gd:121-126`).
 
 ### 3.1 Mapa de animaciones: pack → canónica
 
 El runtime siempre declara las ocho animaciones canónicas, con o sin skin. El
 pack aporta el **contenido**; el mapa declara qué clip del pack corresponde a
-cada animación del runtime (`game/03_zombies/ZombieVisual.gd:79-91`):
+cada animación del runtime (`game/03_zombies/ZombieVisual.gd:84-92`):
 
 | Clip del pack | Animación canónica | Frames | FPS | Bucle |
 |---|---|---:|---:|---|
@@ -177,10 +177,19 @@ vertical sutil de 1 px lógico por frame.
 
 ### 4. Fallback seguro al cubo
 
-Si falta el pack, falta uno de sus strips o la carga no puede completarse, el
-zombi vuelve al cubo y el juego continúa. `install_skin()` valida el pack,
-limpia frames parciales y desactiva la skin antes de restaurar la
-presentación del cubo (`game/03_zombies/ZombieVisual.gd:189-209`).
+Si falta el pack, falta uno de sus strips, la carga no puede completarse o **las
+dimensiones de un strip no son las del contrato**, el zombi vuelve al cubo y el
+juego continúa. `install_skin()` valida el pack, limpia frames parciales y
+desactiva la skin antes de restaurar la presentación del cubo
+(`game/03_zombies/ZombieVisual.gd:206-226`).
+
+La validación de dimensiones es parte del contrato, no un detalle: el runtime
+construye una región `Rect2(i*64, 0, 64, 64)` por frame, así que un strip de
+64×64 donde se esperan dos celdas deja el segundo frame **fuera del atlas** (la
+región se sale de la textura y el frame sale recortado o vacío). El runtime
+exige alto 64 y ancho `count * 64` antes de construir las regiones, y una carga
+inválida **no** se cachea: el siguiente intento vuelve a mirar el disco
+(`game/03_zombies/ZombieVisual.gd:240-279`).
 
 `install_skin()` deja la presentación **coherente con el resultado**: si el
 pack carga bien y el tipo vigente lo admite, la skin queda visible; si no, el
@@ -192,7 +201,7 @@ mostrar la skin: la allowlist manda sobre la disponibilidad del pack.
 La autoridad final para elegir presentación es `ZombieVisual.set_type()`: los
 tests y los spawners pueden cambiar el tipo después de instanciar el zombi,
 por lo que la decisión no puede fijarse solo en `_ready()`
-(`game/03_zombies/ZombieVisual.gd:337-408`).
+(`game/03_zombies/ZombieVisual.gd:361-440`).
 
 ### 5. Game feel: los FX siguen a lo visible y la orientación se rota
 
@@ -200,13 +209,13 @@ Squash, stretch y telegrafía se aplican al elemento que realmente se ve: la
 sprite cuando hay skin y los polígonos `Body`/`Nose` cuando hay fallback al
 cubo. Nunca se tocan `Collision`, `SeparationArea` ni ninguna otra hitbox. De
 lo contrario, el golpe recibido por el zombi sería invisible o alteraría la
-colisión (`game/03_zombies/ZombieVisual.gd:463-477`,
-`game/03_zombies/ZombieVisual.gd:571-692`).
+colisión (`game/03_zombies/ZombieVisual.gd:554-566`,
+`game/03_zombies/ZombieVisual.gd:608-714`).
 
 Como el arte canónico es cenital, la skin **rota** hacia la dirección de
 marcha, igual que el cubo; no se espeja. El cubo mantiene su flip horizontal
 legacy únicamente cuando no usa skin
-(`game/03_zombies/ZombieVisual.gd:419-452`).
+(`game/03_zombies/ZombieVisual.gd:467-480`).
 
 El clip de impacto necesita un **lock propio**. Sin frames (cubo) no hacía
 falta, porque no había clip que interrumpir; con skin, `play_hit()` reproduce
@@ -214,8 +223,8 @@ un clip real y el `update_state()` del siguiente frame físico lo pisaba con
 `idle`/`walk`/`run`: el golpe se veía **un solo frame**. El lock `_hit_timer`
 (0,2 s, el doble de la duración del clip de 2 frames a 10 fps) mantiene el
 clip visible y deja que `update_state()` recupere el control al terminar
-(`game/03_zombies/ZombieVisual.gd:48-53`, `game/03_zombies/ZombieVisual.gd:319-336`,
-`game/03_zombies/ZombieVisual.gd:702-720`). El bloqueo de ataque ya existía
+(`game/03_zombies/ZombieVisual.gd:55`, `game/03_zombies/ZombieVisual.gd:451-486`,
+`game/03_zombies/ZombieVisual.gd:738-746`). El bloqueo de ataque ya existía
 con su temporizador propio y no se modifica.
 
 La muerte también necesita su propio tiempo: el clip de muerte del pack dura
@@ -230,27 +239,39 @@ El umbral de locomoción walk/run sube de 50 a 120 px/s. El WALKER camina a
 80 px/s y el RUNNER a 150 px/s (`game/03_zombies/Zombie.gd:922-944`), por lo
 que el umbral anterior dejaba al zombi normal siempre en `run`. Con 120 px/s,
 el WALKER usa su animación de caminar y el RUNNER conserva `run`
-(`game/03_zombies/ZombieVisual.gd:108-112`,
-`game/03_zombies/ZombieVisual.gd:419-434`).
+(`game/03_zombies/ZombieVisual.gd:114-115`,
+`game/03_zombies/ZombieVisual.gd:459-465`).
 
 ### 6. Puertas de CI propias, sin ampliar el alcance del pipeline antiguo
 
-El pack nuevo tiene dos verificaciones independientes (comandos ejecutados
+El pack nuevo tiene **tres** verificaciones independientes (comandos ejecutados
 desde `game/`):
 
 - `python3 tools/gen_zombie_skin.py --check` reconstruye y compara byte a
   byte los 33 frames y los 8 strips, además de comprobar el contrato
   estructural (recuento y celdas de 64×64); la comprobación está en
-  `game/tools/gen_zombie_skin.py:287-314`.
+  `game/tools/gen_zombie_skin.py:292-467`.
 - `python3 tools/skin_pack.py check` verifica que cada strip coincide
   con la concatenación normalizada de sus frames
-  (`game/tools/skin_pack.py:421-448`).
+  (`game/tools/skin_pack.py:754-780`, con la concatenación normalizada en
+  `game/tools/skin_pack.py:386-402`).
+- `python3 tools/skin_pack.py selftest` es la **regresión del importador**:
+  monta un pack sintético y comprueba que un pack sin silueta se rechaza sin
+  escribir nada, que un destino con enlaces simbólicos no deja escribir fuera,
+  que un PNG corrupto produce un diagnóstico y que `audit` de un pack
+  inválido devuelve rc=1. Comprueba además que un pack **válido** se importa
+  con rc=0, para que los rechazos no sean verdes triviales
+  (`game/tools/skin_pack.py:889-987`).
+
+Las tres se ejecutan en el mismo paso del CI y se reportan juntas: un fallo no
+impide ver el resultado de las otras
+(`.github/workflows/ci.yml:90-123`).
 
 `python3 tools/gen_art.py --check` sigue igual: verifica las nueve hojas
 canónicas y sus mapas de luz, no el pack nuevo
 (`game/tools/gen_art.py:578-618`,
 `game/tools/gen_art.py:701-730`,
-`.github/workflows/ci.yml:90-97`). El pack canónico del skin tiene su propio
+`.github/workflows/ci.yml:98`). El pack canónico del skin tiene su propio
 generador y queda fuera del alcance de la comprobación de `gen_art.py`.
 
 ### 7. Relación con ADR-004
@@ -379,6 +400,27 @@ Las siguientes reglas deben seguir siendo verdad:
 14. `install_skin()` termina siempre con la presentación coherente con el
     resultado: skin visible si el pack cargó y el tipo la admite, cubo en
     cualquier otro caso.
+15. El runtime **valida las dimensiones de cada strip** antes de construir las
+    regiones: alto 64 y ancho `count * 64`. Un strip más corto deja los
+    últimos frames fuera del atlas; uno más alto desalinea las celdas. Un pack
+    con dimensiones incorrectas produce fallback al cubo, no una animación
+    rota (`game/03_zombies/ZombieVisual.gd:240-279`).
+16. La muerte es la dueña del estado visual: `play_death()` cancela los tweens
+    de FX y restaura escala y tinte antes de reproducir el clip de muerte. Un
+    zombi que muere durante una telegrafía no queda deformado
+    (`game/03_zombies/ZombieVisual.gd:766-777`).
+17. El importador **no escribe fuera del destino**: un destino con enlaces
+    simbólicos se rechaza con código 2 sin escribir nada, y los ficheros se
+    escriben con temporal + `os.replace` (que no sigue enlaces)
+    (`game/tools/skin_pack.py:1039-1156`).
+18. `audit` trata las incidencias **estructurales** (animaciones o strips que
+    faltan, recuentos que no coinciden con la ficha, strips no rebanables o
+    con un número de celdas incorrecto) como incidencias de pleno derecho:
+    devuelve rc=1 también con ellas (`game/tools/skin_pack.py:532-665`).
+19. El rechazo de los packs sin silueta, la protección frente a los enlaces
+    simbólicos, el diagnóstico de los PNG corruptos y el falso verde de
+    `audit` tienen **regresión automatizada** en `skin_pack.py selftest`, que
+    es una puerta de CI (`game/tools/skin_pack.py:889-987`).
 
 ## Sustitución por el arte final del autor
 

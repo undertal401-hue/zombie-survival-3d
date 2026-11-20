@@ -227,9 +227,16 @@ func install_skin(base_dir: String = SKIN_DIR) -> bool:
 ## Atlas de celdas por animacion canonica. Cacheado por ruta: las texturas se
 ## cargan una sola vez por proceso, no una por zombi.
 ##
-## Una CARGA FALLIDA no se cachea: si el pack no esta (o esta incompleto), el
+## Un CARGA FALLIDA no se cachea: si el pack no esta (o esta incompleto), el
 ## siguiente intento vuelve a mirar el disco. Cachear el fallo dejaria al
 ## proceso ciego para siempre aunque el arte apareciese despues.
+##
+## Las DIMENSIONES del strip se validan: el runtime construye una region
+## `Rect2(i*64, 0, 64, 64)` por frame, asi que un strip mas corto que
+## `count*64` deja los ultimos frames FUERA del atlas (la region se sale de
+## la textura y el frame sale recortado o vacio) y uno mas alto desalinea
+## las celdas. Un pack invalido debe producir el fallback al cubo, no una
+## animacion estructuralmente rota.
 static func _load_skin_atlas(base_dir: String) -> Dictionary:
 	if _skin_cache.has(base_dir):
 		return _skin_cache[base_dir]
@@ -242,8 +249,20 @@ static func _load_skin_atlas(base_dir: String) -> Dictionary:
 		var texture: Texture2D = load(path) as Texture2D
 		if texture == null:
 			return {}
-		var frames: Array[Texture2D] = []
 		var count: int = int(spec["count"])
+		var expected_width: int = count * SKIN_CELL
+		if count <= 0 \
+				or texture.get_height() != SKIN_CELL \
+				or texture.get_width() != expected_width:
+			push_warning("ZombieVisual: pack de skin invalido (%s: %dx%d, se esperan %dx%d); se usa el cubo" % [
+				String(pack_anim),
+				texture.get_width(),
+				texture.get_height(),
+				expected_width,
+				SKIN_CELL,
+			])
+			return {}
+		var frames: Array[Texture2D] = []
 		for i in count:
 			var atlas := AtlasTexture.new()
 			atlas.atlas = texture
@@ -745,6 +764,11 @@ func play_hit() -> void:
 	_current_state = ""
 
 func play_death() -> void:
+	# La muerte es la dueña del estado visual: si el zombi muere durante una
+	# telegrafia o un squash, el tween seguiria deformando y tiñendo el cadaver
+	# mientras se reproduce el clip de muerte. Se cancelan los FX y se
+	# restauran escala y tinte ANTES de empezar el clip.
+	_reset_fx()
 	_is_dying = true
 	if boss_bar != null:
 		boss_bar.visible = false

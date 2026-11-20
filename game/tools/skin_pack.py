@@ -18,6 +18,7 @@ Subcomandos:
     import <dir> --out <destino>       Normaliza un pack externo.
     build                               Regenera los strips del proyecto.
     check                               Verifica el pack del proyecto (CI).
+    selftest                            Autopruebas del importador (CI).
 
 Regla de anclaje del proyecto: el bbox opaco de la UNION de todos los frames
 se centra en la celda 64x64 y se aplica la MISMA traslacion a todos los frames.
@@ -32,6 +33,7 @@ from __future__ import annotations
 import os
 import struct
 import sys
+import tempfile
 import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -84,8 +86,18 @@ def _unfilter(raw: bytes, width: int, height: int, bpp: int) -> bytearray:
     return out
 
 
+## Tope de dimensiones: un PNG que declara un lienzo enorme no se descomprime
+## (evita que un fichero corrupto agote la memoria del proceso).
+MAX_DIMENSION = 4096
+
+
 def read_png(path: str):
-    """Return (width, height, pixels RGBA) or raise ValueError."""
+    """Return (width, height, pixels RGBA) or raise ValueError.
+
+    Toda corrupcion del fichero se traduce a `ValueError`: el llamante
+    muestra un diagnostico ("PNG invalido (...)") en vez de un traceback
+    de `struct.error` o `zlib.error`.
+    """
     with open(path, "rb") as f:
         data = f.read()
     if not data.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -100,16 +112,33 @@ def read_png(path: str):
     while pos + 8 <= len(data):
         length = struct.unpack(">I", data[pos:pos + 4])[0]
         tag = data[pos + 4:pos + 8]
+        # El chunk completo (longitud + tag + cuerpo + CRC) tiene que caber
+        # en el fichero. Sin esta comprobacion, un PNG truncado provoca que
+        # `struct.unpack` lance `struct.error` en vez de un diagnostico.
+        if pos + 12 + length > len(data):
+            raise ValueError("chunk %r truncado (%d bytes declarados)"
+                             % (tag, length))
         body = data[pos + 8:pos + 8 + length]
         crc = struct.unpack(">I", data[pos + 8 + length:pos + 12 + length])[0]
         if (zlib.crc32(tag + body) & 0xFFFFFFFF) != crc:
             raise ValueError("bad CRC in %r" % tag)
         if tag == b"IHDR":
-            width, height, depth, ctype, comp, filt, inter = struct.unpack(
-                ">IIBBBBB", body)
+            if length != 13:
+                raise ValueError("IHDR invalido (%d bytes, se esperan 13)"
+                                 % length)
+            try:
+                width, height, depth, ctype, comp, filt, inter = struct.unpack(
+                    ">IIBBBBB", body)
+            except struct.error as exc:
+                raise ValueError("IHDR invalido: %s" % exc)
             if depth != 8 or inter != 0:
                 raise ValueError("unsupported PNG (depth=%d interlace=%d)"
                                  % (depth, inter))
+            if width == 0 or height == 0:
+                raise ValueError("IHDR con dimensiones cero")
+            if width > MAX_DIMENSION or height > MAX_DIMENSION:
+                raise ValueError("dimensiones excesivas (%dx%d, maximo %d)"
+                                 % (width, height, MAX_DIMENSION))
         elif tag == b"PLTE":
             palette = body
         elif tag == b"tRNS":
@@ -122,7 +151,10 @@ def read_png(path: str):
         pos += 12 + length
     if not seen_end or width == 0 or height == 0:
         raise ValueError("incomplete PNG")
-    raw = zlib.decompress(bytes(idat))
+    try:
+        raw = zlib.decompress(bytes(idat))
+    except zlib.error as exc:
+        raise ValueError("stream IDAT corrupto: %s" % exc)
     if ctype == 6:
         bpp = 4
     elif ctype == 2:
@@ -135,7 +167,10 @@ def read_png(path: str):
         bpp = 1
     else:
         raise ValueError("unsupported color type %d" % ctype)
-    data_px = _unfilter(raw, width, height, bpp)
+    try:
+        data_px = _unfilter(raw, width, height, bpp)
+    except (IndexError, ValueError, struct.error) as exc:
+        raise ValueError("pixeles PNG invalidos: %s" % exc)
     pixels = bytearray(width * height * 4)
     n = width * height
     for i in range(n):
@@ -510,10 +545,25 @@ def audit(pack_dir: str) -> int:
     anim_dirs = sorted(
         d for d in os.listdir(pack_dir)
         if os.path.isdir(os.path.join(pack_dir, d)))
+    # Estructural: las ocho animaciones de la ficha tienen que estar. Un
+    # directorio vacio o incompleto es una INCIDENCIA (rc=1), no un pack
+    # "sin incidencias mecanicas". Antes estas notas solo se imprimian y
+    # el auditor daba verde sobre packs estructuralmente invalidos.
+    expected_anims = set(ANIM_FRAMES.keys())
+    present_anims = set(anim_dirs)
+    for anim in sorted(expected_anims - present_anims):
+        issues.append("falta la animacion '%s'" % anim)
+    for anim in sorted(present_anims - expected_anims):
+        issues.append("animacion inesperada: '%s'" % anim)
     for anim in anim_dirs:
         anim_dir = os.path.join(pack_dir, anim)
         files = frame_files(anim_dir)
         expected = ANIM_FRAMES.get(anim)
+        if expected is None:
+            issues.append("animacion inesperada: '%s'" % anim)
+        elif len(files) != expected:
+            issues.append("%s: %d frames (ficha: %d)"
+                          % (anim, len(files), expected))
         sizes = []
         for path in files:
             try:
@@ -548,6 +598,7 @@ def audit(pack_dir: str) -> int:
 
     # Strips
     print("\n  STrips horizontales")
+    found_strips = set()
     for name in sorted(os.listdir(pack_dir)):
         if not name.endswith("_strip.png"):
             continue
@@ -558,15 +609,24 @@ def audit(pack_dir: str) -> int:
             issues.append("%s: PNG invalido (%s)" % (path, exc))
             continue
         anim = name[:-len("_strip.png")]
+        found_strips.add(anim)
         expected_frames = ANIM_FRAMES.get(anim)
+        if expected_frames is None:
+            issues.append("strip inesperado: %s" % name)
         uniform = w % CELL == 0 and h == CELL
         cells = w // CELL if uniform else 0
         note = ""
         if not uniform:
             note = "  <-- NO rebanable en celdas de %d" % CELL
+            issues.append("%s: NO rebanable en celdas de %d (%dx%d)"
+                          % (name, CELL, w, h))
         elif expected_frames is not None and cells != expected_frames:
             note = "  <-- %d celdas (ficha: %d frames)" % (cells, expected_frames)
+            issues.append("%s: %d celdas (ficha: %d frames)"
+                          % (name, cells, expected_frames))
         print("      %-24s %dx%d%s" % (name, w, h, note))
+    for anim in sorted(expected_anims - found_strips):
+        issues.append("falta el strip %s_strip.png" % anim)
 
     # Resumen
     print("\n" + "=" * 72)
@@ -784,6 +844,148 @@ def check() -> int:
 
 
 # ---------------------------------------------------------------------------
+# Autopruebas del importador y del auditor (puerta de CI)
+# ---------------------------------------------------------------------------
+
+def _synthetic_frame(width: int = CELL, height: int = CELL) -> bytes:
+    """Frame sintetico CON silueta (no es una tarjeta de color)."""
+    pixels = bytearray(width * height * 4)
+    body = [(60, 90, 110, 255), (120, 80, 60, 255),
+            (40, 60, 80, 255), (200, 180, 140, 255)]
+    for y in range(height // 2, height // 2 + 20):
+        for x in range(width // 2 - 6, width // 2 + 6):
+            if not (0 <= x < width and 0 <= y < height):
+                continue
+            index = (y * width + x) * 4
+            pixels[index:index + 4] = bytes(body[(x + y) % len(body)])
+    return bytes(pixels)
+
+
+def _write_synthetic_pack(pack_dir: str, flat_card: bool = False) -> None:
+    """Escribe un pack sintetico con la ficha de frames del proyecto."""
+    for anim, count in ANIM_FRAMES.items():
+        anim_dir = os.path.join(pack_dir, anim)
+        os.makedirs(anim_dir, exist_ok=True)
+        for index in range(1, count + 1):
+            if flat_card and anim == "idle" and index == 1:
+                pixels = bytearray(CELL * CELL * 4)
+                for i in range(CELL * CELL):
+                    pixels[i * 4:i * 4 + 4] = bytes((156, 192, 194, 255))
+            else:
+                pixels = bytearray(_synthetic_frame())
+            path = os.path.join(anim_dir, "%s_%02d.png" % (anim, index))
+            with open(path, "wb") as handle:
+                handle.write(png_bytes(CELL, CELL, bytes(pixels)))
+
+
+def _tree_files(root: str) -> list:
+    found = []
+    for base, _dirs, names in os.walk(root):
+        for name in names:
+            found.append(os.path.join(base, name))
+    return found
+
+
+def selftest() -> int:
+    """Autopruebas del importador y del auditor (puerta de CI).
+
+    Cubre los cierres de R2 que no tenian regresion automatizada:
+
+      1. un pack con un frame 'tarjeta de color' se RECHAZA (rc=2) y no
+         escribe nada;
+      2. un destino con symlinks NO permite escribir fuera del destino;
+      3. un PNG corrupto produce un diagnostico (`ValueError`), no un
+         traceback de `struct.error`;
+      4. `audit` de un pack estructuralmente invalido devuelve rc=1;
+      5. un pack valido se importa con rc=0 (si no, los rechazos de 1 y 2
+         serian verdes triviales).
+    """
+    failures = []
+    with tempfile.TemporaryDirectory(prefix="skinpack_selftest_") as temporary:
+        root = os.path.join(temporary, "work")
+        os.makedirs(root, exist_ok=True)
+
+        valid_pack = os.path.join(root, "pack_ok")
+        _write_synthetic_pack(valid_pack)
+
+        card_pack = os.path.join(root, "pack_card")
+        _write_synthetic_pack(card_pack, flat_card=True)
+
+        # 5. Un pack valido se importa (si no, los rechazos de abajo son
+        #    verdes triviales porque el importador esta roto).
+        out_ok = os.path.join(root, "out_ok")
+        code = import_pack(valid_pack, out_ok)
+        if code != 0:
+            failures.append("un pack valido debe importarse (rc=0, hubo %d)" % code)
+
+        # 1. El pack con una tarjeta de color se rechaza sin escribir nada.
+        out_card = os.path.join(root, "out_card")
+        code = import_pack(card_pack, out_card)
+        if code != 2:
+            failures.append("un pack con tarjeta de color debe rechazarse "
+                            "(rc=2, hubo %d)" % code)
+        if os.path.exists(out_card) and _tree_files(out_card):
+            failures.append("un pack con tarjeta de color no debe escribir nada")
+
+        # 2. Un subdirectorio que es symlink no puede sacar escrituras fuera.
+        out_link = os.path.join(root, "out_link")
+        escaped = os.path.join(root, "escaped")
+        os.makedirs(out_link, exist_ok=True)
+        os.makedirs(escaped, exist_ok=True)
+        os.symlink(escaped, os.path.join(out_link, "idle"))
+        code = import_pack(valid_pack, out_link)
+        if code != 2:
+            failures.append("un destino con symlink debe rechazarse "
+                            "(rc=2, hubo %d)" % code)
+        if _tree_files(escaped):
+            failures.append("el destino con symlink escribio fuera: %s"
+                            % sorted(_tree_files(escaped)))
+
+        # 2b. Un strip que es symlink a un fichero externo no lo sobrescribe.
+        out_link_file = os.path.join(root, "out_link_file")
+        os.makedirs(out_link_file, exist_ok=True)
+        victim = os.path.join(root, "victim.txt")
+        with open(victim, "w", encoding="utf-8") as handle:
+            handle.write("ORIGINAL")
+        os.symlink(victim, os.path.join(out_link_file, "idle_strip.png"))
+        code = import_pack(valid_pack, out_link_file)
+        if code != 2:
+            failures.append("un destino con strip symlink debe rechazarse "
+                            "(rc=2, hubo %d)" % code)
+        with open(victim, encoding="utf-8") as handle:
+            content = handle.read()
+        if content != "ORIGINAL":
+            failures.append("el importador sobrescribio un fichero externo")
+
+        # 3. Un PNG corrupto da diagnostico, no traceback.
+        broken = os.path.join(root, "broken.png")
+        with open(broken, "wb") as handle:
+            handle.write(b"\x89PNG\r\n\x1a\n" +
+                         struct.pack(">I", 4) + b"IHDR" + b"\x00\x00")
+        try:
+            read_png(broken)
+            failures.append("un PNG truncado debe lanzar ValueError")
+        except ValueError:
+            pass
+        except Exception as exc:  # pragma: no cover - solo si el parser cambia
+            failures.append("un PNG truncado debe lanzar ValueError, no %s"
+                            % type(exc).__name__)
+
+        # 4. `audit` de un pack estructuralmente invalido devuelve rc=1.
+        empty = os.path.join(root, "empty")
+        os.makedirs(empty, exist_ok=True)
+        code = audit(empty)
+        if code != 1:
+            failures.append("audit de un pack vacio debe devolver rc=1 "
+                            "(devolvio %d)" % code)
+
+    print("SKIN_PACK_SELFTEST failures=%d" % len(failures))
+    for failure in failures:
+        print("  - %s" % failure)
+    return 1 if failures else 0
+
+
+# ---------------------------------------------------------------------------
 # Importacion de packs externos
 # ---------------------------------------------------------------------------
 
@@ -794,6 +996,44 @@ def _is_within(path: str, root: str) -> bool:
             os.path.realpath(root)
     except ValueError:
         return False
+
+
+def _write_png_atomic(path: str, width: int, height: int, pixels: bytearray) -> None:
+    """Escribe un PNG sin seguir enlaces simbolicos.
+
+    Se escribe primero en un temporal del MISMO directorio y se renombra con
+    `os.replace` (que opera sobre la ruta, no sobre el destino del enlace):
+    si `path` fuera un symlink a un fichero de fuera, ese fichero no se
+    toca; lo que se sustituye es el propio enlace.
+    """
+    data = png_bytes(width, height, bytes(pixels))
+    directory = os.path.dirname(os.path.abspath(path))
+    handle, temporary = tempfile.mkstemp(prefix=".skinpack_", dir=directory)
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(data)
+        os.replace(temporary, path)
+    except BaseException:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+        raise
+
+
+def _plan_output_paths(out_dir: str, counts: dict) -> tuple:
+    """Rutas de salida que el importador va a escribir.
+
+    Se calcula ANTES de escribir nada para poder validar el destino entero
+    (symlinks incluidos) en una sola pasada.
+    """
+    directories = []
+    files = []
+    for anim in sorted(ANIM_FRAMES):
+        anim_dir = os.path.join(out_dir, anim)
+        directories.append(anim_dir)
+        for index in range(1, int(counts.get(anim, 0)) + 1):
+            files.append(os.path.join(anim_dir, "%s_%02d.png" % (anim, index)))
+        files.append(os.path.join(out_dir, "%s_strip.png" % anim))
+    return directories, files
 
 
 def import_pack(pack_dir: str, out_dir: str | None, force: bool = False) -> int:
@@ -865,14 +1105,40 @@ def import_pack(pack_dir: str, out_dir: str | None, force: bool = False) -> int:
     anchored, translation = anchor_images(prepared, CELL)
     anchored_by_anim = _split_anchored(frames_by_anim, anchored)
 
+    # --- Pre-flight del destino -----------------------------------------
+    # Un destino con symlinks permitiria escribir FUERA del directorio
+    # pedido: `out/idle` como enlace a otro directorio, o
+    # `out/idle_strip.png` como enlace a un fichero que se sobrescribiria.
+    # Se valida TODO el plan de escritura antes del primer byte.
+    if os.path.islink(out_dir):
+        print("ERROR: el destino es un enlace simbolico: %s" % out_dir)
+        return 2
+    planned_dirs, planned_files = _plan_output_paths(
+        out_dir, {anim: len(images) for anim, images in anchored_by_anim.items()})
+    for path in planned_dirs:
+        if os.path.islink(path):
+            print("ERROR: '%s' es un enlace simbolico; no se escribe nada" % path)
+            return 2
+    for path in planned_files:
+        if os.path.islink(path):
+            print("ERROR: '%s' es un enlace simbolico; no se escribe nada" % path)
+            return 2
+
     os.makedirs(out_dir, exist_ok=True)
+    root = os.path.realpath(out_dir)
     frame_count = 0
     for anim in sorted(ANIM_FRAMES):
         anim_dir = os.path.join(out_dir, anim)
         os.makedirs(anim_dir, exist_ok=True)
+        # Segunda linea de defensa: aunque el pre-flight ya lo rechazo, un
+        # `anim_dir` que resuelva fuera del destino se para aqui.
+        if not _is_within(anim_dir, root):
+            print("ERROR: '%s' resuelve fuera del destino (%s); no se escribe nada"
+                  % (anim_dir, os.path.realpath(anim_dir)))
+            return 2
         for idx, (width, height, pixels) in enumerate(anchored_by_anim[anim], 1):
             path = os.path.join(anim_dir, "%s_%02d.png" % (anim, idx))
-            write_png(path, width, height, bytearray(pixels))
+            _write_png_atomic(path, width, height, bytearray(pixels))
             frame_count += 1
 
     strip_count = 0
@@ -880,7 +1146,7 @@ def import_pack(pack_dir: str, out_dir: str | None, force: bool = False) -> int:
         frames = anchored_by_anim[anim]
         strip = strip_bytes(frames, CELL)
         path = os.path.join(out_dir, "%s_strip.png" % anim)
-        write_png(path, CELL * len(frames), CELL, bytearray(strip))
+        _write_png_atomic(path, CELL * len(frames), CELL, bytearray(strip))
         strip_count += 1
 
     print("SKIN_IMPORT frames=%d strips=%d filled=%d anchor=%s -> %s" % (
@@ -928,6 +1194,8 @@ def main(argv) -> int:
         return build()
     if cmd == "check":
         return check()
+    if cmd == "selftest":
+        return selftest()
     print(__doc__)
     return 2
 

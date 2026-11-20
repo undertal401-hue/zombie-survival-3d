@@ -148,15 +148,35 @@ normalización —recuadrar, rellenar frames vacíos o cuantizar la paleta— pu
 inventarla. Importar una tarjeta dejaría un rectángulo de color en pantalla.
 `--force` permite la importación aun así, con un aviso explícito.
 
+El importador tampoco escribe **fuera** del directorio pedido: si el destino
+contiene enlaces simbólicos (un `out/<anim>` que apunte a otro directorio, o un
+`out/<anim>_strip.png` que sea un enlace a un fichero), la importación se
+rechaza con código 2 **sin escribir nada**. Los ficheros se escriben en un
+temporal del mismo directorio y se renombran con `os.replace`, que no sigue
+enlaces.
+
 Comandos:
 
 ```
 python3 tools/skin_pack.py audit <pack>      # informa; rc=1 si hay incidencias
 python3 tools/skin_pack.py import <pack> --out <destino> [--force]
 python3 tools/skin_pack.py check              # valida el pack canonico
+python3 tools/skin_pack.py selftest           # autopruebas del importador
 ```
 
 `audit` distingue las incidencias **mecánicas** (frames vacíos, tamaños
 variables, strips no rebanables, colores fuera de paleta) de las **de calidad**
 (tarjetas sin silueta). Las mecánicas se pueden reparar al importar; las de
-calidad no.
+calidad no. Las **estructurales** —faltan animaciones o strips, el número de
+frames no coincide con la ficha, un strip no se puede rebanar o no tiene las
+celdas esperadas— son incidencias de pleno derecho: `audit` devuelve **rc=1**
+también con ellas (un directorio vacío es un pack inválido, no un pack «sin
+incidencias»).
+
+`selftest` es la puerta de CI del importador: monta un pack sintético y
+comprueba, sin tocar el proyecto, que (1) un pack con una tarjeta de color se
+rechaza sin escribir nada, (2) un destino con enlaces simbólicos no permite
+escribir fuera, (3) un PNG corrupto produce un diagnóstico (`ValueError`) y no
+un *traceback*, y (4) `audit` de un pack inválido devuelve rc=1. También
+comprueba que un pack **válido** se importa con rc=0, para que los rechazos no
+sean verdes triviales.
