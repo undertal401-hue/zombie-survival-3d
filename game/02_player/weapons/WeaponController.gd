@@ -118,7 +118,9 @@ func hit_stop(seconds: float = HIT_STOP_SECONDS) -> void:
 
 ## Puente entre la muerte confirmada y el hit-stop. `is_dead` ya es verdad en
 ## el zombie que emite zombie_died; no hay hit-stop en impactos no letales.
-func _on_zombie_died(_zombie: Node2D) -> void:
+## R1-fix: el payload de `zombie_died` no se tipa (puede llegar liberado);
+## este receptor no lo usa, así que lo acepta sin restringir.
+func _on_zombie_died(_zombie) -> void:
 	hit_stop()
 
 ## El combate solo está activo mientras la partida corre y el jugador puede actuar.

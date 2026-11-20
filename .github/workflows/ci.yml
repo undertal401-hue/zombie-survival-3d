@@ -148,6 +148,7 @@ jobs:
           run_suite "10_review/NightGlareTest.tscn" "NIGHT_GLARE_TEST failures=0"
           run_suite "10_review/MechanicsAudit.tscn" "MECHANICS_AUDIT failures=0"
           run_suite "10_review/VictoryTest.tscn"      "VICTORY_TEST failures=0"
+          run_suite "10_review/ZombieEventPayloadTest.tscn" "ZOMBIE_EVENT_PAYLOAD_TEST failures=0"
           run_suite "10_review/StressTest.tscn"      "STRESS_TEST failures=0"
 
           echo "=== QA mechanics ==="

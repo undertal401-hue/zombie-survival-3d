@@ -172,6 +172,59 @@ arneses aparecieron defectos reales que se corrigieron con el mismo criterio
 6. **Flood de `event.echo`** (ver §6): `HUD.gd` leía `event.echo` sobre
    `InputEventMouseMotion`, que no tiene esa propiedad.
 
+### 9. El error reportado en "Zombies.gd" (cerrado tras el primer push)
+
+El usuario reportó un error en un fichero llamado **`Zombies.gd`**. El único
+fichero del repositorio cuyo nombre coincide exactamente es
+`game/11_forest/ForestZombies.gd` (el resto es `Zombie.gd`), y el fallo se
+reprodujo **de forma literal** con una sonda (`/tmp/opencode/repro_zs/game/r1_forest2.gd`):
+
+```
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+       at: _kill_is_headshot (res://01_core/GameState.gd:361)
+ERROR: Error calling from signal 'zombie_died' to callable:
+       'Node2D(ForestZombies.gd)::_on_zombie_died': Cannot convert argument 1 from Object to Object.
+```
+
+**Causa raíz.** `EventBus.zombie_died` declaraba el payload como `Node2D`. Con
+ese tipo, el motor **rechaza la llamada** a cualquier receptor tipado cuando la
+instancia ya está liberada, y el error nombra el fichero del receptor: de ahí
+el "error en Zombies.gd". Además, dentro de `GameState` el guard
+`zombie != null` no protege: en Godot 4.7.2 una instancia liberada **compara
+como `== null`** (medido: `libre == null` → `true`), de modo que
+`zombie is Node2D` se ejecutaba sobre un objeto liberado y lanzaba
+"previously freed instance".
+
+**Semántica verificada en Godot 4.7.2** (sonda `r1_sem.gd`), que condiciona
+el orden de los guards en todo el repo:
+
+| Expresión | Instancia liberada | Null real |
+|---|---|---|
+| `libre == null` | `true` | `true` |
+| `typeof(libre)` | `TYPE_OBJECT` (24) | `TYPE_NIL` (0) |
+| `is_instance_valid(libre)` | `false` | `false` |
+| `libre is Object` | **lanza error** | `false` |
+
+Consecuencia: `== null` **no distingue** null de liberado; `typeof()` sí; y el
+operador `is` no puede usarse antes de comprobar la vigencia.
+
+**Arreglo.**
+- `EventBus.gd`: `signal zombie_died(zombie)` sin tipo (coherente con
+  `zombie_alerted(zombie, source)` y `game_state_changed(phase)`).
+- `ForestZombies.gd`: receptor sin tipo y guards en el orden correcto
+  (`typeof` → `is_instance_valid` → `is` → metadatos). Si el zombi ya está
+  liberado, se limpia la entrada obsoleta de la lista en vez de ignorarla.
+- `GameState.gd`: `_kill_is_headshot()` y `_kill_is_melee()` comprueban la
+  vigencia antes de leer el zombi o de usar el operador `is`.
+- `Main.gd`, `WeaponController.gd`, `QuestDirector.gd` y `QA.gd`: receptores
+  sin tipo (no usan el payload).
+- Nuevo arnés `ZombieEventPayloadTest` (**21 suites** en el CI): combina
+  introspección determinista (señal y receptores sin tipo, guardas
+  presentes) y regresión en runtime (payload liberado → `GameState` responde
+  `bool`, la lista del spawner se limpia y el zombi vivo se conserva).
+  Control negativo verificado: con el código anterior el arnés da **10 fallos**
+  y reproduce los dos `SCRIPT ERROR`; con el arreglo, **0 fallos**.
+
 ### Alternatives Considered
 
 ### (a) Mantener los sprites pixel-art generados como presentación

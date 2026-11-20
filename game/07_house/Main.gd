@@ -386,7 +386,9 @@ func _has_near_zombie(radius: float) -> bool:
 			return true
 	return false
 
-func _on_zombie_died_for_state(_zombie: Node2D) -> void:
+## R1-fix: el payload de `zombie_died` no se tipa (puede llegar liberado);
+## este receptor no lo usa, así que lo acepta sin restringir.
+func _on_zombie_died_for_state(_zombie) -> void:
 	GameState.record("kill")
 
 func _on_player_damaged_for_state(amount: float, _source: Node) -> void:

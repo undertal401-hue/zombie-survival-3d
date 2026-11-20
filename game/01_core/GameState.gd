@@ -329,7 +329,13 @@ func _on_melee_attack(_weapon = null, _direction = null) -> void:
 
 
 func _kill_is_melee(zombie) -> bool:
-	if zombie != null:
+	# R1-fix: se comprueba la VIGENCIA, no solo la nulidad. En Godot 4.7.2
+	# una instancia liberada compara como `== null` (medido: `libre == null`
+	# -> true), de modo que `zombie != null` ya la descarta; el
+	# `is_instance_valid()` explícito deja el invariante escrito y protege
+	# frente a que el payload llegue con una referencia a un objeto liberado
+	# en otro momento del frame.
+	if zombie != null and is_instance_valid(zombie):
 		for prop: String in ["killed_by_melee", "last_hit_melee", "is_melee_kill"]:
 			var flag: Variant = zombie.get(prop)
 			if flag is bool and bool(flag):
@@ -350,7 +356,10 @@ func _kill_is_melee(zombie) -> bool:
 ## Headshot real: el marcador canónico es el "!" que DamageNumber.gd escribe en
 ## su etiqueta (setup(amount, headshot, pos)). Se consulta por baja, no por frame.
 func _kill_is_headshot(zombie) -> bool:
-	if zombie != null:
+	# R1-fix: ver `_kill_is_melee`. La vigencia se comprueba ANTES de usar el
+	# operador `is`, que lanza "previously freed instance" con un payload
+	# liberado.
+	if zombie != null and is_instance_valid(zombie):
 		for prop: String in ["killed_by_headshot", "last_hit_headshot", "is_headshot"]:
 			var flag: Variant = zombie.get(prop)
 			if flag is bool and bool(flag):
@@ -358,7 +367,7 @@ func _kill_is_headshot(zombie) -> bool:
 	if not is_inside_tree():
 		return false
 	var origin: Vector2 = Vector2.ZERO
-	var have_origin: bool = zombie is Node2D
+	var have_origin: bool = is_instance_valid(zombie) and zombie is Node2D
 	if have_origin:
 		origin = (zombie as Node2D).global_position
 	for node in get_tree().get_nodes_in_group("damage_numbers"):

@@ -86,19 +86,46 @@ func _away_from_player(point: Vector2, player: Node2D) -> Vector2:
 	var angle: float = _rng.randf_range(0.0, TAU)
 	return point + Vector2.RIGHT.rotated(angle) * PUSH_DISTANCE
 
-func _on_zombie_died(zombie: Node2D) -> void:
-	if zombie == null or not bool(zombie.get_meta("forest_zombie", false)):
+## R1-fix: el payload no se tipa y se valida ANTES de tocarlo.
+## Con `zombie: Node2D`, una instancia ya liberada hacia que el motor
+## rechazase la llamada ("Cannot convert argument 1 from Object to Object")
+## y el error nombraba ESTE fichero ("Zombies.gd" en el reporte del usuario).
+##
+## ORDEN CRÍTICO de los guards (medido en Godot 4.7.2, sonda `r1_sem.gd`):
+##   - `libre == null` es TRUE: un guard `== null` se TRAGA la instancia
+##     liberada y el resto de la función no llega a ejecutarse.
+##   - `typeof(libre)` sigue siendo TYPE_OBJECT (24), así que `typeof` sí
+##     distingue null real (TYPE_NIL = 0) de instancia liberada.
+##   - `libre is Object` LANZA "previously freed instance": el operador `is`
+##     no puede usarse antes de comprobar la vigencia.
+func _on_zombie_died(zombie) -> void:
+	if typeof(zombie) == TYPE_NIL:
+		return
+	if typeof(zombie) != TYPE_OBJECT:
+		return
+	if not is_instance_valid(zombie):
+		# El zombi ya está liberado: no hay metadatos que leer, pero sí hay
+		# una entrada obsoleta que limpiar de la lista.
+		_forget(null)
+		return
+	if not (zombie is Node):
+		return
+	if not bool(zombie.get_meta("forest_zombie", false)):
 		return
 	_forget(zombie)
 
 
-func _on_spawned_tree_exiting(zombie: Node2D) -> void:
+func _on_spawned_tree_exiting(zombie) -> void:
+	if zombie == null or not is_instance_valid(zombie):
+		return
 	_forget(zombie)
 
 
-func _forget(zombie: Node2D) -> void:
+func _forget(zombie) -> void:
 	for i in range(_spawned.size() - 1, -1, -1):
-		if _spawned[i] == zombie or not is_instance_valid(_spawned[i]):
+		if not is_instance_valid(_spawned[i]):
+			_spawned.remove_at(i)
+		elif zombie != null and is_instance_valid(zombie) and _spawned[i] == zombie:
 			_spawned.remove_at(i)
 
 

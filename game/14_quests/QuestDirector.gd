@@ -461,7 +461,9 @@ func _process(delta: float) -> void:
             TYPE_SURVIVE_NIGHT:
                 _update_survive_night(quest, delta)
 
-func _on_zombie_died(_zombie: Node2D) -> void:
+## R1-fix: el payload de `zombie_died` no se tipa (puede llegar liberado);
+## este receptor no lo usa, así que lo acepta sin restringir.
+func _on_zombie_died(_zombie) -> void:
     if _terminated:
         return
     for quest in _active.duplicate():

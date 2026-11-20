@@ -33,7 +33,9 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	EventBus.victory.connect(func() -> void: _victory_fired = true)
 	EventBus.game_over.connect(func() -> void: _game_over_fired = true)
-	EventBus.zombie_died.connect(func(_zombie: Node2D) -> void: _kills += 1)
+	# R1-fix: el payload de `zombie_died` no se tipa (puede llegar liberado);
+	# un receptor tipado rechazaría la llamada y lanzaría un error.
+	EventBus.zombie_died.connect(func(_zombie) -> void: _kills += 1)
 	EventBus.player_damaged.connect(func(amount: float, _source: Node) -> void:
 		_damage_events += 1
 		_damage_total += amount
