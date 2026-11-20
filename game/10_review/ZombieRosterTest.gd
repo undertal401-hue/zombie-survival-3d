@@ -32,9 +32,17 @@ const NEIGHBORHOOD_SCRIPT: String = "res://05_house/Neighborhood.gd"
 const FOREST_ZOMBIES_SCRIPT: String = "res://11_forest/ForestZombies.gd"
 const WORLD_DIRECTOR_SCRIPT: String = "res://01_core/WorldDirector.gd"
 const AUDIO_SCRIPT: String = "res://13_audio/AudioDirector.gd"
+const COMBAT_FX_SCRIPT: String = "res://15_fx/CombatFX.gd"
+const GEN_ART_SCRIPT: String = "res://tools/gen_art.py"
 
 ## Nombres de arquetipo que NO deben volver a existir en el codigo.
 const DEAD_ARCHETYPES: Array[String] = ["RUNNER", "SPITTER", "SCREAMER", "TANK"]
+## Marcadores de runtime/arte que tampoco deben sobrevivir. Se comparan en
+## minusculas para detectar tanto `RUNNER` como `runner` y las metodos de los
+## arquetipos retirados en CombatFX y en el generador canonico.
+const DEAD_RUNTIME_TOKENS: Array[String] = [
+	"runner", "spitter", "screamer", "tank", "acid spit", "scream wave",
+]
 
 var _failures: Array[String] = []
 var _instances: Array[Node] = []
@@ -72,6 +80,9 @@ func _strip_comments(src: String) -> String:
 				in_string = false
 			i += 1
 			continue
+		# GDScript admite cadenas con comillas simples y dobles. Un `#` dentro
+		# de cualquiera de ellas no abre un comentario; un apostrofe dentro de
+		# un comentario se ignora porque el bloque `#` se consume entero.
 		if ch == "\"" or ch == "'":
 			in_string = true
 			quote = ch
@@ -99,6 +110,7 @@ func _ready() -> void:
 	_enum_checks()
 	_spawner_checks()
 	_amount_checks()
+	_audio_checks()
 	# `await` IMPORTANTE: `_runtime_checks()`.awaita frames. Sin el, `_finish()`
 	# liberaria el zombi mientras la corrutina esta suspendida y las llamadas
 	# posteriores fallarian con "previously freed instance".
@@ -108,6 +120,16 @@ func _ready() -> void:
 
 
 func _enum_checks() -> void:
+	# El analizador de comentarios debe respetar AMBAS formas de cadena de
+	# GDScript. Godot acepta comillas simples y dobles; un `#` dentro de una
+	# cadena simple no es el inicio de un comentario.
+	var parser_probe: String = "var marker = 'runner#not-comment'\n# un apostrofo ' no abre cadena\nvar after = 1"
+	var parsed_probe: String = _strip_comments(parser_probe)
+	_check(parsed_probe.contains("'runner#not-comment'"),
+		"el analizador de comentarios respeta cadenas con comillas simples")
+	_check(parsed_probe.contains("var after = 1"),
+		"un apostrofo dentro de un comentario no oculta el codigo posterior")
+
 	var zombie_consts: Dictionary = _constants(ZOMBIE_SCRIPT)
 	var kind: Dictionary = zombie_consts.get("Kind", {}) as Dictionary
 	_check(kind.has("WALKER"), "Zombie.Kind declara WALKER")
@@ -131,10 +153,15 @@ func _enum_checks() -> void:
 	var sources: String = _strip_comments(
 		_read(ZOMBIE_SCRIPT) + _read(ZOMBIE_VISUAL_SCRIPT)
 		+ _read(MAIN_SCRIPT) + _read(FOREST_ZOMBIES_SCRIPT)
-		+ _read(WORLD_DIRECTOR_SCRIPT) + _read(AUDIO_SCRIPT))
-	for dead in DEAD_ARCHETYPES:
+		+ _read(WORLD_DIRECTOR_SCRIPT) + _read(AUDIO_SCRIPT)
+		+ _read(COMBAT_FX_SCRIPT) + _read(GEN_ART_SCRIPT)).to_lower()
+	for dead in DEAD_RUNTIME_TOKENS:
 		_check(not sources.contains(dead),
-			"ningun fuente conserva el arquetipo eliminado %s" % dead)
+			"ningun fuente runtime/arte conserva el arquetipo eliminado %s" % dead)
+	var gen_art_source: String = _read(GEN_ART_SCRIPT).to_lower()
+	for dead_effect in ["acid spit", "scream wave"]:
+		_check(not gen_art_source.contains(dead_effect),
+			"gen_art.py no fabrica el efecto retirado %s" % dead_effect)
 
 
 func _spawner_checks() -> void:
@@ -145,6 +172,16 @@ func _spawner_checks() -> void:
 		"Main._spawn_zombies() ya no selecciona tipo")
 	_check(not main_src.contains("BOSS_KIND: int"),
 		"Main no usa un indice de jefe magico: lo resuelve del enum del zombi")
+	_check(not main_src.contains("kinds.get(\"BOSS\", 1)"),
+		"Main._boss_kind() no cae al indice magico 1 si falta Kind.BOSS")
+	_check(not main_src.contains("kinds.get(\"BOSS\", 0)"),
+		"Main._boss_kind() no cae al indice magico 0 si falta Kind.BOSS")
+	_check(main_src.contains("_boss_kind_from(kinds)"),
+		"Main._boss_kind() usa el resolver _boss_kind_from(kinds)")
+	_check(main_src.contains("push_error") and main_src.contains("return -1"),
+		"Main._boss_kind() falla de forma abierta si no existe Kind.BOSS")
+	_check(main_src.contains("kind < 0"),
+		"Main.spawn_boss() rechaza un kind de jefe invalido")
 
 	var forest_src: String = _read(FOREST_ZOMBIES_SCRIPT)
 	_check(not forest_src.contains("ZOMBIE_KINDS"),
@@ -183,6 +220,89 @@ func _amount_checks() -> void:
 		_check(false, "WorldDirector.gd se puede cargar")
 
 
+func _audio_checks() -> void:
+	var audio_script: Script = load(AUDIO_SCRIPT)
+	if audio_script == null:
+		_check(false, "AudioDirector.gd se puede cargar")
+		return
+	var audio: Node = audio_script.new()
+	if audio == null:
+		_check(false, "AudioDirector.gd se puede instanciar")
+		return
+
+	# Un payload de una instancia liberada no puede tocarse con `is` antes de
+	# comprobar su vigencia. Estos casos cubren Node2D, Node y Object, que son
+	# los tres tipos que el bus puede haber dejado en una referencia antigua.
+	var freed_node2d: Node2D = Node2D.new()
+	var freed_node2d_value: Variant = freed_node2d
+	freed_node2d.free()
+	var freed_node: Node = Node.new()
+	var freed_node_value: Variant = freed_node
+	freed_node.free()
+	var freed_object: Object = Object.new()
+	var freed_object_value: Variant = freed_object
+	freed_object.free()
+
+	_check(audio.call("_as_position", freed_node2d_value) == null,
+		"AudioDirector ignora una posicion Node2D liberada")
+	_check(audio.call("_as_position", freed_node_value) == null,
+		"AudioDirector ignora una posicion Node liberada")
+	_check(audio.call("_as_position", freed_object_value) == null,
+		"AudioDirector ignora una posicion Object liberada")
+	_check(audio.call("_weapon_sfx_id", freed_node_value) == "pistol",
+		"AudioDirector ignora un weapon liberado")
+	audio.call("_on_bus_vehicle_state_changed", freed_node2d_value, 10.0, 10.0)
+
+	# La comprobacion estatica fija el orden seguro que Godot exige: la
+	# vigencia se consulta ANTES de clasificar una variante como Node/Node2D.
+	# Si alguien invierte esas llamadas, el suite vuelve a fallar aunque el
+	# caso de Node2D concreto no se haya ejecutado en este proceso.
+	var audio_src: String = _read(AUDIO_SCRIPT)
+	for unsafe_pattern in [
+			"found is Node2D", "vehicle is Node2D", "candidate is Node2D",
+			"node is Node2D", "weapon is Object",
+	]:
+		_check(not audio_src.contains(unsafe_pattern),
+			"AudioDirector no clasifica una instancia liberada antes de validarla: %s"
+				% unsafe_pattern)
+	var live_helper_at: int = audio_src.find("func _is_live_node2d")
+	var live_check_at: int = audio_src.find("_is_live_object(value)", live_helper_at)
+	var type_check_at: int = audio_src.find("value is Node2D", live_helper_at)
+	_check(live_helper_at >= 0 and live_check_at >= live_helper_at
+			and type_check_at > live_check_at,
+		"AudioDirector valida un Node2D antes de usar is sobre el")
+	var engine_poll_at: int = audio_src.find("func _update_engine_poll")
+	var engine_candidate_at: int = audio_src.find("_is_live_node2d(node)", engine_poll_at)
+	_check(engine_poll_at >= 0 and engine_candidate_at > engine_poll_at,
+		"AudioDirector valida los candidatos del grupo antes de clasificarlos")
+
+	var kind_map: Dictionary = (_constants(ZOMBIE_SCRIPT).get("Kind", {}) as Dictionary)
+	var walker_kind: int = int(kind_map.get("WALKER", 0))
+	var boss_kind: int = int(kind_map.get("BOSS", 1))
+	var audio_consts: Dictionary = _constants(AUDIO_SCRIPT)
+	var telegraph: Dictionary = audio_consts.get("TELEGRAPH_SFX", {}) as Dictionary
+	_check(telegraph.has(&"walker") and telegraph.has(&"boss"),
+		"la telegrafia se identifica semanticamente como walker/boss")
+	_check(not telegraph.has(walker_kind) and not telegraph.has(boss_kind),
+		"la telegrafia no usa los ordinales del enum como claves")
+	_check(audio.has_method("_telegraph_preset"),
+		"AudioDirector resuelve la telegrafia mediante una tabla semantica")
+	if audio.has_method("_telegraph_preset"):
+		var walker_preset: Dictionary = audio.call("_telegraph_preset", &"walker") as Dictionary
+		var boss_preset: Dictionary = audio.call("_telegraph_preset", &"boss") as Dictionary
+		var boss_from_enum: Dictionary = audio.call("_telegraph_preset", boss_kind) as Dictionary
+		var walker_from_enum: Dictionary = audio.call("_telegraph_preset", walker_kind) as Dictionary
+		_check(String(walker_preset.get("id", "")) == "footstep",
+			"la API semantica reproduce el efecto de walker")
+		_check(String(boss_preset.get("id", "")) == "horde_alert",
+			"la API semantica reproduce el efecto de boss")
+		_check(String(boss_from_enum.get("id", "")) == "horde_alert",
+			"la compatibilidad int resuelve boss desde Zombie.Kind")
+		_check(String(walker_from_enum.get("id", "")) == "footstep",
+			"la compatibilidad int resuelve walker desde Zombie.Kind")
+	audio.free()
+
+
 func _runtime_checks() -> void:
 	var zombie: Node = load(ZOMBIE_SCENE).instantiate()
 	if zombie == null:
@@ -196,6 +316,73 @@ func _runtime_checks() -> void:
 	var kind_map: Dictionary = (_constants(ZOMBIE_SCRIPT).get("Kind", {}) as Dictionary)
 	var walker_kind: int = int(kind_map.get("WALKER", 0))
 	var boss_kind: int = int(kind_map.get("BOSS", 1))
+
+	# El roster tambien se aplica a la capa de efectos: el indice real de
+	# Kind.BOSS debe clasificarse como `boss`, nunca como un arquetipo retirado.
+	var combat_script: Script = load(COMBAT_FX_SCRIPT)
+	if combat_script != null:
+		var combat: Node = combat_script.new()
+		if combat != null:
+			add_child(combat)
+			_instances.append(combat)
+			_check(combat.call("_normalize_zombie_kind", boss_kind) == &"boss",
+				"CombatFX clasifica Kind.BOSS como boss")
+			_check(combat.call("_normalize_zombie_kind", walker_kind) == &"walker",
+				"CombatFX clasifica Kind.WALKER como walker")
+
+			# Un objeto liberado puede llegar desde una referencia antigua. El
+			# guard debe comprobar `is_instance_valid` ANTES de usar `is Node`;
+			# al revés, Godot aborta la funcion con "previously freed instance".
+			var freed_node: Node = Node.new()
+			var freed_value: Variant = freed_node
+			freed_node.free()
+			_check(combat.call("_normalize_surface", freed_value) == &"concrete",
+				"CombatFX tolera una superficie de instancia liberada")
+			_check(combat.call("_normalize_zombie_kind", freed_value) == &"walker",
+				"CombatFX tolera un perfil de zombi de instancia liberada")
+
+			# El color no se deduce solo de la clasificacion: se comprueba la
+			# particula realmente emitida para cada perfil del enum.
+			var fx_consts: Dictionary = combat_script.get_script_constant_map()
+			var amber_type: int = int(fx_consts.get("PART_BLOOD_AMBER", -1))
+			var green_type: int = int(fx_consts.get("PART_BLOOD_GREEN", -1))
+			combat.call("spawn_blood", Vector2.ZERO, boss_kind)
+			var amber_seen: bool = false
+			var amber_color_ok: bool = false
+			var particles: Array = combat.get("_particles") as Array
+			for data in particles:
+				var particle: Dictionary = data as Dictionary
+				if not bool(particle.get("active", false)) \
+						or int(particle.get("type", -1)) != amber_type:
+					continue
+				amber_seen = true
+				var amber: Color = particle.get("color", Color.TRANSPARENT) as Color
+				amber_color_ok = is_equal_approx(amber.r, 0.96) \
+						and is_equal_approx(amber.g, 0.56) \
+						and is_equal_approx(amber.b, 0.12)
+			_check(amber_seen and amber_color_ok,
+				"CombatFX emite sangre AMBAR para el perfil Kind.BOSS")
+
+			combat.call("spawn_blood", Vector2.ZERO, walker_kind)
+			var green_seen: bool = false
+			var green_color_ok: bool = false
+			particles = combat.get("_particles") as Array
+			for data in particles:
+				var particle: Dictionary = data as Dictionary
+				if not bool(particle.get("active", false)) \
+						or int(particle.get("type", -1)) != green_type:
+					continue
+				green_seen = true
+				var green: Color = particle.get("color", Color.TRANSPARENT) as Color
+				green_color_ok = is_equal_approx(green.r, 0.24) \
+						and is_equal_approx(green.g, 0.74) \
+						and is_equal_approx(green.b, 0.20)
+			_check(green_seen and green_color_ok,
+				"CombatFX emite sangre VERDE para el perfil Kind.WALKER")
+		else:
+			_check(false, "CombatFX.gd se puede instanciar")
+	else:
+		_check(false, "CombatFX.gd se puede cargar")
 
 	_check(int(zombie.get("kind")) == walker_kind,
 		"el zombi por defecto es WALKER")
@@ -233,12 +420,13 @@ func _runtime_checks() -> void:
 	_check(not props.has("spit_damage") and not props.has("scream_cooldown"),
 		"no quedan propiedades de dano de escupitajo ni de cooldown de grito")
 
-	# La telegrafia sonora solo distingue walker y jefe.
+	# La telegrafia sonora solo distingue walker y jefe mediante nombres
+	# semanticos; sus ordinales se resuelven desde Zombie.Kind al vuelo.
 	var audio_consts: Dictionary = _constants(AUDIO_SCRIPT)
 	var telegraph: Dictionary = audio_consts.get("TELEGRAPH_SFX", {}) as Dictionary
 	_check(telegraph.size() == 2, "la tabla de telegrafia tiene 2 entradas (walker, jefe)")
-	_check(telegraph.has(walker_kind) and telegraph.has(boss_kind),
-		"la tabla de telegrafia cubre walker y jefe")
+	_check(telegraph.has(&"walker") and telegraph.has(&"boss"),
+		"la tabla de telegrafia cubre semanticamente walker y jefe")
 
 
 ## ---------------------------------------------------------------------------
@@ -258,6 +446,35 @@ func _boss_spawn_checks() -> void:
 	get_tree().root.add_child(main)
 	for i in range(6):
 		await get_tree().process_frame
+
+	# Se prueba la RUTA REAL con un mapa SIN Kind.BOSS. `report_error=false`
+	# evita deliberar `push_error` en CI, pero no cambia como se resuelve el
+	# enum: el fallo abierto debe seguir siendo -1.
+	var invalid_boss_kind: int = -1
+	var invalid_route_called: bool = false
+	var boss_kind_accepts_test_args: bool = false
+	for method_info in main.get_method_list():
+		if String(method_info.get("name", "")) == "_boss_kind":
+			boss_kind_accepts_test_args = (method_info.get("args", []) as Array).size() >= 2
+			break
+	_check(boss_kind_accepts_test_args,
+		"Main._boss_kind() admite override y control de error")
+	if boss_kind_accepts_test_args:
+		invalid_route_called = true
+		invalid_boss_kind = int(main.call("_boss_kind", {}, false))
+	_check(invalid_route_called and invalid_boss_kind == -1,
+		"Main._boss_kind({}, false) se ejecuta y falla abierto si falta BOSS")
+
+	# Un indice resuelto invalido no debe crear un jefe ni consumir la oleada.
+	# `spawn_boss()` resuelve el enum y delega aqui, asi que esta es la misma
+	# ruta de creacion que usa la API publica.
+	var invalid_boss: Node = null
+	if main.has_method("_spawn_boss_with_kind"):
+		invalid_boss = main.call("_spawn_boss_with_kind", Vector2(600.0, 600.0), invalid_boss_kind)
+	_check(invalid_boss == null,
+		"Main aborta el spawn cuando Kind.BOSS no se puede resolver")
+	_check(int(main.get("_boss_spawned_wave")) == -1,
+		"el jefe invalido no consume la oleada de aparicion")
 
 	var boss: Node = null
 	if main.has_method("spawn_boss"):

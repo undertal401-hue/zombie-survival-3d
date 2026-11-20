@@ -66,8 +66,11 @@ solo para el contorno. Nunca se mezclan tonos nuevos por interpolación.
   **R3 (ADR-006)**: el juego tiene UN SOLO arquetipo de zombi (el caminante);
   el «Tanque Alfa» es un perfil del mismo zombi y usa `boss_sheet.png` como
   hoja de banco. Ya no se fabrican hojas de arquetipos eliminados.
-- Hojas de apoyo: `effects.png` (fogonazos, salpicaduras, impactos),
-  `tiles.png` (suelo, muro, escombros, manchas).
+- Hojas de apoyo: `effects.png` (salpicaduras, fogonazos, chispas, polvo,
+  goteo y pequeñas explosiones genéricas; sin efectos ligados a arquetipos
+  retirados), `tiles.png` (suelo, muro, escombros, manchas).
+  `effects.png` conserva ocho celdas: las seis primeras pertenecen a la
+  allowlist genérica y las dos últimas son transparentes.
 - Mapas de luz (no son hojas de personaje): `assets/art/lights/light_cone.png`
   (cono del faro) y `assets/art/lights/light_halo.png` (halo del jugador).
 - Máscara de sombra: `assets/art/shadows/sun_shadow.png` (64×64). Es una
@@ -92,13 +95,20 @@ python3 tools/gen_art.py --check    # solo verifica; no escribe nada
 ```
 
 El modo `--check` valida firma PNG, IHDR, dimensiones múltiplos de 32 y que
-todos los píxeles opacos pertenecen a la paleta. La salida es determinista:
-regenerar produce bytes idénticos.
+todos los píxeles opacos pertenecen a la paleta. Además, regenera las cinco
+hojas, los dos mapas de luz y la máscara de sombra **en memoria** y compara
+sus bytes con el disco: un PNG válido pero obsoleto hace fallar la puerta.
+En `effects.png` exige además que solo las seis celdas de la allowlist
+contengan píxeles y que las dos restantes sean transparentes. La salida es
+determinista: regenerar produce bytes idénticos.
 
-## 7. Addendum — Skin de zombi de rango bajo
+## 7. Addendum — Skin de zombi (caminante y perfil BOSS)
 
-El pack de skin del walker vive en `assets/enemies/zombie/` y sigue una
-retícula propia, separada de las hojas canónicas de 32×32:
+El pack de skin vive en `assets/enemies/zombie/` y lo usan tanto el caminante
+como el **perfil BOSS** del Tanque Alfa: el jefe reutiliza el mismo sprite y
+pack, con escala propia. `boss_sheet.png` es una **hoja de reserva del banco**,
+no la presentación runtime del jefe. El pack sigue una retícula propia,
+separada de las hojas canónicas de 32×32:
 
 - Celda de **64×64 px**, **PPU 64** y pivot de nodo en el **centro
   `(0.5, 0.5)`**.
@@ -196,7 +206,12 @@ La sombra direccional 2D de Godot **no tiene largo**: llega hasta el borde de
 pantalla (`z_far = 2 * to_edge_distance + cull_distance` en el motor), y
 `DirectionalLight2D.max_distance` no la acorta. Las sombras **diurnas** son por
 tanto **manchas** dibujadas por `game/08_ui/SunShadowController.gd`, con una
-cota dura de 48 px.
+cota dura de 48 px en el eje largo y en el transversal. Cada mancha se ancla
+**exactamente** al centro mundial del polígono real del oclusor y su eje largo
+coincide con la dirección proyectada de la sombra. Usa `light_mask = 0` y un
+`CanvasItemMaterial` `UNSHADED`: Godot 4.7 ignora `light_mask` para la
+`DirectionalLight2D`, por lo que el material es imprescindible para que el sol
+no aclare la mancha.
 
 - `assets/art/shadows/sun_shadow.png` — **64×64**, elipse suave: opaca en el
   centro y transparente en el borde (`alpha = (1 - d)^1.6`, `d` = distancia

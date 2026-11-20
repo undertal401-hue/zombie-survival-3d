@@ -171,6 +171,13 @@ usa: ahora lo usan el caminante y su perfil de jefe.
 
 ### 4. Sombras diurnas acotadas: manchas (blob) con cota dura
 
+> [!note] Alcance de la enmienda posterior
+> Este apartado conserva la descripción original del ADR `accepted`. Donde
+> menciona únicamente `light_mask = 0`, el anclaje del centro o la rotación,
+> la **Enmienda R3-hotfix** de este mismo documento es la especificación
+> vigente: añade `UNSHADED`, exige el centro mundial exacto del polígono real y
+> la convención real de `DirectionalLight2D` en Godot 4.7.
+
 La decisión es explícita: **el sol deja de proyectar sombra direccional** y
 las sombras diurnas las dibuja un sistema de **manchas acotadas**.
 
@@ -184,7 +191,8 @@ las sombras diurnas las dibuja un sistema de **manchas acotadas**.
   igual dentro del juego y dentro de un arnés.
 - La mancha usa la máscara `sun_shadow.png` (canónica, determinista), se
   alarga en la dirección **opuesta** a la luz y tiene una **cota dura de
-  longitud**: `MAX_SHADOW_LENGTH = 48 px` (`SunShadowController.gd:56`), con
+  longitud**: `MAX_SHADOW_LENGTH = 48 px` (constante vigente en
+  `SunShadowController.gd`), con
   un mínimo de 16 px y un ancho mínimo de 14 px. Ninguna mancha puede llegar
   al borde de pantalla (1280×720).
 - Las manchas **no reciben luz** (`light_mask = 0`): son oscuridad pintada, no
@@ -322,8 +330,9 @@ por el camino de **fallback**, no por un arquetipo eliminado).
   64×64 por emisor, que comparten la misma textura en memoria).
 - La sombra diurna ya **no es la del motor**: su forma y su longitud son una
   aproximación, no un cálculo físico.
-- La sombra del oclusor sigue siendo la del rectángulo del `LightOccluder2D`
-  (24×24 para los zombis), no la de la silueta del sprite.
+- La mancha se deriva de la caja mundial del **polígono real** del
+  `LightOccluder2D`, no de la silueta exacta del sprite ni de un rectángulo
+  generico de 24×24.
 - Perder cuatro arquetipos significa perder **variedad de comportamiento**
   (escupitajo, grito, carga) y la lectura de rango que daban sus tintes.
 - La rotación de un sprite pixel-art puede producir bordes irregulares fuera de
@@ -367,8 +376,9 @@ Las siguientes reglas deben seguir siendo verdad:
    parámetro de runtime que finja acortarla.
 9. Cada mancha solar mide como máximo `MAX_SHADOW_LENGTH` (48 px) en su eje
    largo: no puede llegar al borde de pantalla.
-10. Las manchas solares no reciben luz (`light_mask = 0`) y se dibujan por
-    debajo de los personajes.
+10. Las manchas solares no reciben luz: `light_mask = 0` y un
+    `CanvasItemMaterial` en modo `UNSHADED`; se dibujan por debajo de los
+    personajes.
 11. De noche la mancha solar es **invisible** (alpha 0) y el sol no aporta
     energía.
 12. El **faro nocturno** conserva `shadow_enabled = true` y sus sombras reales
@@ -382,3 +392,91 @@ Las siguientes reglas deben seguir siendo verdad:
 16. La tabla de telegrafía sonora tiene dos entradas (caminante y jefe).
 17. El repo no fabrica ni distribuye arte de arquetipos eliminados: el banco
     son cinco hojas y `gen_art.py --check` lo verifica.
+
+## Enmienda R3-hotfix — 2026-11-20
+
+Esta enmienda **no reescribe el histórico accepted** de ADR-006: corrige la
+realización de varios invariantes que la revisión adversarial demostró que
+pueden dar verde sin cumplir el contrato. Forman parte de la decisión vigente.
+
+### Correcciones de la realización
+
+1. **Anclaje geométrico exacto de la mancha.** La mancha se ancla al centro de
+   la caja **MUNDIAL** del polígono del `LightOccluder2D`, sin desplazamiento
+   adicional, y no a `occ.global_position`. En `House.gd` el oclusor está en el
+   origen de la casa y el polígono lleva las coordenadas del muro; usar el
+   origen del nodo apilaba las cinco sombras de cada casa en su centro. La caja
+   se calcula transformando cada punto del polígono, por lo que respeta
+   posición, escala y rotación.
+2. **Orientación del eje largo.** La máscara se elonga por su eje local **Y**.
+   El sprite rota `shadow_dir.angle() - PI/2`, de modo que el eje largo local
+   coincide con la dirección proyectada de la sombra (antes quedaba
+   perpendicular). La longitud visual de Y se mantiene **mayor o igual** que la
+   del eje transversal X: si ambos necesitan llegar al tope, ambos pueden
+   medir 48 px, pero nunca se supera esa cota.
+3. **Cota del eje transversal.** Existe `MAX_SHADOW_WIDTH = 48 px`; el eje
+   transversal también queda acotado. `blob_lengths()` informa de la dimensión
+   **mayor** real de cada sprite mediante su `global_transform`, no solo de su
+   escala local Y. `SunShadowController` neutraliza además cualquier escala
+   global heredada para que 48 px sigan siendo 48 px en el mundo.
+4. **Convención real de `DirectionalLight2D`.** Godot 4.7 emite por el eje **+Y**
+   de la base global (sin rotar, hacia abajo). La convención del proyecto
+   (`solar_angle = 0` → Este) exige una rotación del nodo igual a
+   `solar_angle - PI/2`. La dirección de la mancha es la opuesta a esa
+   dirección emitida real.
+5. **Roster en la capa de efectos.** `CombatFX` ya no mantiene una tabla
+   posicional de arquetipos. Resuelve `Zombie.Kind.BOSS` desde el enum real y
+   clasifica el jefe como el perfil `boss`; su sangre es ámbar frente al verde
+   del caminante. Las ramas de los arquetipos retirados se eliminan del código.
+6. **Fallo abierto del jefe.** Si `Zombie.Kind.BOSS` no existe,
+   `Main._boss_kind()` emite `push_error` y devuelve `-1`; `spawn_boss()` aborta
+   sin marcar la oleada como usada. No existe el fallback al índice `1`.
+7. **Arte sin efectos de arquetipos retirados.** `gen_art.py` tiene una
+   allowlist explícita de seis efectos genéricos y una tupla canónica que fija
+   **nombres y orden**: `blood_splat`, `muzzle_flash`, `bullet_sparks`,
+   `dust_puff`, `blood_drip`, `small_explosion`. Conserva las ocho celdas
+   históricas de `effects.png`, pero las dos celdas retiradas quedan
+   transparentes. Su modo `--check` exige igualdad exacta con esa tupla,
+   regenera en memoria, compara bytes con el disco y bloquea tanto un PNG
+   obsoleto como una celda no admitida.
+8. **Faro comprobado por runtime.** `SunShadowTest` instancia `Player.tscn`,
+   lo añade al árbol y comprueba el nodo exacto `Flashlight`: `PointLight2D`,
+   la textura canónica del cono, `shadow_enabled`, `shadow_filter` y
+   `shadow_filter_smooth`.
+9. **Mancha realmente sin luz.** La `DirectionalLight2D` de Godot 4.7 ignora
+   `CanvasItem.light_mask`; por eso cada mancha usa además un
+   `CanvasItemMaterial` en modo `UNSHADED`. El arnés comprueba el material en
+   runtime, no solo una asignación estática de `light_mask`.
+
+### Invariantes añadidos por la enmienda
+
+18. Hay **exactamente una mancha por `LightOccluder2D` vivo**, anclada a la caja
+    mundial de su polígono.
+19. La dimensión mayor de cada mancha no supera **exactamente 48 px** en
+    ninguno de sus ejes; longitud y transversal tienen cotas duras separadas.
+20. El eje largo real de cada sprite coincide con `shadow_direction()`, y esa
+    dirección es opuesta a la luz emitida por `DirectionalLight2D`. La prueba
+    selecciona el eje **transformado de mayor longitud visual**, sin asumir que
+    sea el Y local, y exige además que el Y local mapeado a la sombra no sea
+    menor que el transversal.
+21. `CombatFX` clasifica el índice real de `Kind.BOSS` como `boss`; no queda
+    ninguna tabla posicional de arquetipos retirados en runtime o arte.
+22. La ausencia de `Kind.BOSS` falla de forma abierta y `spawn_boss()` no genera
+    un jefe sin perfil.
+23. El centro de cada mancha coincide **exactamente** con el centro mundial de
+    la caja del polígono real; no hay desplazamiento direccional oculto.
+24. Cada mancha usa material `UNSHADED`; no puede recibir ni aclarar el sol
+    direccional aunque Godot ignore `light_mask`.
+25. `CombatFX` tolera referencias a objetos ya liberados sin abortar y emite
+    verde para `Kind.WALKER` y ámbar para `Kind.BOSS`.
+26. La hoja de efectos conserva ocho celdas, pero solo las seis de la allowlist
+    genérica pueden contener píxeles.
+27. `gen_art.py --check` exige la tupla canónica exacta de seis efectos,
+    regenera en memoria y compara bytes: un asset válido pero obsoleto produce
+    error de puerta.
+28. `Main._boss_kind()` usa realmente `_boss_kind_from(kinds)` y puede
+    ejercitarse en runtime sin provocar un error deliberado; la ausencia de
+    `Kind.BOSS` devuelve `-1` y `spawn_boss()` aborta sin consumir la oleada.
+29. La orientación solar se contrasta dinámicamente con
+    `shadow_direction()`, también en un ángulo oblicuo, y la puerta exige las
+    cotas exactas de 48 px para longitud y transversal.

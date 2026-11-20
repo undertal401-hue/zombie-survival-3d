@@ -14,7 +14,6 @@ Usage:
 from __future__ import annotations
 
 import os
-import random
 import struct
 import sys
 import zlib
@@ -51,11 +50,15 @@ LEGAL_RGB = {rgba[:3] for rgba in RGBA[1:]}
 
 FRAME = 32
 COLS = 8
-SEED = 1337
-rng = random.Random(SEED)
+MAX_DIMENSION = 4096
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.normpath(os.path.join(HERE, "..", "assets", "art", "sprites"))
+SPRITE_OUTPUTS = (
+    "player_sheet.png",
+    "zombie_walker.png", "boss_sheet.png",
+    "effects.png", "tiles.png",
+)
 
 PLAYER_ANIMS = [
     "idle", "walk", "run",
@@ -66,6 +69,25 @@ PLAYER_ANIMS = [
 ZOMBIE_ANIMS = [
     "idle", "walk", "run", "attack", "hit", "hurt", "death", "crawl",
 ]
+# Allowlist EXACTA de efectos GENERICOS del banco. La lista activa y la
+# tupla canonica se mantienen separadas a proposito: --check debe detectar
+# una edicion accidental en cualquiera de las dos.
+EFFECT_KINDS = (
+    "blood_splat",
+    "muzzle_flash",
+    "bullet_sparks",
+    "dust_puff",
+    "blood_drip",
+    "small_explosion",
+)
+CANONICAL_EFFECT_KINDS = (
+    "blood_splat",
+    "muzzle_flash",
+    "bullet_sparks",
+    "dust_puff",
+    "blood_drip",
+    "small_explosion",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -77,18 +99,22 @@ def _chunk(tag: bytes, data: bytes) -> bytes:
             struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
 
 
-def write_png(path: str, width: int, height: int, pixels: bytearray) -> None:
+def encode_png(width: int, height: int, pixels: bytearray) -> bytes:
+    """Encode RGBA8 pixels deterministically without touching the filesystem."""
     raw = bytearray()
     stride = width * 4
     for y in range(height):
         raw.append(0)  # filter type: None
         raw.extend(pixels[y * stride:(y + 1) * stride])
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
-    blob = (b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) +
+    return (b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) +
             _chunk(b"IDAT", zlib.compress(bytes(raw), 9)) +
             _chunk(b"IEND", b""))
+
+
+def write_png(path: str, width: int, height: int, pixels: bytearray) -> None:
     with open(path, "wb") as f:
-        f.write(blob)
+        f.write(encode_png(width, height, pixels))
 
 
 def read_png(path: str):
@@ -109,10 +135,18 @@ def read_png(path: str):
         if (zlib.crc32(tag + body) & 0xFFFFFFFF) != crc:
             raise ValueError("bad CRC in %r" % tag)
         if tag == b"IHDR":
+            if length != 13:
+                raise ValueError("IHDR invalido (%d bytes, se esperan 13)"
+                                 % length)
             width, height, depth, ctype, comp, filt, inter = struct.unpack(
                 ">IIBBBBB", body)
             if (depth, ctype, comp, filt, inter) != (8, 6, 0, 0, 0):
                 raise ValueError("unexpected IHDR format")
+            if width == 0 or height == 0:
+                raise ValueError("IHDR con dimensiones cero")
+            if width > MAX_DIMENSION or height > MAX_DIMENSION:
+                raise ValueError("dimensiones excesivas (%dx%d, maximo %d)"
+                                 % (width, height, MAX_DIMENSION))
         elif tag == b"IDAT":
             idat.extend(body)
         elif tag == b"IEND":
@@ -121,9 +155,13 @@ def read_png(path: str):
         pos += 12 + length
     if not seen_end or width == 0 or height == 0:
         raise ValueError("incomplete PNG")
-    raw = zlib.decompress(bytes(idat))
     stride = width * 4
-    if len(raw) != height * (stride + 1):
+    expected_raw = height * (stride + 1)
+    # Un IDAT hostile puede declarar 1x1 y expandirse a cientos de MB:
+    # acotar la salida al tamano que el IHDR permite antes de descomprimir.
+    decompressor = zlib.decompressobj()
+    raw = decompressor.decompress(bytes(idat), expected_raw + 1)
+    if len(raw) != expected_raw:
         raise ValueError("bad raw size")
     pixels = bytearray(width * height * 4)
     for y in range(height):
@@ -396,7 +434,7 @@ def draw_humanoid(c: Canvas, frame: int, action: str, flesh, cloth,
 # ---------------------------------------------------------------------------
 
 def draw_effect(c: Canvas, frame: int) -> None:
-    kind = frame % 8
+    kind = frame % len(EFFECT_KINDS)
     if kind == 0:  # blood splatter
         stamp(c, disc_mask(16, 16, 6), "BLOOD_DARK")
         stamp(c, disc_mask(14, 14, 3), "BLOOD")
@@ -427,16 +465,6 @@ def draw_effect(c: Canvas, frame: int) -> None:
         stamp(c, disc_mask(16, 16, 6), "BLOOD")
         stamp(c, disc_mask(16, 16, 3), "BLOOD_BRIGHT")
         stamp(c, disc_mask(16, 16, 1), "BONE")
-    elif kind == 6:  # acid spit
-        stamp(c, disc_mask(16, 16, 5), "OLIVE_HI")
-        for (x, y) in [(16, 6), (10, 20), (22, 20), (7, 12), (25, 12)]:
-            stamp(c, disc_mask(x, y, 1), "OLIVE_LIGHT")
-    else:  # scream wave
-        for r in (4, 8, 12):
-            ring = {(x, y) for (x, y) in disc_mask(16, 16, r)
-                    if r - 1 <= ((x - 16) ** 2 + (y - 16) ** 2) ** 0.5 <= r}
-            stamp(c, ring, "BLOOD_BRIGHT" if r == 4 else "BLOOD")
-        stamp(c, disc_mask(16, 16, 2), "BONE")
 
 
 def draw_tile(c: Canvas, frame: int) -> None:
@@ -541,9 +569,13 @@ def build_all():
         outputs[name] = make_actor_sheet(ZOMBIE_ANIMS, zombie_draw(kind))
 
     effect_frames = []
-    for f in range(8):
+    # Se conserva el layout historico de 8 celdas para no cambiar el contrato
+    # de la hoja. Solo las seis de la allowlist contienen pixeles; las dos
+    # ultimas quedan TRANSPARENTES y no admiten un efecto retirado.
+    for f in range(COLS):
         c = Canvas()
-        draw_effect(c, f)
+        if f < len(EFFECT_KINDS):
+            draw_effect(c, f)
         effect_frames.append(c)
     outputs["effects.png"] = assemble(effect_frames)
 
@@ -561,13 +593,103 @@ def build_all():
 # CLI.
 # ---------------------------------------------------------------------------
 
-def do_check() -> int:
-    expected = [name for name in (
-        "player_sheet.png",
-        "zombie_walker.png", "boss_sheet.png",
-        "effects.png", "tiles.png",
-    )]
+def check_effect_allowlist(outputs) -> bool:
+    """Exige celdas activas solo para la allowlist generica.
+
+    La hoja conserva ocho celdas por compatibilidad. Las seis primeras
+    corresponden a efectos genericos admitidos; las dos ultimas deben quedar
+    completamente transparentes.
+    """
+    if "effects.png" not in outputs:
+        print("INVALID effects.png: no se genero")
+        return False
+    if EFFECT_KINDS != CANONICAL_EFFECT_KINDS:
+        print("INVALID effects.png: allowlist distinta de la tupla canonica: %r"
+              % (EFFECT_KINDS,))
+        return False
+    if len(EFFECT_KINDS) != 6:
+        print("INVALID effects.png: la allowlist canonica debe tener 6 efectos")
+        return False
+    width, height, pixels = outputs["effects.png"]
+    expected_width = COLS * FRAME
+    if width != expected_width or height != FRAME:
+        print("INVALID effects.png: expected %dx%d, got %dx%d" % (
+            expected_width, FRAME, width, height))
+        return False
     ok = True
+    for index in range(COLS):
+        opaque = 0
+        x0 = index * FRAME
+        for y in range(FRAME):
+            for x in range(x0, x0 + FRAME):
+                offset = (y * width + x) * 4
+                if pixels[offset + 3] != 0:
+                    opaque += 1
+        admitted = index < len(EFFECT_KINDS)
+        if admitted and opaque == 0:
+            print("INVALID effects.png: el efecto generico %s esta vacio" %
+                  EFFECT_KINDS[index])
+            ok = False
+        elif not admitted and opaque != 0:
+            print("INVALID effects.png: la celda retirada %d contiene pixeles" % index)
+            ok = False
+    return ok
+
+
+def check_generated_bytes(outputs, directory: str, label: str = "") -> bool:
+    """Compara en memoria los bytes canonicos con los ficheros del disco.
+
+    Una imagen puede ser valida, tener dimensiones correctas y usar solo la
+    paleta y aun asi estar OBSOLETA. La comparacion byte a byte del PNG
+    generado es la que convierte ese caso en un fallo real.
+    """
+    ok = True
+    for name in sorted(outputs):
+        width, height, pixels = outputs[name]
+        path = os.path.join(directory, name)
+        try:
+            with open(path, "rb") as handle:
+                actual = handle.read()
+        except OSError as exc:
+            print("MISSING %s%s" % (label, name))
+            ok = False
+            continue
+        expected = encode_png(width, height, pixels)
+        if actual != expected:
+            print("STALE %s%s: no coincide con el generador canonico" % (label, name))
+            ok = False
+    return ok
+
+
+def check_sprite_directory(expected_names, directory=None, label=None) -> bool:
+    """Rechaza cualquier PNG extra en un directorio del banco de arte."""
+    directory = OUT_DIR if directory is None else directory
+    label = "sprites" if label is None else label
+    try:
+        entries = os.listdir(directory)
+    except OSError:
+        # Los ficheros canonicos ausentes se reportan aparte con su nombre.
+        return True
+    expected = set(expected_names)
+    extras = sorted(
+        name for name in entries
+        if name.lower().endswith(".png")
+        and name not in expected
+        and os.path.isfile(os.path.join(directory, name))
+    )
+    if extras:
+        print("UNEXPECTED PNG in %s: %s" % (label, ", ".join(extras)))
+        return False
+    return True
+
+
+def do_check() -> int:
+    expected = list(SPRITE_OUTPUTS)
+    ok = check_sprite_directory(expected)
+    if not check_sprite_directory(list(build_lights()), LIGHT_DIR, "lights"):
+        ok = False
+    if not check_sprite_directory(list(build_shadows()), SHADOW_DIR, "shadows"):
+        ok = False
     for name in expected:
         path = os.path.join(OUT_DIR, name)
         if not os.path.isfile(path):
@@ -596,7 +718,23 @@ def do_check() -> int:
             ok = False
         else:
             print("OK      %s (%dx%d)" % (name, w, h))
-    if ok and check_lights() and check_shadows():
+    if ok:
+        ok = check_lights()
+    if ok:
+        ok = check_shadows()
+    if ok:
+        # Regenera en memoria y compara bytes: una imagen valida pero obsoleta
+        # debe hacer fallar --check, no pasar como si fuera canonica.
+        generated = build_all()
+        if not check_effect_allowlist(generated):
+            ok = False
+        if not check_generated_bytes(generated, OUT_DIR):
+            ok = False
+        if not check_generated_bytes(build_lights(), LIGHT_DIR, "lights/"):
+            ok = False
+        if not check_generated_bytes(build_shadows(), SHADOW_DIR, "shadows/"):
+            ok = False
+    if ok:
         print("CHECK OK: %d sheets, palette-locked + 2 light maps + 1 shadow map"
               % len(expected))
         return 0
@@ -812,9 +950,14 @@ def do_generate() -> int:
 
 
 def main() -> int:
-    if "--check" in sys.argv[1:]:
+    args = sys.argv[1:]
+    if not args:
+        return do_generate()
+    if args == ["--check"]:
         return do_check()
-    return do_generate()
+    print("ERROR: argumentos CLI desconocidos: %s" % " ".join(args), file=sys.stderr)
+    print("Usage: python3 tools/gen_art.py [--check]", file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":

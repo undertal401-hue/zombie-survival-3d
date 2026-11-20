@@ -294,17 +294,42 @@ func _maybe_spawn_boss_for_wave(wave: int) -> void:
 ## Fallar aqui (devolver un indice que no existe) es preferible a spawnear
 ## un zombi que no pertenece al roster: un kind invalido deja al zombi sin
 ## perfil (sin vida de jefe, sin barra, sin carga ni slam) y el fallo seria
-## invisible.
-func _boss_kind() -> int:
+## invisible. El override y el control de error existen para probar la ruta
+## real sin emitir un `push_error` deliberado en CI.
+func _boss_kind(kinds_override: Variant = null, report_error: bool = true) -> int:
 	var kinds: Dictionary = ZOMBIE_SCRIPT.get_script_constant_map().get(
 		"Kind", {}) as Dictionary
-	return int(kinds.get("BOSS", 1))
+	if kinds_override is Dictionary:
+		kinds = kinds_override as Dictionary
+	var kind: int = _boss_kind_from(kinds)
+	if kind < 0 and report_error:
+		push_error("Zombie.Kind.BOSS no existe: no se puede generar el Tanque Alfa")
+	return kind
+
+
+## Resuelve el indice de jefe desde un mapa de enum. Separar la resolucion
+## permite probar el caso "BOSS no existe" sin provocar un error deliberado
+## en el log de CI. El resultado -1 significa fallo abierto.
+func _boss_kind_from(kinds: Dictionary) -> int:
+	if not kinds.has("BOSS"):
+		return -1
+	return int(kinds["BOSS"])
 
 
 ## API pública: genera "Tanque Alfa" con sus stats de Kind.BOSS (fase 1).
 ## `at_position` permite al director/world colocarlo en un punto concreto.
 func spawn_boss(at_position: Vector2 = Vector2.ZERO) -> CharacterBody2D:
 	if not is_inside_tree() or _boss_spawned_wave >= 0:
+		return null
+	var kind: int = _boss_kind()
+	return _spawn_boss_with_kind(at_position, kind)
+
+
+## Creacion comun del Tanque Alfa una vez resuelto el indice del enum. Separar
+## este paso permite comprobar que un indice invalido aborta antes de crear o
+## consumir la oleada, sin mutar el enum real.
+func _spawn_boss_with_kind(at_position: Vector2, kind: int) -> CharacterBody2D:
+	if not is_inside_tree() or _boss_spawned_wave >= 0 or kind < 0:
 		return null
 	var boss := ZOMBIE_SCENE.instantiate() as CharacterBody2D
 	if boss == null:
@@ -326,7 +351,7 @@ func spawn_boss(at_position: Vector2 = Vector2.ZERO) -> CharacterBody2D:
 						best = distance
 						spawn_pos = point
 	boss.position = spawn_pos
-	boss.set("kind", _boss_kind())
+	boss.set("kind", kind)
 	GameState.register_actor(boss, &"zombie")
 	add_child(boss)
 	_boss_spawned_wave = 0

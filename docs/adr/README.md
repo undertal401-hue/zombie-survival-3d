@@ -18,10 +18,11 @@ inmutable: para cambiar una decisión se crea un nuevo ADR que la reemplaza.
 ## Notas de estado
 
 - **ADR-001** sigue vigente como **herramienta y fuente canónica**: se conservan
-  `tools/gen_art.py`, `assets/art/ART_BIBLE.md`, las nueve hojas PNG y su paso
-  de CI. ADR-004 limitó su uso en runtime; ADR-005 vuelve a aprovechar el
-  humanoide cenital y la paleta de 16 colores para generar únicamente el skin
-  del WALKER, con un pack y una puerta de CI separados.
+  `tools/gen_art.py`, `assets/art/ART_BIBLE.md`, las cinco hojas PNG del banco
+  R3, dos mapas de luz, la máscara de sombra y su paso de CI. ADR-004 limitó su
+  uso en runtime; ADR-005 vuelve a aprovechar el humanoide cenital y la paleta
+  de 16 colores para generar el skin del WALKER, con un pack y una puerta de CI
+  separados.
 - **ADR-004** queda **parcialmente superseded por ADR-005** solo en la
   presentación de los zombis: el WALKER usa skin y los rangos altos conservan
   el cubo. La iluminación real, el faro, las sombras proyectadas y las demás
@@ -29,8 +30,9 @@ inmutable: para cambiar una decisión se crea un nuevo ADR que la reemplaza.
 - **ADR-005** fija la presentación híbrida, el contrato de celda de 64×64 y el
   fallback seguro al cubo. `gen_art.py --check` conserva su alcance sobre las
   cinco hojas canónicas del banco R3; el skin tiene sus propias puertas de
-  verificación. La enmienda R3-hotfix documenta sus correcciones de lock,
-  carga, tinte y auditoria sin reescribir el registro accepted.
+  verificación. Las enmiendas R2-hotfix y R2-hotfix4 documentan sus
+  correcciones de lock, carga, tinte, auditoría e importación transaccional
+  sin reescribir el registro accepted.
 - **ADR-006** (R3) **supersede a ADR-005 en su §1 y en sus invariantes 2 y
   15**: el juego tiene un solo arquetipo de zombi (el caminante) y el jefe
   «Tanque Alfa» pasa a ser un perfil del mismo zombi, así que el cubo queda
@@ -39,7 +41,11 @@ inmutable: para cambiar una decisión se crea un nuevo ADR que la reemplaza.
   vigentes. **ADR-006 también toca ADR-004 en un solo punto**: el sol deja de
   proyectar sombra direccional (en Godot 4 esa sombra no tiene largo y llega
   hasta el borde de pantalla) y las sombras diurnas pasan a ser manchas
-  acotadas con cota dura. **La iluminación nocturna, el faro y sus sombras
-  reales no cambian**: es la restricción que el usuario puso expresamente.
+  acotadas con cota dura. Su enmienda R3-hotfix precisa el anclaje mundial
+  exacto, el eje largo, la cota transversal, la convención real de
+  `DirectionalLight2D`, el material `UNSHADED`, el faro en runtime, el roster de
+  FX y la puerta determinista del banco de arte.
+  **La iluminación nocturna, el faro y sus sombras reales no cambian**: es la
+  restricción que el usuario puso expresamente.
 - **ADR-002** y **ADR-003** no se ven afectados por ADR-004, ADR-005 ni
   ADR-006: hit-stop y meta-árbol son mecánicas, no presentación.

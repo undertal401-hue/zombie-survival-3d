@@ -11,6 +11,7 @@ class_name AudioDirector
 
 const SEED: int = 20261117
 const SAMPLE_RATE: int = 22050
+const ZOMBIE_SCRIPT: Script = preload("res://03_zombies/Zombie.gd")
 const MASTER_BUS: String = "AudioDirectorMaster"
 const SFX_BUS: String = "AudioDirectorSFX"
 const AMBIENCE_BUS: String = "AudioDirectorAmbience"
@@ -53,13 +54,14 @@ const ALIASES: Dictionary = {
 	"night": "night_loop", "tension": "tension_loop", "forest": "forest_loop",
 }
 
-## Telegrafía (kind = Zombie.Kind). El juego tiene un SOLO arquetipo (el
-## caminante) más el perfil de jefe "Tanque Alfa": dos sonidos distintos, no
-## una familia de arquetipos. No se crean assets nuevos, solo síntesis ya
-## existente reutilizada con otro tono (ADR game feel, ÍTEM 7).
+## Telegrafía semántica: el juego tiene un SOLO arquetipo (el caminante) más
+## el perfil de jefe "Tanque Alfa": dos sonidos distintos, no una familia de
+## arquetipos. Las claves son nombres; los ordinales de `Zombie.Kind` nunca se
+## codifican aquí. No se crean assets nuevos, solo síntesis ya existente
+## reutilizada con otro tono (ADR game feel, ÍTEM 7).
 const TELEGRAPH_SFX: Dictionary = {
-	0: {"id": "footstep", "pitch": 0.85},        # WALKER: paso sordo
-	1: {"id": "horde_alert", "pitch": 1.20},     # BOSS "Tanque Alfa": alarma grave
+	&"walker": {"id": "footstep", "pitch": 0.85},      # WALKER: paso sordo
+	&"boss": {"id": "horde_alert", "pitch": 1.20},     # BOSS "Tanque Alfa": alarma grave
 }
 
 ## ÍTEM 13: mismo PCM de 'loot' con pitch creciente según rareza; un rare
@@ -155,9 +157,9 @@ func _load_external_ambience() -> void:
 			continue
 		# Un archivo importado no loopea por defecto: sin esto la lluvia real
 		# se cortaba en seco al terminar y volvía al sintetizador procedural.
-		if stream is AudioStreamOggVorbis:
+		if is_instance_valid(stream) and stream is AudioStreamOggVorbis:
 			(stream as AudioStreamOggVorbis).loop = true
-		elif stream is AudioStreamWAV:
+		elif is_instance_valid(stream) and stream is AudioStreamWAV:
 			var wav: AudioStreamWAV = stream as AudioStreamWAV
 			wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
 			wav.loop_begin = 0
@@ -181,9 +183,11 @@ func _exit_tree() -> void:
 	_voices.clear()
 	for key in _layers.keys():
 		var layer: Dictionary = _layers[key]
-		var player: Node = layer.get("player") as Node
-		if player != null and is_instance_valid(player):
-			player.call("stop")
+		var player_value: Variant = layer.get("player")
+		if _is_live_object(player_value):
+			var player: Node = player_value as Node
+			if player != null:
+				player.call("stop")
 	_layers.clear()
 	_streams.clear()
 	_external_ambience.clear()
@@ -222,11 +226,28 @@ func play_loot_rarity(rarity: String, position = null) -> bool:
 		float(preset.get("pitch", 1.0)))
 
 
-## Aviso sonoro de telegrafía: un effects distinto por arquetipo de zombi.
-func play_telegraph(kind: int, position = null) -> bool:
-	var preset: Dictionary = TELEGRAPH_SFX.get(kind, TELEGRAPH_SFX[0])
+## Aviso sonoro de telegrafía: un efecto distinto por perfil de zombi
+## (caminante o jefe del Tanque Alfa). La API semantica acepta `walker`/`boss`;
+## los enteros siguen siendo compatibles y se resuelven desde `Zombie.Kind`.
+func play_telegraph(kind: Variant, position = null) -> bool:
+	var preset: Dictionary = _telegraph_preset(kind)
 	return play_sfx_pitched(String(preset.get("id", "footstep")), position,
 		float(preset.get("pitch", 1.0)))
+
+
+func _telegraph_preset(kind: Variant) -> Dictionary:
+	var semantic: String = ""
+	var value_type: int = typeof(kind)
+	if value_type == TYPE_STRING or value_type == TYPE_STRING_NAME:
+		semantic = String(kind).strip_edges().to_lower()
+	elif value_type == TYPE_INT:
+		var kind_map: Dictionary = (ZOMBIE_SCRIPT.get_script_constant_map()
+			.get("Kind", {}) as Dictionary)
+		if kind == int(kind_map.get("BOSS", -1)):
+			semantic = "boss"
+		elif kind == int(kind_map.get("WALKER", -1)):
+			semantic = "walker"
+	return TELEGRAPH_SFX.get(semantic, TELEGRAPH_SFX[&"walker"])
 
 
 ## Número de daño flotante: el headshot suena más agudo que un impacto normal.
@@ -377,22 +398,27 @@ func _resolve_scene_nodes() -> void:
 	var found: Node = get_tree().get_first_node_in_group("player")
 	if found == null:
 		found = get_node_or_null("../Player")
-	if found is Node2D:
+	if not _is_live_node(found):
+		found = null
+	if _is_live_node2d(found):
 		_player_node = found as Node2D
 	var weapons: Node = null
 	if found != null:
 		weapons = found.get_node_or_null("WeaponController")
-	if weapons != null:
+	if _is_live_node(weapons):
 		_weapons_node = weapons
 		_connect_local(weapons, "fire_requested", "_on_weapon_fired")
 		_connect_local(weapons, "melee_attack", "_on_weapon_melee")
 	var director: Node = get_tree().get_first_node_in_group("world_director")
+	if not _is_live_node(director):
+		director = null
 	if director == null:
-		for candidate in ["WaveManager", "HordeManager", "WorldDirector"]:
-			director = get_node_or_null("../" + candidate)
-			if director != null:
+		for candidate_name in ["WaveManager", "HordeManager", "WorldDirector"]:
+			var candidate: Node = get_node_or_null("../" + candidate_name)
+			if _is_live_node(candidate):
+				director = candidate
 				break
-	if director != null and _signal_arg_count(director, "phase_changed") <= 2:
+	if _is_live_node(director) and _signal_arg_count(director, "phase_changed") <= 2:
 		_director_node = director
 		_connect_local(director, "phase_changed", "_on_world_phase")
 
@@ -474,9 +500,11 @@ func _on_bus_fired(a = null, b = null, c = null, _d = null) -> void:
 	if pos == null:
 		pos = _as_position(c)
 	var id: String = "pistol"
-	if a is String and ALIASES.has(String(a).to_lower()):
+	var a_type: int = typeof(a)
+	if (a_type == TYPE_STRING or a_type == TYPE_STRING_NAME) \
+			and ALIASES.has(String(a).to_lower()):
 		id = String(a).to_lower()
-	elif a != null and not (a is Node2D) and not (a is Vector2):
+	elif a != null and not _is_live_node2d(a) and a_type != TYPE_VECTOR2:
 		id = _weapon_sfx_id(a)
 	play_sfx(id, pos)
 
@@ -513,13 +541,13 @@ func _on_bus_craft_completed(_a = null, _b = null, _c = null, _d = null) -> void
 
 
 func _on_bus_vehicle_state_changed(vehicle = null, fuel = null, hp = null, _d = null) -> void:
-	if vehicle == null or not (vehicle is Node2D):
+	if not _is_live_node2d(vehicle):
 		return
 	var has_fuel: bool = true
 	var has_hp: bool = true
-	if fuel != null and (fuel is float or fuel is int):
+	if fuel != null and (typeof(fuel) == TYPE_FLOAT or typeof(fuel) == TYPE_INT):
 		has_fuel = float(fuel) > 0.0
-	if hp != null and (hp is float or hp is int):
+	if hp != null and (typeof(hp) == TYPE_FLOAT or typeof(hp) == TYPE_INT):
 		has_hp = float(hp) > 0.0
 	if has_fuel and has_hp:
 		_start_engine((vehicle as Node2D).global_position)
@@ -535,7 +563,9 @@ func _on_bus_zombie_alerted(a = null, b = null, _c = null, _d = null) -> void:
 	var pos: Variant = _as_position(a)
 	if pos == null:
 		pos = _as_position(b)
-	if a is Vector2 and (b is float or b is int) and float(b) >= 800.0:
+	if typeof(a) == TYPE_VECTOR2 \
+			and (typeof(b) == TYPE_FLOAT or typeof(b) == TYPE_INT) \
+			and float(b) >= 800.0:
 		if now - _last_horn_msec >= 900:
 			_last_horn_msec = now
 			play_sfx("horn", pos)
@@ -548,10 +578,10 @@ func _on_bus_player_damaged(_a = null, _b = null, _c = null, _d = null) -> void:
 
 
 func _on_bus_player_hunger_changed(hunger = null, _max_hunger = null, threshold = null, _d = null) -> void:
-	if not (hunger is float or hunger is int):
+	if not (typeof(hunger) == TYPE_FLOAT or typeof(hunger) == TYPE_INT):
 		return
 	var limit: float = 30.0
-	if threshold != null and (threshold is float or threshold is int):
+	if threshold != null and (typeof(threshold) == TYPE_FLOAT or typeof(threshold) == TYPE_INT):
 		limit = float(threshold)
 	var hungry: bool = float(hunger) <= limit
 	if hungry and not _hunger_low:
@@ -593,10 +623,11 @@ func _update_listener() -> void:
 	if _listener == null or not is_instance_valid(_listener) or not listener_follow_player:
 		return
 	if _player_node == null or not is_instance_valid(_player_node):
+		_player_node = null
 		var candidate: Node = get_tree().get_first_node_in_group("player")
-		if candidate is Node2D:
+		if _is_live_node2d(candidate):
 			_player_node = candidate as Node2D
-	if _player_node != null:
+	if _player_node != null and is_instance_valid(_player_node):
 		_listener.global_position = _player_node.global_position
 
 
@@ -628,7 +659,7 @@ func _update_footsteps(delta: float) -> void:
 	if _player_node == null or not is_instance_valid(_player_node):
 		return
 	var velocity: Variant = _player_node.get("velocity")
-	if not (velocity is Vector2):
+	if typeof(velocity) != TYPE_VECTOR2:
 		return
 	var driving: bool = bool(_player_node.get("is_driving"))
 	var speed: float = (velocity as Vector2).length()
@@ -648,7 +679,7 @@ func _update_engine_poll(delta: float) -> void:
 	_engine_poll_timer = 0.5
 	var position_now: Variant = null
 	for node in get_tree().get_nodes_in_group("player_vehicle"):
-		if not (node is Node2D) or not is_instance_valid(node):
+		if not _is_live_node2d(node):
 			continue
 		if not bool(node.get("occupied")):
 			continue
@@ -711,8 +742,12 @@ func _update_layers(delta: float) -> void:
 	var smoothing: float = 1.0 - exp(-delta / 0.28)
 	for key in _layers.keys():
 		var layer: Dictionary = _layers[key]
-		var player: AudioStreamPlayer = layer["player"] as AudioStreamPlayer
-		if player == null or not is_instance_valid(player):
+		var player_value: Variant = layer.get("player")
+		if not _is_live_object(player_value):
+			_layers.erase(key)
+			continue
+		var player: AudioStreamPlayer = player_value as AudioStreamPlayer
+		if player == null:
 			_layers.erase(key)
 			continue
 		var gain: float = float(layer["gain"])
@@ -752,7 +787,8 @@ func _start_engine(pos: Variant) -> void:
 
 
 func _stop_engine(with_shutdown: bool) -> void:
-	if _engine_player == null:
+	if _engine_player == null or not is_instance_valid(_engine_player):
+		_engine_player = null
 		return
 	var last_position: Variant = _engine_player.global_position
 	_engine_player.stop()
@@ -764,12 +800,31 @@ func _stop_engine(with_shutdown: bool) -> void:
 
 ## Utilidades de posición ----------------------------------------------------
 
+## Orden obligatorio para payloads Variant: primero `typeof`, despues
+## `is_instance_valid` y solo entonces `is`. Consultar `is` sobre una
+## instancia ya liberada aborta la funcion con "previously freed instance".
+func _is_live_object(value: Variant) -> bool:
+	return typeof(value) == TYPE_OBJECT and is_instance_valid(value)
+
+
+func _is_live_node(value: Variant) -> bool:
+	if not _is_live_object(value):
+		return false
+	return value is Node
+
+
+func _is_live_node2d(value: Variant) -> bool:
+	if not _is_live_object(value):
+		return false
+	return value is Node2D
+
+
 func _as_position(value: Variant, depth: int = 0) -> Variant:
-	if value is Vector2:
+	if typeof(value) == TYPE_VECTOR2:
 		return value
-	if value is Node2D and is_instance_valid(value):
+	if _is_live_node2d(value):
 		return (value as Node2D).global_position
-	if depth < 2 and value is Array:
+	if depth < 2 and typeof(value) == TYPE_ARRAY:
 		for item in (value as Array):
 			var found: Variant = _as_position(item, depth + 1)
 			if found != null:
@@ -784,7 +839,7 @@ func _player_position() -> Variant:
 
 
 func _weapon_sfx_id(weapon: Variant) -> String:
-	if weapon == null or not (weapon is Object):
+	if not _is_live_object(weapon):
 		return "pistol"
 	var ammo: String = String(weapon.get("ammo_type")).to_lower()
 	if ammo.contains("shotgun") or ammo.contains("shell"):

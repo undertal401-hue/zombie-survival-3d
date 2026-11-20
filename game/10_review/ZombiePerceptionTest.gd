@@ -28,6 +28,19 @@ var _failures: Array[String] = []
 var _instances: Array[Node] = []
 
 
+## Espia de la cascada: cuenta cada llamada a `receive_group_alert`. Esta
+## dentro del radio de propagacion, asi que la primera llamada la hace el
+## emisor. Si el receptor repropagara, el contador subiria a dos.
+class AlertSpy:
+	extends Node2D
+
+	var calls: int = 0
+
+	func receive_group_alert(_world_position: Vector2, _radius: float,
+			_source: Node = null) -> void:
+		calls += 1
+
+
 func _check(condition: bool, label: String) -> void:
 	print(("OK   " if condition else "FAIL ") + label)
 	if not condition:
@@ -158,33 +171,56 @@ func _free_instances() -> void:
 func _alert_propagation() -> void:
 	var player: CharacterBody2D = _make_player(Vector2(400, 0))
 	var spotter: CharacterBody2D = _make_zombie(Vector2.ZERO, true)
-	var neighbour: CharacterBody2D = _make_zombie(Vector2(400, 300), false)
-	if spotter == null or neighbour == null:
-		_check(false, "se pueden instanciar los dos zombis de la prueba de alerta")
+	var neighbour: CharacterBody2D = _make_zombie(Vector2(400, 420), false)
+	# Tercer zombi: queda fuera del radio de propagacion de 420 px, asi que
+	# no debe recibir ni el primer salto ni uno encadenado por el receptor.
+	var third: CharacterBody2D = _make_zombie(Vector2(400, 540), false)
+	# Espia dentro del radio: recibe el primer salto. Un segundo salto desde
+	# el receptor lo detectaria como una segunda llamada, aunque la geometria
+	# del tercer zombi no pueda alcanzarlo.
+	var spy: AlertSpy = AlertSpy.new()
+	spy.global_position = Vector2(400, 100)
+	spy.add_to_group("zombies")
+	add_child(spy)
+	_instances.append(spy)
+	if spotter == null or neighbour == null or third == null or spy == null:
+		_check(false, "se pueden instanciar los tres zombis de la prueba de alerta")
 		return
 	# Muro entre el vecino y el jugador: el vecino NO lo ve, pero esta lo
 	# bastante cerca como para recibir la alerta del que si lo ve.
-	_make_wall(Vector2(400, 150), Vector2(240, 24))
+	_make_wall(Vector2(400, 210), Vector2(240, 24))
 	for i in range(4):
 		await get_tree().physics_frame
 
 	_check(_sees(spotter, player), "el zombi que mira al jugador lo ve")
 	_check(not _sees(neighbour, player),
 		"el vecino tapado por el muro no ve al jugador")
+	var propagation_radius: float = float(spotter.get("alert_propagation_radius"))
+	_check(third.global_position.distance_to(player.global_position) > propagation_radius,
+		"el tercer zombi esta fuera del radio de propagacion del primer salto")
+	_check(third.global_position.distance_to(spotter.global_position) > 520.0,
+		"el tercer zombi esta fuera del radio de deteccion del emisor")
+	_check(spy.global_position.distance_to(player.global_position) <= propagation_radius,
+		"el espia esta dentro del radio de propagacion")
 
 	for i in range(8):
 		await get_tree().physics_frame
 
 	var spotter_alert: float = float(spotter.get("_alert_timer"))
 	var neighbour_alert: float = float(neighbour.get("_alert_timer"))
+	var third_alert: float = float(third.get("_alert_timer"))
 	_check(spotter_alert > 0.0, "el que ve al jugador queda alertado")
 	_check(neighbour_alert > 0.0,
 		"VER al jugador propaga la alerta a los zombis cercanos (alerta %.1f s)" % neighbour_alert)
 	var neighbour_state: int = int(neighbour.get("state"))
 	_check(neighbour_state != 0,
 		"el vecino alertado deja el estado PATROL (estado %d)" % neighbour_state)
-
-	await _free_instances()
+	_check(is_zero_approx(third_alert),
+		"el receptor NO repropaga la alerta a un tercer zombi")
+	_check(is_zero_approx(float(neighbour.get("_propagate_cooldown"))),
+		"el receptor que recibe la alerta no inicia un segundo salto")
+	_check(spy.calls == 1,
+		"el grupo recibe exactamente una llamada de alerta (sin cascada): %d" % spy.calls)
 
 
 func _finish() -> void:

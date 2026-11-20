@@ -13,7 +13,10 @@ const PART_SHELL: int = 3
 const PART_DUST: int = 4
 const PART_RING: int = 5
 
-const ZOMBIE_KINDS: Array = [&"walker", &"runner", &"tank", &"spitter", &"screamer"]
+## Fuente unica del roster: el enum real del zombi. La capa de efectos NO
+## mantiene una tabla posicional propia (un Kind.BOSS=1 acababa clasificado
+## como un arquetipo retirado).
+const ZOMBIE_SCRIPT: Script = preload("res://03_zombies/Zombie.gd")
 const SURFACE_KINDS: Array = [&"metal", &"concrete", &"wood", &"flesh", &"dirt"]
 
 var _particles: Array = []
@@ -146,7 +149,8 @@ func spawn_impact(pos: Vector2, dir: Vector2, kind = &"bullet") -> void:
 	_spawn_sparks(pos, forward, key)
 
 
-## Sangre de zombie: verde para walker/runner/spitter, ámbar para tank/screamer.
+## Sangre de zombi: verde para el caminante y ambar para el perfil BOSS del
+## Tanque Alfa. Es una distincion de PERFIL, no una familia de arquetipos.
 func spawn_blood(pos: Vector2, kind = &"walker") -> void:
 	_spawn_blood_particles(pos, 14, _normalize_zombie_kind(kind))
 
@@ -244,11 +248,8 @@ func _spawn_sparks(pos: Vector2, forward: Vector2, key: StringName) -> void:
 
 
 func _spawn_blood_particles(pos: Vector2, count: int, kind_key: StringName) -> void:
-	var amber: bool = kind_key == &"tank" or kind_key == &"screamer" \
-			or kind_key == &"amber" or kind_key == &"tanque" or kind_key == &"chillona"
+	var amber: bool = kind_key == &"boss"
 	var base := Color(0.24, 0.74, 0.20, 1.0) if not amber else Color(0.96, 0.56, 0.12, 1.0)
-	if kind_key == &"spitter":
-		base = Color(0.46, 0.94, 0.16, 1.0)
 	var rng := _combat_rng()
 	var amount: int = clampi(count, 1, 40)
 	for _i in range(amount):
@@ -449,7 +450,9 @@ func _to_float(value, fallback: float = 0.0) -> float:
 
 
 func _normalize_surface(value) -> StringName:
-	if value is Node:
+	# `value is Node` sobre una instancia ya liberada aborta la funcion en
+	# Godot 4.7. Primero se comprueba que el objeto sigue vivo.
+	if typeof(value) == TYPE_OBJECT and is_instance_valid(value) and value is Node:
 		return &"flesh"
 	if value is int or value is float:
 		var index: int = clampi(int(value), 0, SURFACE_KINDS.size() - 1)
@@ -476,23 +479,24 @@ func _normalize_surface(value) -> StringName:
 
 
 func _normalize_zombie_kind(value) -> StringName:
-	if value is Node and is_instance_valid(value):
+	if typeof(value) == TYPE_OBJECT and is_instance_valid(value) and value is Node:
 		value = (value as Node).get("kind")
 	if value is int or value is float:
-		var index: int = clampi(int(value), 0, ZOMBIE_KINDS.size() - 1)
-		return ZOMBIE_KINDS[index] as StringName
+		return _zombie_kind_name(int(value))
 	var text: String = String(str(value)).to_lower()
 	match text:
-		"runner", "corredor":
-			return &"runner"
-		"tank", "tanque":
-			return &"tank"
-		"spitter", "escupidor":
-			return &"spitter"
-		"screamer", "chillona", "gritona":
-			return &"screamer"
-		"amber", "ambar", "storm":
-			return &"amber"
-		"green", "verde":
-			return &"green"
+		"boss", "jefe", "tanque alfa", "amber", "ambar":
+			return &"boss"
+		"walker", "caminante", "normal", "green", "verde":
+			return &"walker"
+	return &"walker"
+
+
+## Traduce el indice real de `Zombie.Kind` al perfil visual. El enum es la
+## fuente de verdad; no hay posiciones magicas en esta capa.
+func _zombie_kind_name(index: int) -> StringName:
+	var kinds: Dictionary = ZOMBIE_SCRIPT.get_script_constant_map().get(
+		"Kind", {}) as Dictionary
+	if kinds.has("BOSS") and index == int(kinds["BOSS"]):
+		return &"boss"
 	return &"walker"

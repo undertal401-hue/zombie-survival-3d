@@ -11,8 +11,10 @@ extends Node2D
 ## Ahora:
 ##   - la CanvasModulate tiene alpha SIEMPRE 1.0 y su RGB multiplica la
 ##     escena: la noche tiñe de azul oscuro de verdad;
-##   - la DirectionalLight2D tiene energía real por fase y proyecta sombras
-##     (LightOccluder2D del jugador, zombis y casa);
+##   - la DirectionalLight2D tiene energía real por fase; sus sombras
+##     direccionales quedan desactivadas porque en Godot 4 se prolongan
+##     hasta el borde de pantalla. Las sombras DIURNAS se dibujan como manchas
+##     acotadas mediante SunShadowController (ADR-006);
 ##   - el faro del jugador es una PointLight2D con textura de cono y sombras
 ##     propias: de día apagada, de noche al máximo;
 ##   - hay una capa de acabado (viñeta + grano) sobre la escena, bajo el HUD.
@@ -40,8 +42,9 @@ const GRADE_DUSK: Color = Color(0.68, 0.48, 0.40)
 const GRADE_NIGHT: Color = Color(0.42, 0.46, 0.56)
 
 ## Ganancia del DirectionalLight2D por fase. WorldDirector manda una energía de
-## sol muy baja (0.16-0.23) pensada para el grading antiguo: con sombras
-## proyectadas esa energía no dibuja nada visible. Aquí se amplifica.
+## sol muy baja (0.16-0.23) pensada para el grading antiguo: esa energía no
+## dibuja nada visible. Aquí se amplifica; la sombra diurna la aporta el
+## controlador de manchas acotadas.
 const PHASE_SUN_GAIN: Dictionary = {
 	"dawn": 1.8,
 	"day": 3.4,
@@ -359,20 +362,25 @@ func _update_night_grade() -> void:
 	shader_mat.set_shader_parameter("night_amount", night_amount())
 
 func _update_sun_position() -> void:
-	# DirectionalLight2D en Godot 4 usa rotación para definir la dirección
-	# La luz apunta en la dirección de su rotación (rotación 0 = hacia la derecha/Este)
-	# solar_angle: 0 = Este, PI/2 = Sur, PI = Oeste, -PI/2 = Norte
-	# Sol en Este (0) -> luz viaja hacia Este -> rotación = 0 -> sombras al Oeste
-	# Sol en Oeste (PI) -> luz viaja hacia Oeste -> rotación = PI -> sombras al Este
-	var light_rot := solar_angle  # La luz apunta en la dirección del sol
-	sun_light.rotation = light_rot
+	# `DirectionalLight2D` emite por el eje +Y de su base global (Godot 4.7):
+	# sin rotar, la luz viaja hacia abajo. La convencion del proyecto es
+	# solar_angle 0 = Este, PI/2 = Sur, PI = Oeste, -PI/2 = Norte; por eso la
+	# rotacion del nodo lleva un desfase de -90 grados.
+	sun_light.rotation = _light_rotation_for(solar_angle)
 
 	# Emitir señal de cambio de dirección
 	solar_direction_changed.emit(solar_angle, rad_to_deg(solar_angle))
 
 func _set_sun_rotation() -> void:
 	# Variante silenciosa para interpolaciones (evita un signal por frame).
-	sun_light.rotation = solar_angle
+	sun_light.rotation = _light_rotation_for(solar_angle)
+
+
+## Rotacion real de la DirectionalLight2D para una direccion solar del
+## proyecto. DirectionalLight2D emite por +Y; RIGHT.rotated(angle) exige
+##(angle - PI/2) para que ambos vectores coincidan.
+func _light_rotation_for(angle_rad: float) -> float:
+	return angle_rad - PI * 0.5
 
 ## --- Faro del jugador -----------------------------------------------------
 

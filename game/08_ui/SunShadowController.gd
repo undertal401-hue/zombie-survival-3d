@@ -34,13 +34,15 @@ class_name SunShadowController
 ## INVARIANTES (exigibles por `game/10_review/SunShadowTest.gd`)
 ## ------------------------------------------------------------------
 ##   1. Cada `LightOccluder2D` vivo tiene como maximo UNA mancha.
-##   2. La mancha mide como maximo `MAX_SHADOW_LENGTH` px en su eje largo:
-##      nunca llega al borde de la pantalla (1280x720).
-##   3. La mancha NO recibe luz (`light_mask = 0`): es una mancha de
-##      oscuridad, no una superficie iluminada.
+##   2. La mancha mide como maximo `MAX_SHADOW_LENGTH` px en su eje largo y
+##      `MAX_SHADOW_WIDTH` px en el transversal: nunca llega al borde de la
+##      pantalla (1280x720) ni se convierte en una elipse gigante.
+##   3. La mancha NO recibe luz: usa `light_mask = 0` y un
+##      `CanvasItemMaterial` en modo `UNSHADED`. La primera guarda no basta
+##      con una `DirectionalLight2D` en Godot 4.7.
 ##   4. De noche la mancha es INVISIBLE (alpha 0) y el sol no aporta energia.
-##   5. La mancha se desplaza en la direccion OPUESTA a la luz y se alarga
-##      en esa misma direccion.
+##   5. La mancha se ORIENTA y se alarga en la direccion opuesta a la luz,
+##      sin desplazar su ancla desde el centro del poligono.
 ## ============================================================================
 
 ## Mascara de la mancha (generada de forma determinista por
@@ -54,6 +56,7 @@ const REFRESH_INTERVAL: float = 0.5
 
 ## COTA DURA de la sombra diurna en pixeles. Ninguna mancha pasa de aqui.
 const MAX_SHADOW_LENGTH: float = 48.0
+const MAX_SHADOW_WIDTH: float = 48.0
 const MIN_SHADOW_LENGTH: float = 16.0
 const MIN_SHADOW_WIDTH: float = 14.0
 ## Cuanto se prolonga la sombra mas alla del objeto que la proyecta.
@@ -81,6 +84,7 @@ var _blobs: Dictionary = {}
 
 
 func _ready() -> void:
+	_normalize_global_scale()
 	if ResourceLoader.exists(BLOB_TEXTURE):
 		_texture = load(BLOB_TEXTURE) as Texture2D
 
@@ -131,6 +135,12 @@ func max_shadow_length() -> float:
 	return MAX_SHADOW_LENGTH
 
 
+## Cota dura del eje transversal (px). Es parte del mismo contrato que la
+## longitud y ambos valores son exactamente 48 en ADR-006.
+func max_shadow_width() -> float:
+	return MAX_SHADOW_WIDTH
+
+
 ## Direccion en la que se proyecta la sombra (opuesta a la luz).
 func shadow_direction() -> Vector2:
 	return Vector2.RIGHT.rotated(_sun_angle + PI)
@@ -141,8 +151,9 @@ func blob_count() -> int:
 	return _blobs.size()
 
 
-## Longitud (px) del eje largo de cada mancha, en el mismo orden que
-## `blob_count()`. Sirve para exigir la cota.
+## Dimension MAYOR (px) de cada mancha, en el mismo orden que `blob_count()`.
+## Es la magnitud que debe respetar la cota dura, tanto si el eje elongado
+## es el X local como si la geometria del emisor invierte los ejes.
 func blob_lengths() -> Array[float]:
 	var out: Array[float] = []
 	for key in _blobs.keys():
@@ -150,11 +161,28 @@ func blob_lengths() -> Array[float]:
 		var sprite: Sprite2D = entry.get("sprite", null) as Sprite2D
 		if sprite == null or not is_instance_valid(sprite) or sprite.texture == null:
 			continue
-		out.append(sprite.scale.y * float(sprite.texture.get_height()))
+		var world_size := _sprite_world_size(sprite)
+		out.append(maxf(world_size.x, world_size.y))
 	return out
 
 
-## Distancia (px) entre el centro del oclusor y el centro de su mancha.
+## Dimension visual efectiva de un sprite en el mundo. Se transforman sus ejes
+## locales con `global_transform`: asi se incluyen TODOS los ancestros y no
+## solo la escala local del sprite.
+func _sprite_world_size(sprite: Sprite2D) -> Vector2:
+	if sprite == null or not is_instance_valid(sprite) or sprite.texture == null:
+		return Vector2.ZERO
+	var texture_width := float(sprite.texture.get_width())
+	var texture_height := float(sprite.texture.get_height())
+	var world_transform := sprite.global_transform
+	return Vector2(
+		world_transform.basis_xform(Vector2.RIGHT * texture_width).length(),
+		world_transform.basis_xform(Vector2.DOWN * texture_height).length())
+
+
+## Distancia (px) entre el centro geometrical del poligono del oclusor y el
+## centro de su mancha. No usa `occ.global_position`: en House.gd el nodo esta
+## en el origen de la casa y el poligono lleva las coordenadas del muro.
 func blob_offsets() -> Array[float]:
 	var out: Array[float] = []
 	for key in _blobs.keys():
@@ -166,7 +194,8 @@ func blob_offsets() -> Array[float]:
 		var occ := occ_ref.get_ref() as LightOccluder2D
 		if occ == null or not is_instance_valid(occ):
 			continue
-		out.append(sprite.global_position.distance_to(occ.global_position))
+		out.append(sprite.global_position.distance_to(
+			_occluder_bounds(occ).get_center()))
 	return out
 
 
@@ -179,6 +208,15 @@ func refresh_now() -> void:
 ## ---------------------------------------------------------------------------
 ## Interno
 ## ---------------------------------------------------------------------------
+
+## Garantiza que el controlador y sus manchas usen una escala global de 1.
+## Se revalida en cada actualizacion porque un ancestro puede cambiar de
+## escala despues de `_ready()`.
+func _normalize_global_scale() -> void:
+	if not is_inside_tree():
+		return
+	global_scale = Vector2.ONE
+
 
 func _refresh_occluders() -> void:
 	var tree := get_tree()
@@ -218,7 +256,13 @@ func _make_blob(occ: LightOccluder2D) -> Dictionary:
 	sprite.texture = _texture
 	sprite.centered = true
 	# La mancha NO recibe luz: es oscuridad pintada, no una superficie.
+	# `light_mask = 0` no basta con una DirectionalLight2D (Godot 4.7 la ignora
+	# para CanvasItems); UNSHADED es el contrato que impide que el sol la
+	# aclare.
 	sprite.light_mask = 0
+	var material := CanvasItemMaterial.new()
+	material.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
+	sprite.material = material
 	sprite.modulate = Color(BLOB_TINT.r, BLOB_TINT.g, BLOB_TINT.b, 0.0)
 	add_child(sprite)
 	return {"sprite": sprite, "occ": weakref(occ)}
@@ -234,6 +278,10 @@ func _clear_blobs() -> void:
 
 
 func _update_blobs() -> void:
+	# Las cotas de ADR-006 estan expresadas en pixeles MUNDIALES. El
+	# controlador neutraliza cualquier escala propia o heredada para que un
+	# ancestro futuro no convierta 48 px en 96 px.
+	_normalize_global_scale()
 	if _texture == null:
 		return
 	var alpha: float = phase_alpha()
@@ -249,33 +297,45 @@ func _update_blobs() -> void:
 		var occ := occ_ref.get_ref() as LightOccluder2D
 		if occ == null or not is_instance_valid(occ):
 			continue
-		var size: Vector2 = _occluder_size(occ)
+		var bounds: Rect2 = _occluder_bounds(occ)
+		var size: Vector2 = bounds.size
 		# Extension del objeto proyectada sobre el eje del sol y el
 		# perpendicular.
 		var along: float = absf(size.x * shadow_dir.x) + absf(size.y * shadow_dir.y)
 		var across: float = absf(size.x * across_axis.x) + absf(size.y * across_axis.y)
 		var length: float = clampf(along + SHADOW_EXTEND,
 			MIN_SHADOW_LENGTH, MAX_SHADOW_LENGTH)
-		var width: float = maxf(across, MIN_SHADOW_WIDTH)
-		# Lo que sobresale del objeto es lo que se desplaza: el centro de la
-		# mancha se separa la mitad de la prolongacion.
-		var extra: float = maxf(length - along, 0.0)
-		sprite.global_position = occ.global_position + shadow_dir * (extra * 0.5)
-		sprite.global_rotation = shadow_dir.angle()
-		sprite.scale = Vector2(width / tex_size.x, length / tex_size.y)
+		var width: float = clampf(across, MIN_SHADOW_WIDTH, MAX_SHADOW_WIDTH)
+		# El eje local Y se orienta hacia `shadow_direction`; debe ser el eje
+		# visual REAL mas largo. Sin esta garantia, un oclusor mas ancho que
+		# largo deja el eje X (perpendicular) como mayor y la sombra se
+		# alarga en la direccion equivocada.
+		length = maxf(length, width)
+		# Ancla EXACTA: el centro de la mancha coincide con el centro mundial
+		# del poligono real. La elongacion se obtiene orientando la mascara;
+		# desplazar el sprite moveria su ancla y romperia el contrato.
+		sprite.global_position = bounds.get_center()
+		# La textura se elonga por su eje local Y. Para que ese eje sea la
+		# direccion de la sombra, el sprite debe girar 90 grados menos que la
+		# direccion proyectada.
+		sprite.global_rotation = shadow_dir.angle() - PI * 0.5
+		# La escala es mundial: el accessor y la prueba pueden contrastarla
+		# con `global_transform` sin depender de la escala local.
+		sprite.global_scale = Vector2(width / tex_size.x, length / tex_size.y)
 		sprite.modulate = Color(BLOB_TINT.r, BLOB_TINT.g, BLOB_TINT.b, alpha)
+		sprite.visible = alpha > 0.0
 
 
-## Tamano (px) del rectangulo que envuelve al oclusor.
-func _occluder_size(occ: LightOccluder2D) -> Vector2:
+## Caja MUNDIAL (px) que envuelve el poligono real del oclusor. Se transforman
+## todos los puntos: asi se respeta la posicion, escala y rotacion del nodo y
+## se distinguen los muros de House.gd, cuyo poligono no esta centrado en el
+## origen del oclusor.
+func _occluder_bounds(occ: LightOccluder2D) -> Rect2:
 	var poly_node: OccluderPolygon2D = occ.occluder
-	if poly_node == null:
-		return Vector2(24.0, 24.0)
-	var polygon: PackedVector2Array = poly_node.polygon
-	if polygon.is_empty():
-		return Vector2(24.0, 24.0)
-	var rect := Rect2(polygon[0], Vector2.ZERO)
-	for point in polygon:
-		rect = rect.expand(point)
-	var scale: Vector2 = occ.scale
-	return Vector2(absf(rect.size.x * scale.x), absf(rect.size.y * scale.y))
+	if poly_node == null or poly_node.polygon.is_empty():
+		return Rect2(occ.global_position - Vector2(12, 12), Vector2(24, 24))
+	var first := occ.to_global(poly_node.polygon[0])
+	var bounds := Rect2(first, Vector2.ZERO)
+	for point in poly_node.polygon:
+		bounds = bounds.expand(occ.to_global(point))
+	return bounds
