@@ -46,10 +46,17 @@ const EXCLUDED_DIRS: Array[String] = [
 	".godot",       # cache de importacion de Godot (oculta: no se lista)
 	"addons",       # plugins de terceros: no los gobierna este proyecto
 	".import",      # cache de importacion
+	"build",        # artefactos de build (ignorados por git)
+	"export",       # exportaciones (ignoradas por git)
 ]
 
 var _failures: Array[String] = []
 var _checked: int = 0
+## Rutas realmente revisadas (res://...), para contrastar con el manifiesto.
+var _scanned: Array[String] = []
+## Carpetas que no se pudieron abrir: un error de lectura NO puede reducir
+## el alcance en silencio (seria un falso verde de la puerta).
+var _scan_errors: Array[String] = []
 
 
 func _check(condition: bool, label: String) -> void:
@@ -62,6 +69,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	_parse_all_scripts()
 	await _orphan_module_api()
+	_manifest_coverage()
 	print("CODE_INTEGRITY_TEST failures=%d checked=%d" % [_failures.size(), _checked])
 	for f in _failures:
 		print("  - " + f)
@@ -80,11 +88,16 @@ func _parse_all_scripts() -> void:
 	if not broken.is_empty():
 		for path in broken:
 			print("FAIL script roto: " + path)
+	_check(_scan_errors.is_empty(),
+		"Se pudo leer todo el arbol de directorios (%d errores)" % _scan_errors.size())
+	for path in _scan_errors:
+		print("FAIL directorio ilegible: " + path)
 
 
 func _scan_dir(path: String, broken: Array[String]) -> void:
 	var dir: DirAccess = DirAccess.open(path)
 	if dir == null:
+		_scan_errors.append(path)
 		return
 	dir.list_dir_begin()
 	var entry: String = dir.get_next()
@@ -101,6 +114,7 @@ func _scan_dir(path: String, broken: Array[String]) -> void:
 
 func _check_script(path: String, broken: Array[String]) -> void:
 	_checked += 1
+	_scanned.append(path)
 	var script: Variant = load(path)
 	if script == null or not (script is Script):
 		broken.append(path)
@@ -112,6 +126,56 @@ func _check_script(path: String, broken: Array[String]) -> void:
 		if as_script.has_method("is_abstract") and as_script.is_abstract():
 			return
 		broken.append(path)
+
+
+## ---------------------------------------------------------------------------
+## C. La cobertura coincide con el MANIFIESTO de git.
+## ---------------------------------------------------------------------------
+## El escaneo deriva del sistema de ficheros, asi que una exclusion
+## accidental, un renombrado de carpeta o un error de lectura podria reducir
+## el alcance SIN romper la puerta (el problema que reviewing detecto en la
+## primera version: 62 de 73 scripts). Aqui se contrasta el conjunto
+## escaneado con los scripts VERSIONADOS: si algun script de git no fue
+## revisado, la puerta falla.
+##
+## El CI hace la comprobacion complementaria: calcula el numero esperado
+## con `git ls-files` y exige `checked=N` en el log, de modo que anadir un
+## script nuevo sin actualizar la puerta tampoco pase en silencio.
+## ---------------------------------------------------------------------------
+func _manifest_coverage() -> void:
+	var game_dir: String = ProjectSettings.globalize_path("res://")
+	var output: Array = []
+	var status: int = OS.execute(
+		"git", PackedStringArray(["-C", game_dir, "ls-files", "--", "*.gd"]), output, true)
+	if status != 0:
+		# Sin git (o sin checkout) el manifiesto no existe: la invariancia
+		# la cubre entonces el CI, que siempre tiene el repositorio.
+		print("NOTE  manifiesto de git no disponible (status=%d)" % status)
+		return
+	var tracked: Array[String] = []
+	for line in str(output[0]).split("\n", false):
+		var clean: String = line.strip_edges()
+		if clean.ends_with(".gd"):
+			tracked.append("res://" + clean)
+	tracked.sort()
+	var scanned: Array[String] = _scanned.duplicate()
+	scanned.sort()
+	var missing: Array[String] = []
+	for path in tracked:
+		if not scanned.has(path):
+			missing.append(path)
+	_check(missing.is_empty(),
+		"El escaneo cubre los %d scripts versionados (%d revisados)" % [tracked.size(), scanned.size()])
+	for path in missing:
+		print("FAIL script versionado NO revisado: " + path)
+	# Scripts en disco que no estan versionados: no son cobertura perdida,
+	# pero se listan para que el dato sea transparente.
+	var extra: Array[String] = []
+	for path in scanned:
+		if not tracked.has(path):
+			extra.append(path)
+	if not extra.is_empty():
+		print("NOTE  scripts en disco sin versionar: %s" % str(extra))
 
 
 ## ---------------------------------------------------------------------------

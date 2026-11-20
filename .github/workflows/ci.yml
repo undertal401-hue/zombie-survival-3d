@@ -152,6 +152,15 @@ jobs:
           run_suite "10_review/CubeFxLifecycleTest.tscn" "CUBE_FX_LIFECYCLE_TEST failures=0"
           run_suite "10_review/ZombieAlertBusTest.tscn" "ZOMBIE_ALERT_BUS_TEST failures=0"
           run_suite "10_review/CodeIntegrityTest.tscn" "CODE_INTEGRITY_TEST failures=0"
+          # La puerta de integridad DEBE cubrir exactamente los scripts
+          # versionados: si una exclusion, un renombrado o un error de
+          # lectura redujera el alcance, el recuento lo delata (el fallo
+          # original de esta puerta revisaba 62 de 73 scripts).
+          expected_scripts=$(git ls-files -- '*.gd' | wc -l | tr -d ' ')
+          if ! grep -q "checked=$expected_scripts" test-CodeIntegrityTest.tscn.log; then
+            echo "::error::CodeIntegrityTest no reviso $expected_scripts scripts (alcance incompleto)"
+            exit 1
+          fi
           run_suite "10_review/StressTest.tscn"      "STRESS_TEST failures=0"
 
           echo "=== QA live gameplay smoke ==="

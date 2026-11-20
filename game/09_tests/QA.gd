@@ -1,7 +1,10 @@
 extends Node
 
-## QA temporal. Modos: inputtest, inspect, play, hunger, capture, perf, mechanics.
+## QA temporal. Modos: inputtest, inspect, play, smoke, hunger, capture, perf, mechanics.
 ## `mechanics` imprime solo el contrato de sistemas nuevos (r1) sin batería completa.
+## `smoke` corre el juego real con el autopiloto y cierra con el centinela
+## `PLAY_SMOKE_COMPLETE` (lo exige el CI como prueba de que el bucle de juego
+## se ejecutó entero, no solo el primer frame).
 
 ## Default EXACTAMENTE igual al directorio usado hoy (user://qa_shots).
 const DEFAULT_CAPTURE_DIR := "user://qa_shots"
@@ -298,8 +301,11 @@ func _smoke() -> void:
 	# El autopiloto mueve al jugador (y pelea si aparece un zombi): obliga a
 	# correr la IA, el combate, el HUD y las oleadas.
 	var target: Vector2 = _player.global_position + Vector2(420.0, 0.0)
+	var start_position: Vector2 = _player.global_position
 	var reached: bool = await _move_to(target, 420, 48.0, true)
-	print("SMOKE move reached=%s pos=%s" % [str(reached), str(_player.global_position)])
+	var moved: float = start_position.distance_to(_player.global_position)
+	print("SMOKE move reached=%s moved=%.0f pos=%s" % [
+		str(reached), moved, str(_player.global_position)])
 
 	# Frames extra de juego vivo con el mundo en marcha.
 	for i in range(180):
@@ -308,11 +314,15 @@ func _smoke() -> void:
 	var alive: bool = not bool(_player.get("is_dead"))
 	var hp: float = float(_player.get("hp"))
 	print("SMOKE alive=%s hp=%.0f" % [str(alive), hp])
-	if alive:
+	# El smoke NO puede quedar verde si el autopiloto no se movio: eso
+	# significa que la navegacion o la entrada de teclado estan rotas, y es
+	# una regresion silenciosa que ni el alive ni el centinela detectan.
+	if alive and reached and moved >= 100.0:
 		_smoke_ok = true
 		print("PLAY_SMOKE_COMPLETE")
 	else:
-		print("PLAY_SMOKE_FAILED player_dead")
+		print("PLAY_SMOKE_FAILED alive=%s reached=%s moved=%.0f" % [
+			str(alive), str(reached), moved])
 
 
 func _hunger_test() -> void:

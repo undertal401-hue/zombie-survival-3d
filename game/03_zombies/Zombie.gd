@@ -441,17 +441,6 @@ func _on_melee_noise(_weapon: Variant, direction: Vector2) -> void:
 	_hear_noise(origin + direction.normalized() * 18.0, hearing_melee_radius, player, true)
 
 
-## ¿Es este valor ESTE zombi?
-##
-## El bus `zombie_alerted` admite DOS convenciones: `(zombie, source)` con
-## nodos (la que declara `EventBus`) y `(posicion, radio)` desde el vehículo
-## (`DriveableVehicle._emit_alert()` inspecciona la firma y emite lo que
-## encaja). Comparar un Vector2 con un Object en GDScript 4 es un ERROR en
-## tiempo de ejecución ("Invalid operands 'Vector2' and 'Object' in operator
-## '=='"), NO un false: aborta el handler y el zombi nunca oye el ruido.
-##
-## Por eso el guard tiene que comprobar el TIPO antes de comparar, y validar
-## que la instancia siga viva antes de tocarla (mismo patrón que R1-fix).
 ## ¿Es este valor un objeto VIVO de tipo Node?
 ##
 ## Orden de guards (el mismo que fija ADR-004 §9 para el payload de
@@ -480,6 +469,9 @@ func _is_live_node(value: Variant) -> bool:
 ## encaja). Comparar un Vector2 con un Object en GDScript 4 es un ERROR en
 ## tiempo de ejecución ("Invalid operands 'Vector2' and 'Object' in operator
 ## '=='"), NO un false: aborta el handler y el zombi nunca oye el ruido.
+##
+## Por eso el guard delega en `_is_live_node()` (tipo + vigencia) antes de
+## comparar identidades.
 func _is_self(value: Variant) -> bool:
 	if not _is_live_node(value):
 		return false

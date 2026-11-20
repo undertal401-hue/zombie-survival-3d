@@ -330,6 +330,21 @@ eso el orden definitivo es `typeof` -> `is_instance_valid` -> `is`
 (ADR-004 §9), en `_is_live_node()` y en los helpers `_alert_point()`,
 `_alert_radius()` y `_alert_source()`.
 
+**11.5 Invariantes de las puertas (la revision de R1-hotfix2)**
+
+Una puerta verde no vale si su alcance puede encogerse en silencio. Las tres
+invariantes que quedan fijadas:
+
+| Invariante | Mecanismo | Control negativo |
+|---|---|---|
+| La puerta de integridad revisa **todos** los scripts versionados | `CodeIntegrityTest` contrasta el conjunto escaneado con el manifiesto de `git ls-files`; el CI exige ademas `checked=N` con el numero esperado | Inyectando una exclusion de carpeta con 2 scripts versionados: la puerta da `checked=71` y **falla** (`script versionado NO revisado`) |
+| El smoke solo es verde si el juego **realmente corrio** | `QA_MODE=smoke` exige `reached == true` **y** `moved >= 100 px`, ademas de `alive` | Con el autopiloto incapable de moverse: `PLAY_SMOKE_FAILED`, rc=1 (antes era un falso verde) |
+| Un error de lectura no reduce el alcance | `_scan_dir()` registra los `DirAccess.open()` fallidos como fallo, no los ignora en silencio | — |
+
+Las carpetas `build/` y `export/` (ignoradas por git) quedan excluidas del
+escaneo para que un artefacto local roto no produzca falsos positivos en la
+compuerta local.
+
 ### Alternatives Considered
 
 ### (a) Mantener los sprites pixel-art generados como presentación
