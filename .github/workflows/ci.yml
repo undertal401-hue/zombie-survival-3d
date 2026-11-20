@@ -188,7 +188,11 @@ jobs:
           # versionados: si una exclusion, un renombrado o un error de
           # lectura redujera el alcance, el recuento lo delata (el fallo
           # original de esta puerta revisaba 62 de 73 scripts).
-          expected_scripts=$(git ls-files -- '*.gd' | wc -l | tr -d ' ')
+          # El recuento se acota al PROYECTO GODOT (`game/`), igual que el
+          # manifiesto que usa la propia puerta (`git -C game ls-files`):
+          # el repositorio puede contener copies de respaldo del juego fuera
+          # de `res://`, y esos scripts no son alcance de `CodeIntegrityTest`.
+          expected_scripts=$(git -C game ls-files -- '*.gd' | wc -l | tr -d ' ')
           if ! grep -q "checked=$expected_scripts" test-CodeIntegrityTest.tscn.log; then
             echo "::error::CodeIntegrityTest no reviso $expected_scripts scripts (alcance incompleto)"
             exit 1
