@@ -314,7 +314,7 @@ func _pursue(delta: float) -> void:
 			velocity = _charge_direction * charge_speed
 			return
 
-	if distance <= ATTACK_RANGE:
+	if distance <= ATTACK_RANGE and sees:
 		state = State.ATTACK
 		velocity = Vector2.ZERO
 		_attack()
@@ -362,13 +362,18 @@ func _can_detect(node: Node2D) -> bool:
 	var sight_radius: float = detect_radius * float(_difficulty.get("perception", 1.0))
 	if distance > sight_radius:
 		return false
+	# La linea de vision SIEMPRE se exige. El "close sense" solo relaja el
+	# cono a corta distancia (contacto/olido), nunca la geometria: antes
+	# devolvia true sin rayo y un zombi pegado al otro lado de una pared
+	# seguia al jugador dentro de la casa aunque no pudiera verlo.
+	# Los tres rayos ya resuelven el caso del marco de puerta estrecho que
+	# tapa el centro pero no los hombros.
+	if not _has_line_of_sight_to(node):
+		return false
 	if distance > close_sense_radius and distance > 0.001:
 		var cone: float = deg_to_rad(vision_half_angle_degrees)
 		if absf(angle_difference(_facing_angle, to_target.angle())) > cone:
 			return false
-		return _has_line_of_sight_to(node)
-	# A muy corta distancia el zombie tambien percibe por contacto/olido, aunque
-	# un marco de puerta rompa la linea de vision exacta centro a centro.
 	return true
 
 
@@ -702,7 +707,12 @@ func _telegraph(kind_to_announce: int) -> void:
 
 
 func _attack() -> void:
-	if attack_cooldown > 0.0 or target == null or state == State.STUNNED:
+	if attack_cooldown > 0.0 or not _target_valid() or state == State.STUNNED:
+		return
+	# Un golpe cuerpo a cuerpo no atraviesa una pared: si el jugador esta al
+	# otro lado, el zombi debe investigar el ultimo punto conocido, no pegarle
+	# a traves de la geometria.
+	if not _has_line_of_sight_to(target):
 		return
 	attack_cooldown = attack_cooldown_time
 
@@ -759,6 +769,8 @@ func _start_boss_charge(target_pos: Vector2) -> void:
 func _boss_attack() -> void:
 	if _boss_slam_timer > 0.0 or not _target_valid():
 		return
+	if not _has_line_of_sight_to(target):
+		return
 	_boss_slam_timer = boss_slam_cooldown
 	_telegraph(Kind.BOSS)
 	if zombie_visual != null:
@@ -775,6 +787,8 @@ func _boss_attack() -> void:
 ## Daño único al conectar la carga; la fase 2 pega más fuerte.
 func _boss_impact_damage() -> void:
 	if not _target_valid():
+		return
+	if not _has_line_of_sight_to(target):
 		return
 	if target.has_method("receive_damage"):
 		var damage: float = attack_damage * (1.15 if phase == 2 else 0.9)
