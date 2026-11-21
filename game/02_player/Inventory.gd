@@ -9,6 +9,8 @@ signal inventory_changed
 ## Señal local de crafting (EventBus puede no tenerla aún: ver _emit_craft_signal).
 signal crafting_completed(item_id: String, amount: int)
 signal item_rejected(item_id: String, reason: String)
+## Se emite cuando el jugador recoge un objeto al inventario (para mostrar su sprite).
+signal item_picked_up(item_id: String, amount: int)
 
 const MAX_SLOTS := 16
 const MAX_WEIGHT := 200.0
@@ -204,6 +206,7 @@ func add_item(id: String, amount: int = 1, silent: bool = false) -> int:
 		_conditions[id] = 1.0
 	inventory_changed.emit()
 	if not silent:
+		item_picked_up.emit(id, added)
 		if added < amount:
 			_notify("Espacio limitado: +%d/%d %s" % [added, amount, display_name(id)])
 		else:

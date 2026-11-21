@@ -17,6 +17,7 @@ class_name PlayerVisual
 ## =============================================================================
 
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
+@onready var held_item: Sprite2D = $HeldItem
 
 ## Interruptor de presentación. false = cubo (actual). true = la sprite de
 ## frames pasa a verse y el cubo se oculta (arte futuro del usuario).
@@ -66,6 +67,12 @@ func _ready() -> void:
 		(animated_sprite.material as CanvasItemMaterial).texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	animated_sprite.play("idle")
 	animated_sprite.animation_finished.connect(_on_animation_finished)
+
+	# Sprite para mostrar el objeto/arma equipado en el personaje.
+	held_item.visible = false
+	held_item.scale = Vector2(0.8, 0.8)
+	held_item.z_index = 10
+	held_item.offset = Vector2(8, -4)
 
 	# Presentación: cubo visible, sprite de frames oculto (o al revés si el
 	# usuario activa USE_SPRITE_ART con su arte).
@@ -372,3 +379,40 @@ func _set_hit_flash(progress: float) -> void:
 	for poly in _cube_nodes():
 		if poly != null:
 			poly.modulate = tint
+
+## Muestra el sprite del objeto/arma equipado en el personaje.
+## Cada tipo de objeto tiene un color distinto (pixel art simple).
+func set_held_item(item_id: String) -> void:
+	if item_id == "" or item_id == null:
+		held_item.visible = false
+		held_item.texture = null
+		return
+
+	# Colores pixel art para cada tipo de objeto
+	var color_map: Dictionary = {
+		"Pistola 9mm": Color(255, 50, 50, 255),       # Rojo - pistola
+		"Escopeta 12ga": Color(255, 150, 50, 255),     # Naranja - escopeta
+		"Fusil 5.56mm": Color(50, 100, 255, 255),      # Azul - fusil
+		"Machete": Color(50, 200, 50, 255),            # Verde - machete
+		"scrap": Color(139, 69, 19, 255),              # Marrón - madera/chatarra
+		"cloth": Color(200, 200, 200, 255),            # Gris - tela
+		"medkit": Color(200, 50, 50, 255),             # Rojo oscuro - botiquín
+		"comida": Color(255, 215, 0, 255),             # Amarillo - comida
+		"pistol_ammo": Color(0, 200, 200, 255),        # Cian - munición pistola
+		"rifle_ammo": Color(0, 150, 255, 255),         # Azul claro - munición fusil
+		"shotgun_ammo": Color(255, 100, 0, 255),       # Naranja oscuro - munición escopeta
+		"combustible": Color(200, 100, 0, 255),        # Naranja - combustible
+		"vehicle_fuel": Color(255, 50, 0, 255),        # Naranja rojo - combustible vehículo
+		"llave": Color(150, 50, 200, 255),             # Púrpura - llave
+	}
+
+	var color: Color = color_map.get(item_id, Color.WHITE)
+	var tex: ImageTexture = _make_color_texture(color)
+	held_item.texture = tex
+	held_item.visible = true
+
+func _make_color_texture(color: Color) -> ImageTexture:
+	var img: Image = Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	img.fill(color)
+	var tex: ImageTexture = ImageTexture.create_from_image(img)
+	return tex

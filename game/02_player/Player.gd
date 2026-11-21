@@ -99,6 +99,9 @@ func _ready() -> void:
 	weapon_controller.melee_attack.connect(_on_melee_visual)
 	weapon_controller.reloading_started.connect(_on_reload_visual)
 	weapon_controller.reloading_finished.connect(_on_reload_finished_visual)
+	
+	# Conectar señal de objeto recogido para mostrar su sprite en el personaje
+	Inventory.item_picked_up.connect(_on_item_picked_up)
 
 func _physics_process(delta: float) -> void:
 	if is_dead:
@@ -405,8 +408,9 @@ func _on_melee_attack(weapon: Weapon, direction: Vector2) -> void:
 func _on_weapon_changed(weapon: Weapon) -> void:
 	# Cambiar de arma rompe el combo: no se puede rematar con otra herramienta.
 	_reset_combo()
-	# Actualizar HUD u otros sistemas
-	pass
+	# Mostrar el sprite del arma equipada en el personaje
+	if player_visual != null and not is_dead and weapon != null:
+		player_visual.set_held_item(weapon.weapon_name)
 
 ## Handlers visuales
 func _on_fire_visual(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> void:
@@ -424,6 +428,11 @@ func _on_reload_visual(weapon: Weapon, duration: float) -> void:
 func _on_reload_finished_visual(weapon: Weapon) -> void:
 	# La animación de recarga termina sola, _is_attacking se resetea en animation_finished
 	pass
+
+## Cuando se recoge un objeto del inventario, mostrar su sprite en el personaje
+func _on_item_picked_up(item_id: String, amount: int) -> void:
+	if player_visual != null and not is_dead:
+		player_visual.set_held_item(item_id)
 
 ## Activa o desactiva el modo pasajero. Lo llama DriveableVehicle al subir,
 ## bajar o cuando el jugador muere al volante.
