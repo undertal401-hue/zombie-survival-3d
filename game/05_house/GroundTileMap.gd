@@ -17,13 +17,21 @@ func _ready() -> void:
 	
 	# Crear fuente 0: ground_tiles
 	var source_ground: TileSetAtlasSource = TileSetAtlasSource.new()
-	source_ground.texture = load("res://assets/lumina_textures/ground_tiles.png")
+	var ground_tex: Texture2D = load("res://assets/lumina_textures/ground_tiles.png")
+	if ground_tex == null:
+		push_error("GroundTileMap: no se pudo cargar ground_tiles.png")
+		return
+	source_ground.texture = ground_tex
 	source_ground.texture_region_size = tile_size
 	var ground_id: int = tileset.add_source(source_ground)
 	
 	# Crear fuente 1: decoration_tiles
 	var source_decoration: TileSetAtlasSource = TileSetAtlasSource.new()
-	source_decoration.texture = load("res://assets/lumina_textures/decoration_tiles.png")
+	var dec_tex: Texture2D = load("res://assets/lumina_textures/decoration_tiles.png")
+	if dec_tex == null:
+		push_error("GroundTileMap: no se pudo cargar decoration_tiles.png")
+		return
+	source_decoration.texture = dec_tex
 	source_decoration.texture_region_size = tile_size
 	var decoration_id: int = tileset.add_source(source_decoration)
 	
@@ -32,14 +40,19 @@ func _ready() -> void:
 		return
 	
 	set_tileset(tileset)
+	# Configurar tile_size en el TileMap para que sepa el tamaño de cada celda
+	tile_size = tileset.get_source(ground_id).texture_region_size
 	_paint_ground(ground_id, decoration_id)
+	
+	# Depuración
+	var ts: TileSet = get_tileset()
+	print("GroundTileMap: ground_id=", ground_id, "decoration_id=", decoration_id)
+	print("GroundTileMap: ground_tex=", ground_tex, "dec_tex=", dec_tex)
 
 func _paint_ground(ground_source_id: int, decoration_source_id: int) -> void:
 	var ts: TileSet = get_tileset()
 	var cols: int = 16
 	var rows: int = 16
-
-	# Crear todos los tiles de ground_tiles en la fuente 0
 	for y in range(rows):
 		for x in range(cols):
 			ts.get_source(ground_source_id).create_tile(Vector2i(x, y))
