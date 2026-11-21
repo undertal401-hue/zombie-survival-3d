@@ -963,9 +963,28 @@ func _drop_loot() -> void:
 			# El jefe asegura una recompensa proporcional a su riesgo.
 			item_id = "scrap"
 			amount = rng.randi_range(5, 8)
+			Inventory.add_item(item_id, amount, true)
+			# Munición garantizada para el jefe
+			var ammo_roll: float = rng.randf()
+			if ammo_roll < 0.7:
+				Inventory.add_item("pistol_ammo", rng.randi_range(12, 24), true)
+			if ammo_roll < 0.5:
+				Inventory.add_item("shotgun_ammo", rng.randi_range(6, 12), true)
+			if ammo_roll < 0.3:
+				Inventory.add_item("rifle_ammo", rng.randi_range(12, 24), true)
+			Inventory.add_item("medkit", rng.randi_range(1, 2), true)
+			return
 		_:
 			if rng.randf() < 0.18:
 				item_id = "scrap" if rng.randf() < 0.6 else "cloth"
+			# Munición de zombies comunes (pequeña probabilidad)
+			var ammo_roll: float = rng.randf()
+			if ammo_roll < 0.08:
+				Inventory.add_item("pistol_ammo", rng.randi_range(2, 6), true)
+			elif ammo_roll < 0.12:
+				Inventory.add_item("shotgun_ammo", rng.randi_range(2, 4), true)
+			elif ammo_roll < 0.15:
+				Inventory.add_item("rifle_ammo", rng.randi_range(4, 8), true)
 	if item_id == "":
 		return
 	var added: int = Inventory.add_item(item_id, amount, true)

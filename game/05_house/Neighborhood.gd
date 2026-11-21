@@ -430,7 +430,7 @@ func _assign_loot() -> void:
 		if _rng.randf() < 0.5:
 			_add_loot_container(medkit_house, "medkit", 1, "armario")
 		else:
-			_add_loot_container(medkit_house, "pistol_ammo", 12, "armario")
+			_add_loot_container(medkit_house, "pistol_ammo", 24, "armario")
 		used[medkit_house] = true
 
 	for zone in FOOD_ZONES:
@@ -459,9 +459,13 @@ func _assign_loot() -> void:
 	_add_world_loot(_cell_center(9, 8) + Vector2(0, 50), "medkit", 1, "caja")
 	
 	# Munición dispersa por el mapa
-	_add_world_loot(_cell_center(4, 4) + Vector2(-40, 20), "pistol_ammo", 12, "caja")
-	_add_world_loot(_cell_center(6, 5) + Vector2(30, -30), "pistol_ammo", 24, "caja")
-	_add_world_loot(_cell_center(1, 2) + Vector2(10, 10), "pistol_ammo", 12, "caja")
+	_add_world_loot(_cell_center(4, 4) + Vector2(-40, 20), "pistol_ammo", 24, "caja")
+	_add_world_loot(_cell_center(6, 5) + Vector2(30, -30), "pistol_ammo", 48, "caja")
+	_add_world_loot(_cell_center(1, 2) + Vector2(10, 10), "pistol_ammo", 24, "caja")
+	_add_world_loot(_cell_center(8, 8) + Vector2(-20, -40), "shotgun_ammo", 12, "caja")
+	_add_world_loot(_cell_center(2, 9) + Vector2(40, 10), "shotgun_ammo", 12, "caja")
+	_add_world_loot(_cell_center(7, 3) + Vector2(-10, 50), "rifle_ammo", 16, "caja")
+	_add_world_loot(_cell_center(5, 7) + Vector2(50, -20), "rifle_ammo", 16, "caja")
 
 func _add_loot_container(house: House, item_id: String, amount: int, container_name: String) -> void:
 	var loot := LOOT_SCENE.instantiate() as LootContainer
