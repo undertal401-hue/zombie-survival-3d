@@ -161,6 +161,7 @@ func build() -> void:
 	_build_tower()
 	_build_yards()
 	_build_barricade()
+	_build_towns()
 	_build_streetlights()
 	_build_start_camp()
 	_build_extraction_lot()
@@ -751,6 +752,98 @@ func _build_barricade() -> void:
 		body.add_child(stripe)
 	add_child(body)
 	_add_label("CERRADO", body.position + Vector2(120, 0), Color(0.95, 0.65, 0.35), 14)
+
+func _build_towns() -> void:
+	# Varios pueblos abiertos conectados por caminos, sin muros ni puertas
+	# ni teletransporte. Se entra caminando desde el campo al pueblo.
+	var town_count: int = 3  # Pueblo principal + 2 pueblos adicionales
+	var town_spacing: Vector2 = Vector2(1200.0, 900.0)
+
+	# Pueblo 1: Noroeste del pueblo principal
+	var town1_center: Vector2 = Vector2(-map_size().x * 0.35, -map_size().y * 0.35)
+	_build_town_at(town1_center, "Pueblo Norte")
+
+	# Pueblo 2: Sureste del pueblo principal
+	var town2_center: Vector2 = Vector2(map_size().x * 0.35, map_size().y * 0.35)
+	_build_town_at(town2_center, "Pueblo Sur")
+
+	# Pueblo 3: Suroeste del pueblo principal
+	var town3_center: Vector2 = Vector2(-map_size().x * 0.35, map_size().y * 0.35)
+	_build_town_at(town3_center, "Pueblo Oeste")
+
+	# Conectar cada pueblo al camino principal con una carretera
+	_connect_town_to_road(town1_center)
+	_connect_town_to_road(town2_center)
+	_connect_town_to_road(town3_center)
+
+func _build_town_at(center: Vector2, name: String) -> void:
+	# Crear un pueblo con 3-5 casas alrededor del centro
+	var house_count: int = _rng.randf_range(3, 6)
+	var town_house_count: int = int(house_count)
+
+	for i in range(town_house_count):
+		var offset: Vector2 = Vector2(
+			_rng.randf_range(-300.0, 300.0),
+			_rng.randf_range(-300.0, 300.0)
+		)
+		var position: Vector2 = center + offset
+
+		# Crear casa
+		var house := HOUSE_SCENE.instantiate() as House
+		house.name = "Town_" + name + "_" + str(i)
+		house.position = position
+		house.size = Vector2(
+			_rng.randf_range(house_min_size.x, house_max_size.x),
+			_rng.randf_range(house_min_size.y, house_max_size.y)
+		)
+		house.door_side = int(_rng.randf_range(0, 4))
+		house.wall_color = Color(0.55, 0.52, 0.45).lerp(Color(0.45, 0.4, 0.35), _rng.randf())
+		house.floor_color = Color(0.24, 0.22, 0.2).lerp(Color(0.3, 0.26, 0.22), _rng.randf())
+		house.door_color = Color(0.35, 0.24, 0.14).lerp(Color(0.42, 0.3, 0.18), _rng.randf())
+		add_child(house)
+
+		# Añadir suelo alrededor de la casa
+		_add_rect(Rect2(position - Vector2(10, 10), Vector2(20, 20)), lawn_color.darkened(0.06), -9)
+
+	# Añadir nombre del pueblo
+	var label: Label = Label.new()
+	label.text = name
+	label.position = center + Vector2(-40, -80)
+	label.z_index = 10
+	add_child(label)
+
+func _connect_town_to_road(town_center: Vector2) -> void:
+	# Conectar el pueblo al camino principal más cercano con una carretera recta
+	var best_road_point: Vector2 = Vector2(0, 0)
+	var best_dist: float = float("inf")
+
+	for rect in _road_rects:
+		# Rect2.closest_point no existe en Godot 4, calcular manualmente
+		var rect_min: Vector2 = rect.position
+		var rect_max: Vector2 = rect.position + rect.size
+		var closest_x: float = clamp(town_center.x, rect_min.x, rect_max.x)
+		var closest_y: float = clamp(town_center.y, rect_min.y, rect_max.y)
+		var closest: Vector2 = Vector2(closest_x, closest_y)
+		var d: float = town_center.distance_to(closest)
+		if d < best_dist:
+			best_dist = d
+			best_road_point = closest
+
+	if best_dist < float("inf"):
+		# Dibujar camino desde el pueblo al camino principal
+		var road_min_x: float = min(town_center.x, best_road_point.x)
+		var road_min_y: float = min(town_center.y, best_road_point.y)
+		var road_max_x: float = max(town_center.x, best_road_point.x)
+		var road_max_y: float = max(town_center.y, best_road_point.y)
+		var road_rect: Rect2 = Rect2(
+			Vector2(road_min_x, road_min_y),
+			Vector2(road_max_x - road_min_x, road_max_y - road_min_y)
+		).grow(40.0)
+		_add_rect(road_rect, road_color, -6)
+
+		# Dibujar aceras
+		var sidewalk_rect: Rect2 = road_rect.grow(12.0)
+		_add_rect(sidewalk_rect, sidewalk_color, -7)
 
 func _build_streetlights() -> void:
 	for x in range(-2160, 2401, 480):
