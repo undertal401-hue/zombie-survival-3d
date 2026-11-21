@@ -38,6 +38,9 @@ const VEHICLE_DAMAGE_SCALE := 0.55
 ## actual, no al jugador, para que no gire con él ni sobreviva a un reload.
 const DAMAGE_NUMBER_SCENE: PackedScene = preload("res://08_ui/DamageNumber.tscn")
 
+## Escena del proyectil visual que viaja hacia el objetivo
+const PROJECTILE_SCENE: PackedScene = preload("res://02_player/weapons/Projectile.tscn")
+
 ## Ajustables desde el inspector o por código. Con 0.2/s una barra llena
 ## dura unos 8 minutos; la comida recupera 35 puntos.
 @export var max_hunger: float = 100.0
@@ -226,6 +229,7 @@ func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announ
 		excluded.append((active_vehicle as CollisionObject2D).get_rid())
 	var remaining_penetration: int = weapon.penetration
 	var walls_pierced: int = 0
+	var hit_pos: Vector2 = end_pos  # Valor por defecto: alcance máximo del arma
 	
 	# Un rayo por pared atravesada. Tope de 8 iteraciones para evitar bucles
 	# patológicos si un collider devuelve una posición degenerada.
@@ -236,7 +240,7 @@ func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announ
 			if _i == 0 and announce and weapon.pellets_per_shot <= 1:
 				EventBus.notification.emit("Sin objetivo")
 			break
-		var hit_pos: Vector2 = result.position
+		hit_pos = result.position
 		var collider: Object = result.collider
 		if collider == null:
 			break
@@ -315,6 +319,15 @@ func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announ
 				ParticleManager.instance.spawn_decal(&"impact", hit_pos,
 					ParticleManager.instance.palette_color(&"steel_dark"))
 		break
+	
+	# Crear proyectil visual que viaja hacia el punto de impacto
+	var projectile = PROJECTILE_SCENE.instantiate()
+	projectile.global_position = from_pos
+	projectile.target = hit_pos
+	projectile.max_range = weapon.range
+	projectile.damage = weapon.base_damage
+	projectile.shooter_rid = get_rid()
+	get_tree().current_scene.add_child(projectile)
 	# El destello lo genera WeaponController/ParticleManager en coordenadas del mundo.
 
 ## Número flotante + SFX diferenciado. El headshot suena más agudo y se
