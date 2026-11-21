@@ -844,7 +844,7 @@ func _build_town_at(center: Vector2, name: String) -> void:
 
 
 ## Coloca una casa de anillo fuera del claro rectangular de la plaza. El
-## radio se amplia cuando el angulo lo necessitate, de modo que el
+## radio se amplia cuando la orientacion lo necessitate, de modo que el
 ## centro quede libre para cualquier tamano de casa permitido.
 func _town_house_position(center: Vector2, house_size: Vector2,
 		angle: float) -> Vector2:
