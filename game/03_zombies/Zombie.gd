@@ -259,7 +259,6 @@ func _update_render_culling(distance: float) -> void:
 		_set_render_culled(true)
 	elif distance < culling_distance * 0.6 and _render_culled:
 		_set_render_culled(false)
-		_repath_timer = 0.0
 
 
 func _set_render_culled(culled: bool) -> void:
