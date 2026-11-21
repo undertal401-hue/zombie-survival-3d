@@ -47,6 +47,17 @@ func _ready() -> void:
 	_check(zombie.attack_cooldown < 1.0,
 		"La IA y sus temporizadores siguen avanzando mientras el zombi esta oculto")
 
+	# Un cambio de culling no debe reiniciar el temporizador de repath. Se usa
+	# una sonda aislada para invocar la transicion sincronamente y evitar que
+	# el frame de fisica altere el valor antes de la asercion.
+	var timer_zombie: CharacterBody2D = _make_probe_zombie("CullingTimerZombie")
+	_place_player(player, timer_zombie, 500.0)
+	await _settle()
+	timer_zombie.set("_repath_timer", 0.2)
+	timer_zombie.call("_update_render_culling", 50.0)
+	_check(is_equal_approx(float(timer_zombie.get("_repath_timer")), 0.2),
+		"La transicion de culling conserva el temporizador de repath")
+
 	# Histéresis: dentro de la banda baja sigue oculto; al cruzar el limite
 	# inferior reaparece y no vuelve a ocultarse hasta superar el superior.
 	_place_player(player, zombie, 80.0)
@@ -91,6 +102,9 @@ func _ready() -> void:
 	zombie.culling_distance = 0.0
 	_check(zombie.culling_distance >= 1.0,
 		"Una distancia de culling no positiva se normaliza")
+	zombie.culling_distance = -25.0
+	_check(zombie.culling_distance >= 1.0,
+		"Una distancia de culling negativa se normaliza")
 
 	await _finish()
 
