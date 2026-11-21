@@ -517,6 +517,9 @@ func _configure_wall(body: StaticBody2D, center: Vector2, wall_size: Vector2,
 	var extent: float = wall_size.x if horizontal else wall_size.y
 	var thickness: float = wall_size.y if horizontal else wall_size.x
 	var has_gap: bool = gap_width > 0.0 and gap_center < 1000000.0
+	# `gap_center` usa la coordenada a lo largo del muro: X para un muro
+	# horizontal y Y para uno vertical. Usar la coordenada perpendicular
+	# desplazaba los tres huecos y dejaba entradasfisicamente cerradas.
 	var axis_center: float = center.x if horizontal else center.y
 	var gap_local: float = gap_center - axis_center
 

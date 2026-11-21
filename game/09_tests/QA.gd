@@ -170,7 +170,7 @@ func _inspect() -> void:
 	var prop_names: Array[String] = []
 	for child in neighborhood.get_children():
 		var body := child as StaticBody2D
-		if body == null or body.name == "Barricade":
+		if body == null:
 			continue
 		var rect := _body_rect(body)
 		for road in neighborhood._road_rects:

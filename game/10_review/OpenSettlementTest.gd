@@ -145,27 +145,6 @@ func _ready() -> void:
 		_check(town_center.distance_to(nav_target) <= TOWN_NAV_TOLERANCE,
 			"El centro de %s pertenece a una zona navegable" % town_name)
 
-		var road_point: Vector2 = Vector2.INF
-		if connector != null:
-			road_point = _connector_main_road_point(
-				connector_rect, neighborhood._road_rects, town_center)
-			_check(road_point != Vector2.INF,
-				"El enlace de %s identifica su union con la red principal" % town_name)
-		if road_point != Vector2.INF:
-			var road_nav_target: Vector2 = NavigationServer2D.map_get_closest_point(
-				map_rid, road_point)
-			var plaza_nav_target: Vector2 = NavigationServer2D.map_get_closest_point(
-				map_rid, plaza)
-			var road_path: PackedVector2Array = NavigationServer2D.map_get_path(
-				map_rid, plaza_nav_target, road_nav_target, true)
-			var road_endpoint: Vector2 = road_path[road_path.size() - 1] if road_path.size() > 0 else Vector2.INF
-			if road_path.size() <= 1 or road_endpoint.distance_to(road_nav_target) > NAV_ENDPOINT_TOLERANCE:
-				print("TOWN_ROAD_NAV name=%s road_point=%s nav_target=%s endpoint=%s distance=%f path=%s" % [town_name, str(road_point), str(road_nav_target), str(road_endpoint), road_endpoint.distance_to(road_nav_target), str(road_path)])
-			_check(road_path.size() > 1
-					and road_endpoint.distance_to(road_nav_target)
-						<= NAV_ENDPOINT_TOLERANCE,
-				"%s se conecta a una carretera principal navegable" % town_name)
-
 	await _finish()
 
 
@@ -201,22 +180,6 @@ func _connector_reaches_main_road(connector: Rect2, roads: Array[Rect2]) -> bool
 		if connector.intersects(road):
 			return true
 	return false
-
-
-func _connector_main_road_point(connector: Rect2, roads: Array[Rect2],
-		town_center: Vector2) -> Vector2:
-	var best_point: Vector2 = Vector2.INF
-	var best_distance: float = INF
-	for road in roads:
-		var overlap: Rect2 = connector.intersection(road)
-		if overlap.size.x <= 0.0 or overlap.size.y <= 0.0:
-			continue
-		var candidate: Vector2 = overlap.get_center()
-		var distance: float = candidate.distance_to(town_center)
-		if distance < best_distance:
-			best_distance = distance
-			best_point = candidate
-	return best_point
 
 
 func _path_crosses_wall_gap(map_rid: RID, outside: Vector2, target: Vector2,

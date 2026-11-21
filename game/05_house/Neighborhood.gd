@@ -6,6 +6,12 @@ extends Node2D
 ## celdas libres con separacion suficiente para calles, patios y callejones.
 
 const HOUSE_SCENE: PackedScene = preload("res://05_house/House.tscn")
+# Coherentes con los huecos perimetrales de Main. Las casas generadas no
+# pueden ocupar estos corredores o el paso peatonal queda cerrado.
+const ACCESS_GAP_X: float = 1200.0
+const ACCESS_GAP_WEST_Y: float = -600.0
+const ACCESS_GAP_WIDTH: float = 200.0
+const ACCESS_CORRIDOR_DEPTH: float = 340.0
 const LOOT_SCENE: PackedScene = preload("res://04_items/LootContainer.tscn")
 
 ## Fuente unica del numero de puntos de spawn del barrio. Main hereda este
@@ -277,7 +283,7 @@ func _build_houses() -> void:
 	for r in range(rows):
 		for c in range(columns):
 			var cell := Vector2i(c, r)
-			if _open_kind(cell) != "":
+			if _open_kind(cell) != "" or _cell_blocks_access(cell):
 				continue
 
 			var kind: String = _special_kind(cell)
@@ -313,6 +319,32 @@ func _build_houses() -> void:
 				_decorate_warehouse(house, "DEPÓSITO")
 			elif kind == "warehouse":
 				_decorate_warehouse(house, "ALMACÉN")
+
+
+## Una celda situada sobre cualquiera de los tres corredores perimetrales queda
+## reservada: no se construye una casa que pueda cerrar el acceso a pie.
+func _cell_blocks_access(cell: Vector2i) -> bool:
+	var half: Vector2 = map_size() * 0.5
+	var cell_rect := Rect2(Vector2(_gx(cell.x), _gy(cell.y)), cell_size)
+	var north_corridor := Rect2(
+		ACCESS_GAP_X - ACCESS_GAP_WIDTH * 0.5,
+		-half.y,
+		ACCESS_GAP_WIDTH,
+		ACCESS_CORRIDOR_DEPTH)
+	var south_corridor := Rect2(
+		ACCESS_GAP_X - ACCESS_GAP_WIDTH * 0.5,
+		half.y - ACCESS_CORRIDOR_DEPTH,
+		ACCESS_GAP_WIDTH,
+		ACCESS_CORRIDOR_DEPTH)
+	var west_corridor := Rect2(
+		-half.x,
+		ACCESS_GAP_WEST_Y - ACCESS_GAP_WIDTH * 0.5,
+		ACCESS_CORRIDOR_DEPTH,
+		ACCESS_GAP_WIDTH)
+	return cell_rect.intersects(north_corridor) \
+		or cell_rect.intersects(south_corridor) \
+		or cell_rect.intersects(west_corridor)
+
 
 func _house_size(kind: String) -> Vector2:
 	match kind:
@@ -739,9 +771,9 @@ func _build_towns() -> void:
 	_build_town_at(town3_center, "Pueblo Oeste")
 
 	# Conectar cada pueblo al camino principal con una carretera
-	_connect_town_to_road(town1_center)
-	_connect_town_to_road(town2_center)
-	_connect_town_to_road(town3_center)
+	_connect_town_to_road(town1_center, "Pueblo Norte")
+	_connect_town_to_road(town2_center, "Pueblo Sur")
+	_connect_town_to_road(town3_center, "Pueblo Oeste")
 
 func _build_town_at(center: Vector2, name: String) -> void:
 	# Crear un pueblo con 3-5 casas alrededor del centro
@@ -749,10 +781,11 @@ func _build_town_at(center: Vector2, name: String) -> void:
 	var town_house_count: int = int(house_count)
 
 	for i in range(town_house_count):
-		var offset: Vector2 = Vector2(
-			_rng.randf_range(-300.0, 300.0),
-			_rng.randf_range(-300.0, 300.0)
-		)
+		# Reservar un claro central: las casas no pueden cerrar la plaza ni
+		# aislar el enlace del pueblo con la carretera principal.
+		var angle: float = _rng.randf_range(0.0, TAU)
+		var radius: float = _rng.randf_range(220.0, 300.0)
+		var offset: Vector2 = Vector2.from_angle(angle) * radius
 		var position: Vector2 = center + offset
 
 		# Crear casa
@@ -772,17 +805,21 @@ func _build_town_at(center: Vector2, name: String) -> void:
 		# Añadir suelo alrededor de la casa
 		_add_rect(Rect2(position - Vector2(10, 10), Vector2(20, 20)), lawn_color.darkened(0.06), -9)
 
-	# Añadir nombre del pueblo
+	# Añadir nombre del pueblo. El nombre del nodo y el metadato de posicion
+	# hacen que la geometria sea verificable sin depender del desplazamiento
+	# visual de la etiqueta.
 	var label: Label = Label.new()
+	label.name = "TownLabel_" + name
 	label.text = name
 	label.position = center + Vector2(-40, -80)
 	label.z_index = 10
+	label.set_meta("town_center", center)
 	add_child(label)
 
-func _connect_town_to_road(town_center: Vector2) -> void:
+func _connect_town_to_road(town_center: Vector2, town_name: String) -> void:
 	# Conectar el pueblo al camino principal más cercano con una carretera recta
 	var best_road_point: Vector2 = Vector2(0, 0)
-	var best_dist: float = float("inf")
+	var best_dist: float = INF
 
 	for rect in _road_rects:
 		# Rect2.closest_point no existe en Godot 4, calcular manualmente
@@ -796,7 +833,7 @@ func _connect_town_to_road(town_center: Vector2) -> void:
 			best_dist = d
 			best_road_point = closest
 
-	if best_dist < float("inf"):
+	if is_finite(best_dist):
 		# Dibujar camino desde el pueblo al camino principal
 		var road_min_x: float = min(town_center.x, best_road_point.x)
 		var road_min_y: float = min(town_center.y, best_road_point.y)
@@ -806,11 +843,11 @@ func _connect_town_to_road(town_center: Vector2) -> void:
 			Vector2(road_min_x, road_min_y),
 			Vector2(road_max_x - road_min_x, road_max_y - road_min_y)
 		).grow(40.0)
-		_add_rect(road_rect, road_color, -6)
+		_add_rect(road_rect, road_color, -6, "TownPath_" + town_name)
 
 		# Dibujar aceras
 		var sidewalk_rect: Rect2 = road_rect.grow(12.0)
-		_add_rect(sidewalk_rect, sidewalk_color, -7)
+		_add_rect(sidewalk_rect, sidewalk_color, -7, "TownPathSidewalk_" + town_name)
 
 func _build_streetlights() -> void:
 	for x in range(-2160, 2401, 480):
@@ -1079,11 +1116,14 @@ func _add_label(text: String, position: Vector2, color: Color, font_size: int) -
 	label.z_index = 5
 	add_child(label)
 
-func _add_rect(rect: Rect2, color: Color, z: int) -> void:
+func _add_rect(rect: Rect2, color: Color, z: int, node_name: String = "") -> ColorRect:
 	var visual := ColorRect.new()
+	if not node_name.is_empty():
+		visual.name = node_name
 	visual.position = rect.position
 	visual.size = rect.size
 	visual.color = color
 	visual.z_index = z
 	visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(visual)
+	return visual
