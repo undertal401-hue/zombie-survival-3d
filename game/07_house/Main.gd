@@ -94,12 +94,14 @@ func _ready() -> void:
 		set_wave_manager(manager)
 
 	Inventory.clear()
-	Inventory.add_item("medkit", 1)
+	# El seed inicial no es una recogida del mundo: debe ser silencioso para no
+	# reemplazar en la mano el arma que WeaponController ya tiene equipada.
+	Inventory.add_item("medkit", 1, true)
 	# Las armas también son objetos: Inventory es la única fuente de verdad de
 	# su condición y desgaste (Weapon._read_condition). Sin estas entradas los
 	# cuatro .tres equipados no se gastarían nunca.
 	for weapon_id: String in ["Machete", "Pistola 9mm", "Escopeta 12ga", "Fusil 5.56mm"]:
-		Inventory.add_item(weapon_id, 1)
+		Inventory.add_item(weapon_id, 1, true)
 	# Sin munición de reserva de regalo: cada arma arranca solo con su cargador.
 	# Los cartuchos (9mm/12ga/5.56) aparecen en botín y se pueden fabricar.
 	_configure_world()

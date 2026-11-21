@@ -26,7 +26,7 @@ El autor debe aportar los PNG pixel-art finales en estas rutas:
 La puerta `HeldItemVisualTest` verifica dos estados sin depender de que este
 pack llegue hoy:
 
-1. Si no existe el asset, el juego muestra exactamente
+1. Si no existe el asset, el juego incluye el marcador exacto
    `FALTA ASSET - NO INVENTAR` y no fabrica un bloque de color.
 2. Si existe un `Texture2D` real, `HeldItem` lo muestra y oculta el marcador.
 

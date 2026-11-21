@@ -26,18 +26,39 @@ Los cinco fallos probaron que la implementación anterior:
 4. no aceptaba un `Texture2D` data-driven;
 5. `Inventory` no resolvía rutas de iconos.
 
+### RED 2 — revisión de las rutas reales de señal
+
+Checkpoint commit: `2f6e76e` (`test: cubrir el arma inicial y el seed de arranque`).
+
+La primera GREEN demostraba el nodo aislado, pero no cubría el arranque real.
+El reviewer specialist detectó que `WeaponController` equipa la pistola y emite
+`weapon_changed` antes de que `Player` conecte la señal; además, el seed de
+`Main` usaba `Inventory.add_item()` no silencioso y el último item —el fusil—
+sustituía visualmente la pistola. El marcador también heredaba la rotación del
+jugador.
+
+Resultado: exit code `1`, `HELD_ITEM_VISUAL_TEST failures=3`:
+
+1. el aviso inicial identificaba `Fusil 5.56mm`, no el arma equipada;
+2. el marcador no compensaba la rotación;
+3. el marcador no permanecía alineado con la pantalla.
+
 ## GREEN
 
 La GREEN reemplaza los bloques de color por una ruta data-driven:
 
 - `Inventory.ITEM_DEFS` declara la ruta oficial de cada icono.
-- `Inventory.get_item_texture(id)` carga y cachea el asset solo si existe;
-  si falta, devuelve `null` sin crear arte sustituto.
-- `PlayerVisual.set_held_item(id, texture)` muestra el `Texture2D` real cuando
-  existe y, en caso contrario, muestra exactamente
+- `Inventory.get_item_texture(id)` carga y cachea solo los assets existentes;
+  si falta, devuelve `null` sin crear arte sustituto ni cachear el fallo.
+- `PlayerVisual.set_held_item(id, texture)` resuelve centralmente la textura
+  oficial cuando el llamador no aporta una; si falta, muestra
   `FALTA ASSET - NO INVENTAR`.
-- `Player` entrega `Weapon.icon` al cambiar de arma y
-  `Inventory.get_item_texture(item_id)` al recoger un objeto.
+- `Player` sincroniza el arma que `WeaponController` ya tiene equipada al
+  conectarse y entrega `Weapon.icon`/la ruta oficial al cambiar de arma.
+- `Main` usa altas silenciosas para el seed inicial: no simula una recogida y
+  no reemplaza el arma equipada en la mano.
+- `PlayerVisual` compensa la rotación y el desplazamiento del marcador para
+  que siga legible mientras el jugador apunta.
 - `assets/items/README.md` registra las 14 rutas pendientes y la política de
   no invención.
 
@@ -60,6 +81,10 @@ MECHANICS_READY 5/5
 | 4 | Un `Texture2D` real se muestra en `HeldItem` | PASS |
 | 5 | El marcador se oculta cuando existe sprite real | PASS |
 | 6 | `Inventory` resuelve la ruta data-driven sin inventar arte | PASS |
+| 7 | El arma inicial real se muestra al arrancar | PASS |
+| 8 | El seed inicial no sustituye el arma equipada | PASS |
+| 9 | `item_picked_up` y `weapon_changed` actualizan la mano | PASS |
+| 10 | El marcador permanece legible con cualquier rotación | PASS |
 
 ## Estado del contenido
 

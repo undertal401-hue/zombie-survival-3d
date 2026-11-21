@@ -118,13 +118,17 @@ func display_name(id: String) -> String:
 ## fabrica un rectangulo de color que se haga pasar por el sprite del objeto.
 func get_item_texture(id: String) -> Texture2D:
 	if _item_icon_cache.has(id):
-		return _item_icon_cache[id] as Texture2D
+		var cached: Texture2D = _item_icon_cache[id] as Texture2D
+		if cached != null:
+			return cached
 	var path: String = String(_def(id).get("icon", ""))
 	if path == "" or not ResourceLoader.exists(path, "Texture2D"):
-		_item_icon_cache[id] = null
+		# Los fallos no se cachean: durante el editor el asset puede importarse
+		# despues y debe poder resolverse sin reiniciar el proceso.
 		return null
 	var texture: Texture2D = load(path) as Texture2D
-	_item_icon_cache[id] = texture
+	if texture != null:
+		_item_icon_cache[id] = texture
 	return texture
 
 func get_category(id: String) -> String:

@@ -94,6 +94,10 @@ func _ready() -> void:
 	weapon_controller.fire_requested.connect(_on_fire_requested)
 	weapon_controller.melee_attack.connect(_on_melee_attack)
 	weapon_controller.weapon_changed.connect(_on_weapon_changed)
+	# WeaponController es un hijo: su _ready() equipa la pistola y emite antes
+	# de que Player conecte la senal. Se sincroniza el estado ya existente.
+	if weapon_controller.current_weapon != null:
+		_on_weapon_changed(weapon_controller.current_weapon)
 	# ammo_changed la consumen HUD e InventoryMenu directamente; conectar aquí
 	# un handler vacío solo generaba churn de señales en cada disparo.
 	

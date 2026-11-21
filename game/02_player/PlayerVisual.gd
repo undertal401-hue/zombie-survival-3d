@@ -23,6 +23,9 @@ class_name PlayerVisual
 ## Interruptor de presentación. false = cubo (actual). true = la sprite de
 ## frames pasa a verse y el cubo se oculta (arte futuro del usuario).
 const USE_SPRITE_ART: bool = false
+## Posicion en pantalla del aviso de asset pendiente, antes de compensar la
+## rotacion del jugador.
+const HELD_ITEM_MISSING_OFFSET: Vector2 = Vector2(18.0, -42.0)
 
 var _current_state: String = "idle"
 var _is_attacking: bool = false
@@ -189,6 +192,13 @@ func update_from_player(player: Node2D, velocity: Vector2, weapon_controller: No
 	else:
 		animated_sprite.rotation = PI * 0.5
 	animated_sprite.flip_h = false
+
+	# El aviso vive bajo el jugador, que rota al apuntar. Compensamos tanto la
+	# rotacion como el desplazamiento para que el texto siga horizontal y sobre
+	# el personaje, legible desde cualquier angulo de mira.
+	if held_item_missing != null:
+		held_item_missing.rotation = -player.rotation
+		held_item_missing.position = HELD_ITEM_MISSING_OFFSET.rotated(-player.rotation)
 	
 	# Determinar estado
 	var new_state: String
@@ -391,17 +401,21 @@ func _set_hit_flash(progress: float) -> void:
 ## de forma explicita `FALTA ASSET - NO INVENTAR`. En cuanto el autor anada el
 ## asset a la ruta data-driven, el mismo nodo lo presenta sin otro cambio.
 func set_held_item(item_id: String, texture: Texture2D = null) -> void:
-	held_item.texture = null
-	held_item.visible = false
+	var resolved: Texture2D = texture
+	if resolved == null and item_id != "":
+		resolved = Inventory.get_item_texture(item_id)
+
+	held_item.texture = resolved
+	held_item.visible = resolved != null
 	if held_item_missing != null:
 		held_item_missing.visible = false
 
 	if item_id == "":
+		held_item.texture = null
+		held_item.visible = false
 		return
 
-	if texture != null:
-		held_item.texture = texture
-		held_item.visible = true
+	if resolved != null:
 		return
 
 	if held_item_missing != null:
