@@ -4,4 +4,3 @@
 
 [node name="GroundTileMap" type="TileMap"]
 script = ExtResource("1")
-z_index = -10

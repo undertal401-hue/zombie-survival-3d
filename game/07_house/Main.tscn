@@ -35,7 +35,6 @@ agent_radius = 16.0
 script = ExtResource("5_main")
 
 [node name="Ground" type="TileMap" parent="." unique_id=1233563747 instance=ExtResource("19_ground_tilemap")]
-z_index = -10
 
 [node name="Level" type="Node2D" parent="." unique_id=1412999040 groups=["nav_obstacles"]]
 

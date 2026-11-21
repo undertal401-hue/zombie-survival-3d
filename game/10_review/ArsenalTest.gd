@@ -44,7 +44,9 @@ func _ready() -> void:
 	_check(wc.current_weapon == rifle, "equipar fusil por ranura")
 
 	# Recarga real del fusil: consume del inventario y llena el cargador.
-	Inventory.add_item("rifle_ammo", 30)
+	# El contrato se deriva de magazine_size para seguir la capacidad vigente
+	# (60 cartuchos desde FASE1-P1) sin volver a codificarla en el test.
+	Inventory.add_item("rifle_ammo", rifle.magazine_size)
 	var before: int = Inventory.count("rifle_ammo")
 	rifle.current_ammo = 2
 	rifle.ammo_in_chamber = 0
@@ -54,8 +56,9 @@ func _ready() -> void:
 		rifle.update_reload(0.5)
 	_check(not rifle.is_reloading and rifle.get_total_ammo() == rifle.magazine_size,
 		"fusil recargado a capacidad completa")
-	_check(Inventory.count("rifle_ammo") == before - 28,
-		"recarga consumió 28 cartuchos del inventario")
+	var expected_consumed: int = rifle.magazine_size - 2
+	_check(Inventory.count("rifle_ammo") == before - expected_consumed,
+		"recarga consumió %d cartuchos del inventario" % expected_consumed)
 
 	# Escopeta cartucho a cartucho: cada actualizacióninserta uno.
 	Inventory.add_item("shotgun_ammo", 3)

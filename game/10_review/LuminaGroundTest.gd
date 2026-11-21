@@ -26,6 +26,12 @@ func _ready() -> void:
 	await get_tree().process_frame
 	_check(FileAccess.file_exists(GROUND_TEXTURE), "ground_tiles.png existe en el proyecto")
 	_check(FileAccess.file_exists(DECORATION_TEXTURE), "decoration_tiles.png existe en el proyecto")
+	var ground_texture := load(GROUND_TEXTURE) as Texture2D
+	var decoration_texture := load(DECORATION_TEXTURE) as Texture2D
+	_check(ground_texture != null and ground_texture.get_size() == Vector2(512, 512),
+		"ground_tiles.png carga como textura 512x512")
+	_check(decoration_texture != null and decoration_texture.get_size() == Vector2(512, 512),
+		"decoration_tiles.png carga como textura 512x512")
 
 	var main: Node = MAIN_SCENE.instantiate()
 	add_child(main)
@@ -35,10 +41,28 @@ func _ready() -> void:
 	var ground: TileMap = main.get_node_or_null("Ground") as TileMap
 	_check(ground != null, "Main contiene un nodo Ground de tipo TileMap")
 	if ground != null:
-		_check(ground.tile_size == Vector2i(48, 48),
-			"Ground usa el paso real de 48 px del atlas (obtenido=%s)" % str(ground.tile_size))
 		_check(ground.get_tileset() != null, "Ground tiene un TileSet asignado")
-		_check(ground.get_used_cells(0).size() > 0, "Ground tiene celdas pintadas")
+		if ground.get_tileset() != null:
+			_check(ground.get_tileset().tile_size == Vector2i(48, 48),
+				"Ground usa el paso real de 48 px del atlas (obtenido=%s)" %
+				str(ground.get_tileset().tile_size))
+			_check(ground.get_tileset().get_source_count() == 1,
+				"El TileSet tiene una unica fuente de atlas (encontradas=%d)" %
+				ground.get_tileset().get_source_count())
+		var used_cells := ground.get_used_cells(0)
+		_check(used_cells.size() > 0, "Ground tiene celdas pintadas")
+		var min_x: int = 999999
+		var min_y: int = 999999
+		var max_x: int = -999999
+		var max_y: int = -999999
+		for cell in used_cells:
+			min_x = mini(min_x, cell.x)
+			min_y = mini(min_y, cell.y)
+			max_x = maxi(max_x, cell.x)
+			max_y = maxi(max_y, cell.y)
+		_check(min_x <= -130 and max_x >= 130 and min_y <= -130 and max_y >= 130,
+			"El atlas cubre el mundo completo +-6300 (celdas=%s..%s, %s..%s)" %
+			[str(min_x), str(max_x), str(min_y), str(max_y)])
 		_check(ground.z_index > -10.0,
 			"Ground queda por encima de las bases planas z=-10 (z=%s)" % str(ground.z_index))
 		var ground_source: TileSetAtlasSource = null
@@ -54,15 +78,38 @@ func _ready() -> void:
 			_check(ground_source.texture_region_size == Vector2i(48, 48),
 				"La fuente de ground_tiles usa regiones 48x48 (obtenido=%s)" %
 				str(ground_source.texture_region_size))
+			var missing_tiles: int = 0
+			for row in range(10):
+				for column in range(10):
+					if ground_source.get_tile_at_coords(Vector2i(column, row)) == null:
+						missing_tiles += 1
+			_check(missing_tiles == 0,
+				"El atlas contiene las 100 piezas 10x10 (faltantes=%d)" % missing_tiles)
+
+			var invalid_atlas_cells: int = 0
+			for cell in ground.get_used_cells(0):
+				var atlas_coords := ground.get_cell_atlas_coords(0, cell)
+				if atlas_coords.x < 0 or atlas_coords.x > 9 \
+						or atlas_coords.y < 0 or atlas_coords.y > 9:
+					invalid_atlas_cells += 1
+			_check(invalid_atlas_cells == 0,
+				"Todas las celdas pintadas usan coordenadas existentes (invalidas=%d)" %
+				invalid_atlas_cells)
 
 	var forest: Node = main.get_node_or_null("Level/Forest")
 	var forest_floor: CanvasItem = forest.get_node_or_null("ForestFloor") as CanvasItem if forest != null else null
 	var urban_base: CanvasItem = forest.get_node_or_null("UrbanBase") as CanvasItem if forest != null else null
+	var clearings: CanvasItem = forest.get_node_or_null("Clearings") as CanvasItem if forest != null else null
+	var forest_paths: CanvasItem = forest.get_node_or_null("Paths") as CanvasItem if forest != null else null
 	if ground != null:
 		_check(forest_floor == null or ground.z_index > forest_floor.z_index,
 			"Ground queda por encima de ForestFloor")
 		_check(urban_base == null or ground.z_index > urban_base.z_index,
 			"Ground queda por encima de UrbanBase")
+		_check(clearings == null or ground.z_index < clearings.z_index,
+			"Ground queda por debajo de los claros")
+		_check(forest_paths == null or ground.z_index < forest_paths.z_index,
+			"Ground queda por debajo de los caminos del bosque")
 
 	var ground_instances: int = _count_ground_instances(main)
 	_check(ground_instances == 1,
@@ -73,14 +120,30 @@ func _ready() -> void:
 	_check(decorations != null, "Existe la capa LuminaDecorations")
 	if decorations != null:
 		var visible_sprites: int = 0
+		var distinct_regions: Dictionary = {}
 		for child in decorations.get_children():
 			var sprite := child as Sprite2D
 			if sprite != null and sprite.visible and sprite.texture is AtlasTexture:
-				var atlas := (sprite.texture as AtlasTexture).atlas
+				var atlas_texture := sprite.texture as AtlasTexture
+				var atlas := atlas_texture.atlas
 				if atlas != null and atlas.resource_path.contains("decoration_tiles"):
 					visible_sprites += 1
+					distinct_regions[str(atlas_texture.region)] = true
 		_check(visible_sprites >= 3,
 			"Se muestran al menos 3 sprites de decoration_tiles.png (mostrados=%d)" % visible_sprites)
+		_check(distinct_regions.size() == 5,
+			"Se usan las 5 regiones distintas de decoration_tiles.png (usadas=%d)" %
+			distinct_regions.size())
+
+	if ground != null and decorations != null:
+		var cells_before: int = ground.get_used_cells(0).size()
+		var decorations_before: int = decorations.get_child_count()
+		ground.call("generate_ground", Rect2(-Vector2(6300, 6300), Vector2(12600, 12600)), "mixed")
+		var cells_after: int = ground.get_used_cells(0).size()
+		var decorations_after: int = decorations.get_child_count()
+		_check(cells_after == cells_before and decorations_after == decorations_before,
+			"Regenerar el suelo es idempotente (celdas=%d->%d, decoraciones=%d->%d)" %
+			[cells_before, cells_after, decorations_before, decorations_after])
 
 	print("LUMINA_GROUND_TEST failures=%d" % _failures.size())
 	for failure in _failures:

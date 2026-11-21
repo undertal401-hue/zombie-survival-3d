@@ -69,7 +69,7 @@ var _boss_spawned_wave: int = -1
 
 @onready var neighborhood: Neighborhood = $Level/Neighborhood
 @onready var navigation_region: NavigationRegion2D = $NavigationRegion2D
-@onready var ground: TileMap = $Ground
+@onready var ground: GroundTileMap = $Ground
 @onready var player: CharacterBody2D = $Player
 @onready var extraction: Area2D = $Extraction
 @onready var forest: Node2D = $Level/Forest
@@ -470,8 +470,10 @@ func _configure_world() -> void:
 	if forest != null and forest.has_method("world_half"):
 		world_half = forest.call("world_half")
 	_world_half = world_half
-	# ground es TileMap (suelo pixel art): las celdas ya están en coordenadas absolutas
-	# no mover el nodo para no desplazar el suelo fuera de vista
+	# Una sola capa global proyecta los PNG originales de Lumina sobre el mundo.
+	# Forest/UrbanBase quedan en z=-10 y el atlas en z=-8; caminos, calzadas,
+	# claros y casas siguen por encima para conservar su geometria original.
+	ground.generate_ground(Rect2(-world_half, world_half * 2.0), "mixed")
 
 	# Estado de zona limpio (tambien tras un reinicio de partida).
 	_in_forest = false

@@ -7,7 +7,6 @@ extends Node2D
 
 const HOUSE_SCENE: PackedScene = preload("res://05_house/House.tscn")
 const LOOT_SCENE: PackedScene = preload("res://04_items/LootContainer.tscn")
-const GROUND_TILEMAP_SCENE: PackedScene = preload("res://05_house/GroundTileMap.tscn")
 
 ## Fuente unica del numero de puntos de spawn del barrio. Main hereda este
 ## valor como defecto de zombie_count para que ambas cifras no diverjan.
@@ -126,16 +125,12 @@ func _ready() -> void:
 
 ## (Re)genera el barrio completo de forma determinista.
 func build() -> void:
-	# Instanciar GroundTileMap
-	var ground_tm: GroundTileMap = GROUND_TILEMAP_SCENE.instantiate()
-	add_child(ground_tm)
-	ground_tm.generate_ground(Rect2(-map_size().x * 0.5, -map_size().y * 0.5, map_size().x, map_size().y), "urban")
-	ground_tm.z_index = -10
-
+	# El suelo pixel art vive una sola vez en Main/Ground. Neighborhood solo
+	# construye las capas urbana que van ENCIMA de ese atlas (parches, calles,
+	# casas y decoracion), evitando un segundo TileMap que lo tape.
 	for child in get_children():
-		if child != ground_tm:
-			remove_child(child)
-			child.queue_free()
+		remove_child(child)
+		child.queue_free()
 
 	_rng = RandomNumberGenerator.new()
 	_rng.seed = Time.get_ticks_msec()
