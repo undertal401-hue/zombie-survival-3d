@@ -44,4 +44,4 @@ shell_eject_force = 120.0
 tracer_chance = 0.1
 camera_shake_magnitude = 1.5
 camera_shake_duration = 0.08
-penetration = 1
+penetration = 0
