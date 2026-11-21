@@ -29,8 +29,22 @@ var has_impacted: bool = false
 var shooter_rid: RID = RID()
 
 func _ready() -> void:
-	# Ocultar inicialmente hasta que se configure
-	visible = false
+	# La escena trae un efecto pixel-art real (`bullet_sparks`). El proyectil
+	# solo se oculta si ese asset no se pudo cargar; nunca nace invisible.
+	visible = texture != null
+
+
+## Configura y arranca el vuelo en una sola transicion. `Player` la usa antes
+## del primer frame para que origen, objetivo, alcance y daño sean coherentes.
+func launch(to_target: Vector2, travel_range: float, shot_damage: float,
+		shooter: RID = RID()) -> void:
+	target = to_target
+	max_range = maxf(travel_range, 1.0)
+	damage = shot_damage
+	shooter_rid = shooter
+	start_pos = global_position
+	visible = texture != null
+
 
 func _process(delta: float) -> void:
 	if not visible:
