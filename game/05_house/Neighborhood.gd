@@ -155,7 +155,8 @@ func build() -> void:
 	_build_courtyard()
 	_build_tower()
 	_build_yards()
-	_build_barricade()
+	# Todos los asentamientos se recorren a pie: no hay barricada ni cartel
+	# de acceso cerrado en el pueblo principal.
 	_build_towns()
 	_build_streetlights()
 	_build_start_camp()
@@ -718,35 +719,6 @@ func _add_parked_car(position: Vector2, color: Color) -> void:
 	roof.z_index = 2
 	body.add_child(roof)
 	add_child(body)
-
-func _build_barricade() -> void:
-	var body := StaticBody2D.new()
-	body.name = "Barricade"
-	body.position = Vector2(600.0, 0.0)
-
-	var shape := CollisionShape2D.new()
-	var rect := RectangleShape2D.new()
-	rect.size = Vector2(18.0, 126.0)
-	shape.shape = rect
-	body.add_child(shape)
-
-	var visual := Polygon2D.new()
-	visual.color = Color(0.78, 0.38, 0.12)
-	visual.polygon = PackedVector2Array([
-		Vector2(-9, -63), Vector2(9, -63), Vector2(9, 63), Vector2(-9, 63),
-	])
-	body.add_child(visual)
-
-	for i in range(-2, 3):
-		var stripe := Polygon2D.new()
-		stripe.color = Color(0.12, 0.1, 0.08)
-		var sy: float = i * 24.0
-		stripe.polygon = PackedVector2Array([
-			Vector2(-9, sy - 6), Vector2(9, sy - 12), Vector2(9, sy), Vector2(-9, sy + 6),
-		])
-		body.add_child(stripe)
-	add_child(body)
-	_add_label("CERRADO", body.position + Vector2(120, 0), Color(0.95, 0.65, 0.35), 14)
 
 func _build_towns() -> void:
 	# Varios pueblos abiertos conectados por caminos, sin muros ni puertas
