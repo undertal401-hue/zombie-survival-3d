@@ -12,6 +12,9 @@ const ACCESS_GAP_X: float = 1200.0
 const ACCESS_GAP_WEST_Y: float = -600.0
 const ACCESS_GAP_WIDTH: float = 200.0
 const ACCESS_CORRIDOR_DEPTH: float = 340.0
+# Plaza publica minima de cada pueblo. Ninguna casa de la rejilla ni de
+# anillo puede invadir este rectangulo.
+const TOWN_CENTER_CLEARANCE_SIZE: Vector2 = Vector2(240.0, 180.0)
 const LOOT_SCENE: PackedScene = preload("res://04_items/LootContainer.tscn")
 
 ## Fuente unica del numero de puntos de spawn del barrio. Main hereda este
@@ -173,6 +176,30 @@ func build() -> void:
 func map_size() -> Vector2:
 	return Vector2(cell_size.x * columns, cell_size.y * rows)
 
+
+## Centros de los tres pueblos secundarios. Se derivan del mapa real para
+## que la reserva de plazas no dependa de coordenadas fijas.
+func _town_centers() -> Array[Vector2]:
+	var centers: Array[Vector2] = []
+	centers.append(Vector2(-map_size().x * 0.35, -map_size().y * 0.35))
+	centers.append(Vector2(map_size().x * 0.35, map_size().y * 0.35))
+	centers.append(Vector2(-map_size().x * 0.35, map_size().y * 0.35))
+	return centers
+
+
+func _town_clearance_rect(center: Vector2) -> Rect2:
+	return Rect2(
+		center - TOWN_CENTER_CLEARANCE_SIZE * 0.5,
+		TOWN_CENTER_CLEARANCE_SIZE)
+
+
+func _intersects_town_clearance(rect: Rect2) -> bool:
+	for center in _town_centers():
+		if rect.intersects(_town_clearance_rect(center)):
+			return true
+	return false
+
+
 func start_position() -> Vector2:
 	return _start_position
 
@@ -287,8 +314,6 @@ func _build_houses() -> void:
 				continue
 
 			var kind: String = _special_kind(cell)
-			var house := HOUSE_SCENE.instantiate() as House
-			house.name = "House_r%dc%d" % [r, c]
 			var house_size: Vector2 = _house_size(kind)
 			var door_side: int = _pick_door_side(cell, kind)
 			var clearance: Vector2 = _cell_clearance(cell)
@@ -300,7 +325,18 @@ func _build_houses() -> void:
 			)
 
 			var zone: int = _zone_of(cell)
-			house.position = _cell_center(c, r) + offset
+			var position: Vector2 = _cell_center(c, r) + offset
+			var house_rect: Rect2 = Rect2(
+				position - house_size * 0.5,
+				house_size)
+			# Los centros de los pueblos son plazas publicas: una casa de la
+			# rejilla nunca puede ocupar el centro ni su corredor minimo.
+			if _intersects_town_clearance(house_rect):
+				continue
+
+			var house := HOUSE_SCENE.instantiate() as House
+			house.name = "House_r%dc%d" % [r, c]
+			house.position = position
 			house.size = house_size
 			house.door_side = door_side
 			_style_house(house, kind, zone)
@@ -753,27 +789,18 @@ func _add_parked_car(position: Vector2, color: Color) -> void:
 	add_child(body)
 
 func _build_towns() -> void:
-	# Varios pueblos abiertos conectados por caminos, sin muros ni puertas
-	# ni teletransporte. Se entra caminando desde el campo al pueblo.
-	var town_count: int = 3  # Pueblo principal + 2 pueblos adicionales
-	var town_spacing: Vector2 = Vector2(1200.0, 900.0)
-
-	# Pueblo 1: Noroeste del pueblo principal
-	var town1_center: Vector2 = Vector2(-map_size().x * 0.35, -map_size().y * 0.35)
-	_build_town_at(town1_center, "Pueblo Norte")
-
-	# Pueblo 2: Sureste del pueblo principal
-	var town2_center: Vector2 = Vector2(map_size().x * 0.35, map_size().y * 0.35)
-	_build_town_at(town2_center, "Pueblo Sur")
-
-	# Pueblo 3: Suroeste del pueblo principal
-	var town3_center: Vector2 = Vector2(-map_size().x * 0.35, map_size().y * 0.35)
-	_build_town_at(town3_center, "Pueblo Oeste")
-
-	# Conectar cada pueblo al camino principal con una carretera
-	_connect_town_to_road(town1_center, "Pueblo Norte")
-	_connect_town_to_road(town2_center, "Pueblo Sur")
-	_connect_town_to_road(town3_center, "Pueblo Oeste")
+	# Tres pueblos secundarios abiertos, conectados por caminos a la red
+	# principal. Se entra caminando desde el campo, sin muros ni teletransporte.
+	var town_names: Array[String] = [
+		"Pueblo Norte",
+		"Pueblo Sur",
+		"Pueblo Oeste",
+	]
+	var centers: Array[Vector2] = _town_centers()
+	for i in range(centers.size()):
+		var town_name: String = town_names[i]
+		_build_town_at(centers[i], town_name)
+		_connect_town_to_road(centers[i], town_name)
 
 func _build_town_at(center: Vector2, name: String) -> void:
 	# Crear un pueblo con 3-5 casas alrededor del centro
@@ -784,18 +811,17 @@ func _build_town_at(center: Vector2, name: String) -> void:
 		# Reservar un claro central: las casas no pueden cerrar la plaza ni
 		# aislar el enlace del pueblo con la carretera principal.
 		var angle: float = _rng.randf_range(0.0, TAU)
-		var radius: float = _rng.randf_range(220.0, 300.0)
-		var offset: Vector2 = Vector2.from_angle(angle) * radius
-		var position: Vector2 = center + offset
+		var house_size: Vector2 = Vector2(
+			_rng.randf_range(house_min_size.x, house_max_size.x),
+			_rng.randf_range(house_min_size.y, house_max_size.y)
+		)
+		var position: Vector2 = _town_house_position(center, house_size, angle)
 
 		# Crear casa
 		var house := HOUSE_SCENE.instantiate() as House
 		house.name = "Town_" + name + "_" + str(i)
 		house.position = position
-		house.size = Vector2(
-			_rng.randf_range(house_min_size.x, house_max_size.x),
-			_rng.randf_range(house_min_size.y, house_max_size.y)
-		)
+		house.size = house_size
 		house.door_side = int(_rng.randf_range(0, 4))
 		house.wall_color = Color(0.55, 0.52, 0.45).lerp(Color(0.45, 0.4, 0.35), _rng.randf())
 		house.floor_color = Color(0.24, 0.22, 0.2).lerp(Color(0.3, 0.26, 0.22), _rng.randf())
@@ -815,6 +841,24 @@ func _build_town_at(center: Vector2, name: String) -> void:
 	label.z_index = 10
 	label.set_meta("town_center", center)
 	add_child(label)
+
+
+## Coloca una casa de anillo fuera del claro rectangular de la plaza. El
+## radio se amplia cuando el angulo lo necessitate, de modo que el
+## centro quede libre para cualquier tamano de casa permitido.
+func _town_house_position(center: Vector2, house_size: Vector2,
+		angle: float) -> Vector2:
+	var direction: Vector2 = Vector2.from_angle(angle)
+	var clearance_half: Vector2 = TOWN_CENTER_CLEARANCE_SIZE * 0.5
+	var house_half: Vector2 = house_size * 0.5
+	var required_x: float = (clearance_half.x + house_half.x) \
+		/ maxf(absf(direction.x), 0.001)
+	var required_y: float = (clearance_half.y + house_half.y) \
+		/ maxf(absf(direction.y), 0.001)
+	var required_radius: float = minf(required_x, required_y) + 24.0
+	var radius: float = maxf(_rng.randf_range(220.0, 300.0), required_radius)
+	return center + direction * radius
+
 
 func _connect_town_to_road(town_center: Vector2, town_name: String) -> void:
 	# Conectar el pueblo al camino principal más cercano con una carretera recta
