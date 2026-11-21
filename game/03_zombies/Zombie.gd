@@ -118,10 +118,11 @@ var _hearing_source: Node = null
 var _connected_weapons: Array = []
 var _hearing_refresh: float = 0.0
 
-# Culling basado en distancia al jugador para ahorrar rendimiento en PC débiles
-var _culled: bool = false
-@export var culling_distance: float = 1000.0  # Distancia más allá de la cual se desactiva el zombi
-var _culled_check_timer: float = 0.0
+# Culling SOLO de render basado en distancia al jugador. La fisica y la IA
+# siguen activas: si se detuvieran, el propio bucle que puede reactivar el
+# render cuando el jugador se acerca quedaria congelado.
+var _render_culled: bool = false
+@export var culling_distance: float = 1000.0  # Distancia más allá de la cual se oculta el zombi
 
 # Dano por extremidad y dificultad
 var _leg_wounds: int = 0
@@ -173,23 +174,15 @@ func _physics_process(delta: float) -> void:
 	if _dead:
 		return
 
-	# Culling basado en distancia: si el zombi está muy lejos del jugador,
-	# se desactiva el procesamiento para ahorrar CPU en PC débiles.
+	# Culling de render: oculta el zombi lejano, pero NUNCA desactiva la fisica
+	# que puede devolverlo al radio visible.
 	var player_node = _player_node()
 	if player_node != null:
 		var dist_to_player: float = global_position.distance_to(player_node.global_position)
-		if dist_to_player > culling_distance and not _culled:
-			set_physics_process(false)
-			_culled = true
-			return
-		if dist_to_player < culling_distance * 0.6 and _culled:
-			set_physics_process(true)
-			_culled = false
-			# Re-inicializar timers para evitar saltos bruscos al reactivar
-			_repath_timer = 0.0
-
-	if _culled:
-		return
+		_update_render_culling(dist_to_player)
+	else:
+		# Sin jugador (cambio de escena/arranque), no dejar un zombi oculto.
+		_set_render_culled(false)
 
 	attack_cooldown = maxf(attack_cooldown - delta, 0.0)
 	_repath_timer = maxf(_repath_timer - delta, 0.0)
@@ -250,6 +243,23 @@ func _physics_process(delta: float) -> void:
 				clampf(hp / maxf(max_hp, 1.0), 0.0, 1.0), phase == 2)
 
 	alert_label.visible = _alert_timer > 0.0 and not _dead
+
+
+## Oculta o muestra solo el render del zombi segun la distancia. El
+## CharacterBody2D conserva su collision, su IA y su _physics_process para que
+## la inversion sea siempre posible.
+func _update_render_culling(distance: float) -> void:
+	if distance > culling_distance and not _render_culled:
+		_set_render_culled(true)
+	elif distance < culling_distance * 0.6 and _render_culled:
+		_set_render_culled(false)
+		# Re-inicializar timers para evitar saltos bruscos al reactivar.
+		_repath_timer = 0.0
+
+
+func _set_render_culled(culled: bool) -> void:
+	_render_culled = culled
+	visible = not culled
 
 
 # ---------------------------------------------------------------------------
