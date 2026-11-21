@@ -770,9 +770,65 @@ def selftest() -> int:
         failures.append("el control debe fallar limpio cuando la derivacion "
                         "lanza al mutar, pero lanzo %s: %s" %
                         (type(raised).__name__, raised))
-    elif not problems:
-        failures.append("el control debe fallar cuando la derivacion lanza al "
-                        "mutar la fuente")
+    elif not any("falla al mutar" in problem for problem in problems):
+        failures.append("el control debe distinguir que todos los candidatos "
+                        "fallan al mutar (problemas: %s)" % problems)
+
+    # 4. Una excepcion INESPERADA tambien es un fallo de la puerta, no un
+    #    traceback: el control tiene que cerrar en cerrado ante cualquier
+    #    exception normal de la derivacion.
+    def _type_error_only_mutated(w, h, p):
+        if p == pixels:
+            return base_real
+        raise TypeError("boom: tipo inesperado al mutar la fuente")
+
+    try:
+        _derive_base = _type_error_only_mutated
+        problems = control_derivacion_desde_pixeles()
+        raised = None
+    except Exception as exc:
+        problems = []
+        raised = exc
+    finally:
+        _derive_base = original_derive
+    if raised is not None:
+        failures.append("el control debe fallar limpio ante una excepcion "
+                        "inesperada al mutar, pero lanzo %s: %s" %
+                        (type(raised).__name__, raised))
+    elif not any("falla al mutar" in problem for problem in problems):
+        failures.append("el control debe fallar ante una excepcion inesperada "
+                        "al mutar (problemas: %s)" % problems)
+
+    # 5. Un candidato invalido NO significa que todos fallen: si otro
+    #    candidato responde pero devuelve la misma base, el diagnostico
+    #    correcto es que la derivacion NO responde a los pixeles.
+    mutation_calls = {"count": 0}
+
+    def _first_fails_then_neutral(w, h, p):
+        if p == pixels:
+            return base_real
+        mutation_calls["count"] += 1
+        if mutation_calls["count"] == 1:
+            raise RuntimeError("boom: solo el primer candidato falla")
+        return base_real
+
+    try:
+        _derive_base = _first_fails_then_neutral
+        problems = control_derivacion_desde_pixeles()
+        raised = None
+    except Exception as exc:
+        problems = []
+        raised = exc
+    finally:
+        _derive_base = original_derive
+    if raised is not None:
+        failures.append("el control debe fallar limpio con candidatos mixtos, "
+                        "pero lanzo %s: %s" %
+                        (type(raised).__name__, raised))
+    elif not any("NO responde" in problem for problem in problems):
+        failures.append("el control debe distinguir 'todos los candidatos "
+                        "fallan' de 'la derivacion NO responde' (problemas: "
+                        "%s)" % problems)
 
     print("ZOMBIE_SKIN_SELFTEST failures=%d" % len(failures))
     for failure in failures:
