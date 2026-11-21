@@ -157,6 +157,7 @@ jobs:
           run_suite "10_review/VisualStyleTest.tscn" "VISUAL_STYLE_TEST failures=0"
           run_suite "10_review/HeldItemVisualTest.tscn" "HELD_ITEM_VISUAL_TEST failures=0"
           run_suite "10_review/ProjectileVisualTest.tscn" "PROJECTILE_VISUAL_TEST failures=0"
+          run_suite "10_review/ZombieRenderCullingTest.tscn" "ZOMBIE_RENDER_CULLING_TEST failures=0"
           run_suite "10_review/LuminaGroundTest.tscn" "LUMINA_GROUND_TEST failures=0"
           run_suite "10_review/ZombieSkinTest.tscn" "ZOMBIE_SKIN_TEST failures=0"
           run_suite "10_review/FxDecalTest.tscn"    "FX_DECAL_TEST failures=0"
