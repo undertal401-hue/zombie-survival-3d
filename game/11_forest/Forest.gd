@@ -8,7 +8,7 @@ const TOWN_HALF: Vector2 = Vector2(2400.0, 1500.0)
 const CELL: float = 300.0
 const GRID: int = 42
 const CHUNK: float = 2100.0
-const SEED: int = 20261117
+var SEED: int = Time.get_ticks_msec()
 
 const COL_SOIL := Color(0.055, 0.075, 0.06, 1)
 const COL_URBAN := Color(0.2, 0.24, 0.16, 1)

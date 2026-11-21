@@ -138,7 +138,7 @@ func build() -> void:
 			child.queue_free()
 
 	_rng = RandomNumberGenerator.new()
-	_rng.seed = layout_seed
+	_rng.seed = Time.get_ticks_msec()
 	_road_rects.clear()
 	_road_widths.clear()
 	_all_houses.clear()
