@@ -118,6 +118,11 @@ var _hearing_source: Node = null
 var _connected_weapons: Array = []
 var _hearing_refresh: float = 0.0
 
+# Culling basado en distancia al jugador para ahorrar rendimiento en PC débiles
+var _culled: bool = false
+@export var culling_distance: float = 1000.0  # Distancia más allá de la cual se desactiva el zombi
+var _culled_check_timer: float = 0.0
+
 # Dano por extremidad y dificultad
 var _leg_wounds: int = 0
 var _is_crawling: bool = false
@@ -166,6 +171,24 @@ func _player_node() -> Node2D:
 
 func _physics_process(delta: float) -> void:
 	if _dead:
+		return
+
+	# Culling basado en distancia: si el zombi está muy lejos del jugador,
+	# se desactiva el procesamiento para ahorrar CPU en PC débiles.
+	var player_node = _player_node()
+	if player_node != null:
+		var dist_to_player: float = global_position.distance_to(player_node.global_position)
+		if dist_to_player > culling_distance and not _culled:
+			set_physics_process(false)
+			_culled = true
+			return
+		if dist_to_player < culling_distance * 0.6 and _culled:
+			set_physics_process(true)
+			_culled = false
+			# Re-inicializar timers para evitar saltos bruscos al reactivar
+			_repath_timer = 0.0
+
+	if _culled:
 		return
 
 	attack_cooldown = maxf(attack_cooldown - delta, 0.0)
