@@ -318,13 +318,18 @@ func _fire_hitscan(weapon: Weapon, from_pos: Vector2, direction: Vector2, announ
 					ParticleManager.instance.palette_color(&"steel_dark"))
 		break
 	
-	# Crear proyectil visual que viaja hacia el punto de impacto. `launch`
-	# conserva el origen real: antes el proyectil comparaba su posicion con
-	# (0,0) y se destruia antes de recorrer el primer tramo en el mundo real.
+	# Crear proyectil visual que viaja desde la boca del arma hasta el punto de
+	# impacto. El raycast y el daño siguen naciendo en el centro del jugador;
+	# solo la presentación usa el offset de boca, recortado si el objetivo está
+	# demasiado cerca y compensado en el rango visual.
+	var shot_distance: float = from_pos.distance_to(hit_pos)
+	var muzzle_offset: float = minf(maxf(weapon.muzzle_flash_offset.x, 0.0), shot_distance)
+	var visual_origin: Vector2 = from_pos + direction * muzzle_offset
+	var visual_range: float = maxf(weapon.range - muzzle_offset, 1.0)
 	var projectile: Projectile = PROJECTILE_SCENE.instantiate() as Projectile
-	projectile.global_position = from_pos
+	projectile.global_position = visual_origin
 	get_tree().current_scene.add_child(projectile)
-	projectile.launch(hit_pos, weapon.range, weapon.base_damage, get_rid())
+	projectile.launch(hit_pos, visual_range, weapon.base_damage, get_rid())
 	# El destello lo genera WeaponController/ParticleManager en coordenadas del mundo.
 
 ## Número flotante + SFX diferenciado. El headshot suena más agudo y se

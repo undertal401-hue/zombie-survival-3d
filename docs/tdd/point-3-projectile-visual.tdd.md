@@ -27,6 +27,20 @@ proyectil anterior:
 4. no conservaba el origen real del disparo;
 5. no avanzaba durante el vuelo.
 
+### RED 2 — revisión specialist
+
+Checkpoint commit: `b8bc818` (`test: endurecer el contrato visual del proyectil`).
+
+La primera puerta comprobaba que `texture` no fuera `null`, pero una celda
+totalmente transparente o un proyectil que se ocultara después del primer
+frame también pasaban. Tampoco exigía terminar exactamente en el impacto.
+
+Resultado: exit code `1`, `PROJECTILE_VISUAL_TEST failures=3`:
+
+1. el proyectil nacía en el centro del cuerpo, no en la boca del arma;
+2. terminaba antes del punto de impacto por el redondeo del paso;
+3. una instancia sin textura quedaba oculta e immortal.
+
 ## GREEN
 
 La GREEN usa exclusivamente el efecto existente `bullet_sparks` (tercera celda
@@ -36,10 +50,15 @@ de 32×32 de `effects.png`) mediante un `AtlasTexture`:
   nearest; ya no existe un `Sprite2D` vacío.
 - `Projectile.launch()` configura destino, alcance, daño y shooter en una sola
   transición, conserva `start_pos` y activa la visibilidad.
-- `Projectile._ready()` solo oculta el objeto si su textura no pudo cargarse.
-- `Player._fire_hitscan()` añade el proyectil a la escena y ejecuta `launch()`.
-  Esto corrige además el fallo previo de comparar la posición contra `(0,0)`,
-  que hacía que la bala desapareciera antes de viajar en el mapa real.
+- `Projectile._ready()` libera una instancia sin textura en vez de dejarla
+  oculta e immortal dentro de la escena.
+- `Projectile._process()` limita cada paso al tramo restante y al rango
+  disponible: el proyectil termina exactamente en el impacto, sin sobrepasarlo.
+- `Player._fire_hitscan()` conserva el raycast y el daño desde el centro del
+  jugador, pero presenta el proyectil desde la boca del arma. El offset se
+  recorta para impactos cercanos y se compensa en el rango visual.
+- La puerta valida la celda `bullet_sparks`, sus píxeles visibles, el vuelo
+  completo, los ocho perdigones de la escopeta y el daño hitscan una sola vez.
 
 Resultado:
 
@@ -53,7 +72,10 @@ PROJECTILE_VISUAL_TEST failures=0
 |---|---|---|
 | 1 | El disparo crea un proyectil | PASS |
 | 2 | El proyectil nace con textura real | PASS |
-| 3 | La textura tiene dimensiones utilizables | PASS |
-| 4 | Permanece visible durante el vuelo | PASS |
-| 5 | Conserva el origen real del disparo | PASS |
-| 6 | Avanza hacia el objetivo | PASS |
+| 3 | La textura usa la celda canónica y contiene alpha visible | PASS |
+| 4 | Permanece visible durante todo el vuelo | PASS |
+| 5 | Emerge de la boca y conserva el punto de impacto | PASS |
+| 6 | Termina exactamente en el impacto y se libera | PASS |
+| 7 | La escopeta crea un proyectil por perdigón | PASS |
+| 8 | El daño hitscan se aplica una sola vez | PASS |
+| 9 | Un proyectil sin textura se libera | PASS |
