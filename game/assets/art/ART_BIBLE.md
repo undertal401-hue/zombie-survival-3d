@@ -167,12 +167,17 @@ canónicas de 32×32, los 2 mapas de luz y la máscara de sombra (§8).
 Las reglas del pack (celda, centrado, margen, paleta, semántica de `rise` y
 unión global) viven en **una sola** función, `skin_pack.validate_pack_contract()`,
 que consumen `gen_zombie_skin.py --check` y `skin_pack.py check`: antes cada
-puerta tenía su propia copia y ya habían divergido.
+puerta tenía su propia copia y ya habían divergido. El contrato exige además
+**completitud**: exactamente las ocho animaciones canónicas con su número de
+frames (33) y nada más; un pack mutilado (por ejemplo, solo `idle`) ya no
+pasa aunque cada frame individual sea correcto.
 
 Además, `--check` ejecuta un **control de derivación**: perfora un píxel
 interior de la fuente (sin tocar la silueta) y exige que el pack **cambie**.
 Es la garantía de que lo que se ve en pantalla procede del sprite pedido y no
-de un dibujo procedural que pasara la comprobación del hash.
+de un dibujo procedural que pasara la comprobación del hash. Ese control se
+sometе a sí mismo en `gen_zombie_skin.py --selftest` (derivación real,
+derivación neutralizada y derivación que revienta al mutar).
 
 `game/tools/skin_pack.py` audita e importa packs externos. El pack entregado
 por el autor (`~/zombie_sprites/`) es el ejemplo canónico de pack defectuoso:

@@ -107,7 +107,9 @@ de presentación.
 - `python3 tools/gen_zombie_skin.py --check`: regenera en memoria desde la
   fuente y compara los 33 frames y 8 strips byte a byte.
 - `python3 tools/skin_pack.py check`: paleta, celdas, anclaje y strips.
-- `python3 tools/skin_pack.py selftest`: importador transaccional.
+- `python3 tools/skin_pack.py selftest`: importador transaccional y contrato.
+- `python3 tools/gen_zombie_skin.py --selftest` (nuevo): autopruebas del
+  generador; somete el control de derivación a sus tres modos de fallo.
 - `ZombieSkinTest._source_asset_checks()` (nuevo): exige el PNG original, su
   SHA-256, sus dimensiones, una silueta de al menos 900 px opacos y que el
   generador lea la fuente y fije el mismo hash.
@@ -138,18 +140,46 @@ humanoide procedural pasaría todas las puertas. Para cerrar ese hueco:
 
 #### 5.2 Contrato único del pack
 
-Las reglas (celda, centrado, margen, paleta, semántica de `rise`, unión
-global) viven en **una sola** función, `skin_pack.validate_pack_contract()`,
-que consumen `skin_pack.py check` y `gen_zombie_skin.py`. Antes cada puerta
-tenía su copia y **ya habían divergido**: `skin_pack.py check` aceptaba un
-pack con `rise` a la misma altura que `walk` (RED reproducido:
-`SKIN_PACK_CHECK failures=0`), mientras la documentación atribuía esa
-comprobación a ambas puertas. Ahora la regla está en el `selftest` (casos 26 y
-27) y en el arnés de Godot.
+Las reglas (**completitud**, celda, centrado, margen, paleta, semántica de
+`rise`, unión global) viven en **una sola** función,
+`skin_pack.validate_pack_contract()`, que consumen `skin_pack.py check` y
+`gen_zombie_skin.py`. Antes cada puerta tenía su copia y **ya habían
+divergido**: `skin_pack.py check` aceptaba un pack con `rise` a la misma altura
+que `walk` (RED reproducido: `SKIN_PACK_CHECK failures=0`), mientras la
+documentación atribuía esa comprobación a ambas puertas. Ahora la regla está en
+el `selftest` (casos 26 y 27) y en el arnés de Godot.
+
+**Completitud (R5-hotfix).** El contrato exige además que el pack contenga
+**exactamente** las ocho animaciones canónicas con su número de frames (33
+frames) y nada más. Antes, un pack mutilado —por ejemplo, solo `idle`— pasaba
+el contrato: cada frame era correcto, pero al runtime le faltaban clips
+enteros. RED reproducido: `validate_pack_contract` con un pack de un solo
+`idle` devolvía `[]` (sin problemas); ahora devuelve los frames canónicos que
+faltan. Caso 28 del `selftest`.
 
 El generador, además, **falla cerrado**: si un píxel opaco caería fuera de la
 celda (al componer o al aplicar la traslación global) aborta en vez de
 recortarlo en silencio, porque un frame recortado rompería el ancla global.
+
+#### 5.2.1 El control de derivación se somete a sí mismo (R5-hotfix)
+
+`gen_zombie_skin.py --selftest` es la prueba permanente de que el control de
+derivación **llega a su rama** y de que es la única barrera entre el arte
+pedido y un dibujo procedural. Somete la derivación a tres scenarios:
+
+1. **Derivación real**: el control pasa (el pack responde a los píxeles).
+2. **Derivación neutralizada** (base constante que **aún cumple el contrato**):
+   el control tiene que decir «la derivación NO responde a los píxeles de la
+   fuente». Esto responde a la pregunta que quedó abierta en la revisión
+   anterior: la reproducción neutralizada **sí** alcanza la rama del control, y
+   el pack resultante es válido, así que el control es lo único que lo detecta.
+3. **Derivación que revienta al mutar**: el control tiene que fallar **limpio**
+   (diagnóstico, sin traceback). Antes la excepción se propagaba y la puerta
+   moría con un stack trace en vez de con un mensaje.
+
+Control negativo del control: revirtiendo el fail-closed en una copia del
+árbol, `ZOMBIE_SKIN_SELFTEST failures=1` («el control debe fallar limpio
+cuando la derivacion lanza al mutar, pero lanzo RuntimeError»).
 
 ### 5.3 Endurecimiento de la ingesta
 

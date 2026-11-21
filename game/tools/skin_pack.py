@@ -364,6 +364,8 @@ def validate_pack_contract(frames: dict) -> list[str]:
     el pack cumple el contrato.
 
     Reglas (ADR-005 / ADR-007):
+      - COMPLETITUD: exactamente las animaciones canonicas y su numero de
+        frames (nada falta, nada sobra);
       - celda de 64x64 y frame con silueta (no vacio);
       - centrado horizontal: |centro_x - 32| <= 1;
       - margen inferior >= 2 px;
@@ -377,6 +379,19 @@ def validate_pack_contract(frames: dict) -> list[str]:
     puerta del generador comprobaba la semantica de `rise` y la del pack no).
     """
     problems = []
+    # COMPLETITUD: el pack debe contener exactamente las animaciones
+    # canonicas con su numero de frames. Sin esta regla, un pack mutilado
+    # (por ejemplo, solo `idle`) pasaba el contrato: cada frame era correcto,
+    # pero al runtime le faltarian clips enteros. Falso negativo real.
+    expected = set()
+    for anim, count in ANIM_FRAMES.items():
+        for idx in range(1, count + 1):
+            expected.add("%s/%s_%02d.png" % (anim, anim, idx))
+    actual = set(frames)
+    for rel in sorted(expected - actual):
+        problems.append("falta el frame canonico %s" % rel)
+    for rel in sorted(actual - expected):
+        problems.append("frame fuera del contrato canonico %s" % rel)
     boxes = {}
     heights = {}
     for rel in sorted(frames):

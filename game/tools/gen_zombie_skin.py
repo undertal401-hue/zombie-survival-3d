@@ -336,23 +336,35 @@ def control_derivacion_desde_pixeles() -> list[str]:
     """
     problems = []
     width, height, pixels = _read_source()
-    base_real = _derive_base(width, height, pixels)
+    try:
+        base_real = _derive_base(width, height, pixels)
+    except (RuntimeError, ValueError, OSError) as exc:
+        # FAIL CLOSED: si la derivacion revienta con la fuente real, la puerta
+        # debe decirlo con un diagnostico, no con un traceback.
+        return ["la derivacion falla con la fuente real (%s: %s)" %
+                (type(exc).__name__, exc)]
     frames_real = None
     base_changed = False
     frames_changed = False
+    invalid_candidates = 0
     tried = 0
     for mutated in _mutated_source_candidates(width, height, pixels):
         tried += 1
         if tried > 16:
             break
-        base_mut = _derive_base(*mutated)
+        try:
+            base_mut = _derive_base(*mutated)
+        except (RuntimeError, ValueError, OSError):
+            # Este pixel deja la derivacion invalida: se prueba otro.
+            invalid_candidates += 1
+            continue
         if base_mut == base_real:
             continue
         base_changed = True
         try:
             frames_mut = _frames_from_base(base_mut)
         except RuntimeError:
-            # Este pixel deja la derivacion invalida: se prueba otro.
+            invalid_candidates += 1
             continue
         if frames_real is None:
             frames_real = _frames_from_base(base_real)
@@ -360,7 +372,13 @@ def control_derivacion_desde_pixeles() -> list[str]:
             frames_changed = True
             break
     if not base_changed:
-        problems.append("la derivacion NO responde a los pixeles de la fuente")
+        if invalid_candidates:
+            problems.append(
+                "la derivacion falla al mutar la fuente (%d candidatos "
+                "invalidos)" % invalid_candidates)
+        else:
+            problems.append(
+                "la derivacion NO responde a los pixeles de la fuente")
     elif not frames_changed:
         problems.append(
             "los frames no cambian al cambiar los pixeles de la fuente")
