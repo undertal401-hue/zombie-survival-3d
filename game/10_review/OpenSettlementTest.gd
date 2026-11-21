@@ -34,6 +34,10 @@ func _check(condition: bool, label: String) -> void:
 
 func _ready() -> void:
 	var main: Node2D = MAIN_SCENE.instantiate() as Node2D
+	# La semilla se fija antes de entrar al árbol: el barrio debe poder
+	# reproducir un layout exacto. 105 es el caso conocido en el que una casa
+	# de anillo invadia el conector del Pueblo Sur.
+	(main.get_node("Level/Neighborhood") as Neighborhood).layout_seed = 105
 	add_child(main)
 	await get_tree().process_frame
 	await get_tree().physics_frame
@@ -175,6 +179,22 @@ func _ready() -> void:
 				center_blockers.append(String(house.name))
 		_check(center_blockers.is_empty(),
 			"El centro de %s permanece libre de casas" % town_name)
+
+		# Ninguna casa de la rejilla ni de anillo puede ocupar el propio
+		# camino: una colision sobre ese rectangulo corta la ruta real al
+		# pueblo aunque el centro siga siendo navegable.
+		var connector_blockers: Array[String] = []
+		for house_node in all_settlement_houses:
+			var house := house_node as House
+			if house == null:
+				continue
+			var house_rect: Rect2 = Rect2(
+				house.position - house.size * 0.5,
+				house.size)
+			if house_rect.intersects(connector_rect):
+				connector_blockers.append(String(house.name))
+		_check(connector_blockers.is_empty(),
+			"Ninguna casa bloquea el camino de %s" % town_name)
 
 		var nav_target: Vector2 = NavigationServer2D.map_get_closest_point(
 			map_rid, town_center)

@@ -105,7 +105,10 @@ const FOOD_ZONES := [
 @export var columns: int = 10
 @export var rows: int = 10
 @export var cell_size: Vector2 = Vector2(480, 300)
-@export var layout_seed: int = 20261115
+## 0 = semilla aleatoria por partida. Cualquier otro valor produce una
+## generación determinista y permite a las puertas de regresión reproducir
+## exactamente un layout problemático.
+@export var layout_seed: int = 0
 @export var house_min_size: Vector2 = Vector2(240, 120)
 @export var house_max_size: Vector2 = Vector2(320, 140)
 @export var road_color: Color = Color(0.15, 0.15, 0.16)
@@ -142,7 +145,11 @@ func build() -> void:
 		child.queue_free()
 
 	_rng = RandomNumberGenerator.new()
-	_rng.seed = Time.get_ticks_msec()
+	# La semilla 0 es el contrato "partida nueva": en runtime cambia en cada
+	# build; un valor positivo queda fijo para reproducir un defecto concreto.
+	if layout_seed == 0:
+		layout_seed = Time.get_ticks_msec()
+	_rng.seed = layout_seed
 	_road_rects.clear()
 	_road_widths.clear()
 	_all_houses.clear()
