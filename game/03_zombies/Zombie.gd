@@ -122,7 +122,10 @@ var _hearing_refresh: float = 0.0
 # siguen activas: si se detuvieran, el propio bucle que puede reactivar el
 # render cuando el jugador se acerca quedaria congelado.
 var _render_culled: bool = false
-@export var culling_distance: float = 1000.0  # Distancia más allá de la cual se oculta el zombi
+@export var culling_distance: float = 1000.0:
+	set(value):
+		# Un radio no positivo impediria salir del estado oculto.
+		culling_distance = maxf(value, 1.0)
 
 # Dano por extremidad y dificultad
 var _leg_wounds: int = 0
@@ -170,19 +173,22 @@ func _player_node() -> Node2D:
 	return found as Node2D
 
 
-func _physics_process(delta: float) -> void:
-	if _dead:
-		return
-
-	# Culling de render: oculta el zombi lejano, pero NUNCA desactiva la fisica
-	# que puede devolverlo al radio visible.
-	var player_node = _player_node()
+## El culling de render se actualiza fuera de la fisica para que siga
+## disponible durante la animacion de muerte, cuando la simulacion ya esta
+## apagada pero el cadaver todavia puede volver a entrar en el radio visible.
+func _process(_delta: float) -> void:
+	var player_node: Node2D = _player_node()
 	if player_node != null:
 		var dist_to_player: float = global_position.distance_to(player_node.global_position)
 		_update_render_culling(dist_to_player)
 	else:
 		# Sin jugador (cambio de escena/arranque), no dejar un zombi oculto.
 		_set_render_culled(false)
+
+
+func _physics_process(delta: float) -> void:
+	if _dead:
+		return
 
 	attack_cooldown = maxf(attack_cooldown - delta, 0.0)
 	_repath_timer = maxf(_repath_timer - delta, 0.0)
@@ -253,7 +259,6 @@ func _update_render_culling(distance: float) -> void:
 		_set_render_culled(true)
 	elif distance < culling_distance * 0.6 and _render_culled:
 		_set_render_culled(false)
-		# Re-inicializar timers para evitar saltos bruscos al reactivar.
 		_repath_timer = 0.0
 
 
