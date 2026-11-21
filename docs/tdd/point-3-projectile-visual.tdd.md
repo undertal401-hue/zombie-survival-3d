@@ -41,6 +41,27 @@ Resultado: exit code `1`, `PROJECTILE_VISUAL_TEST failures=3`:
 2. terminaba antes del punto de impacto por el redondeo del paso;
 3. una instancia sin textura quedaba oculta e immortal.
 
+### RED 3 — cierre de los huecos medios de revisión
+
+Checkpoint commit: `ab6ae91` (`test: cubrir vuelo y alcance del proyectil`).
+
+La implementación ya era correcta, pero la puerta podia aceptar dos
+regresiones: un proyectil que impactara sin permanecer visible durante varios
+frames y un proyectil cuyo tope de alcance no estuviera protegido fuera del
+camino de disparo de `Player`.
+
+Para demostrar que las nuevas aserciones discriminan, se aplicaron dos
+mutaciones temporales y se restauraron antes del checkpoint:
+
+1. **Vuelo de duración cero.** La prueba falló con exit code `1` y
+   `PROJECTILE_VISUAL_TEST failures=5`; fallaron la permanencia en vuelo, el
+   avance observable y el punto exacto de impacto.
+2. **Tope de alcance eliminado.** La prueba falló con exit code `1` y
+   `PROJECTILE_VISUAL_TEST failures=3`; el proyectil limitado ya no impactaba
+   en el rango máximo.
+
+Las mutaciones no forman parte del código de producción.
+
 ## GREEN
 
 La GREEN usa exclusivamente el efecto existente `bullet_sparks` (tercera celda
@@ -59,6 +80,10 @@ de 32×32 de `effects.png`) mediante un `AtlasTexture`:
   recorta para impactos cercanos y se compensa en el rango visual.
 - La puerta valida la celda `bullet_sparks`, sus píxeles visibles, el vuelo
   completo, los ocho perdigones de la escopeta y el daño hitscan una sola vez.
+- La puerta exige además varios frames de vuelo y movimiento observable entre
+  frames, para descartar un impacto inmediato.
+- Un `Projectile` lanzado independientemente se detiene exactamente en su
+  `travel_range`, sin depender del camino de disparo del jugador.
 
 Resultado:
 
@@ -74,8 +99,10 @@ PROJECTILE_VISUAL_TEST failures=0
 | 2 | El proyectil nace con textura real | PASS |
 | 3 | La textura usa la celda canónica y contiene alpha visible | PASS |
 | 4 | Permanece visible durante todo el vuelo | PASS |
-| 5 | Emerge de la boca y conserva el punto de impacto | PASS |
-| 6 | Termina exactamente en el impacto y se libera | PASS |
-| 7 | La escopeta crea un proyectil por perdigón | PASS |
-| 8 | El daño hitscan se aplica una sola vez | PASS |
-| 9 | Un proyectil sin textura se libera | PASS |
+| 5 | Permanece en vuelo varios frames y avanza entre ellos | PASS |
+| 6 | Respeta un tope de alcance comprobado de forma independiente | PASS |
+| 7 | Emerge de la boca y conserva el punto de impacto | PASS |
+| 8 | Termina exactamente en el impacto y se libera | PASS |
+| 9 | La escopeta crea un proyectil por perdigón | PASS |
+| 10 | El daño hitscan se aplica una sola vez | PASS |
+| 11 | Un proyectil sin textura se libera | PASS |
