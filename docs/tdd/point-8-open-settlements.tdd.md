@@ -75,13 +75,19 @@ La puerta endurecida exige ahora:
 - ausencia del `StaticBody2D` heredado `Barricade` y de barreras semánticas
   marcadas con el grupo o metadato `settlement_barrier`.
 
-Resultado: exit code `1`, `OPEN_SETTLEMENT_TEST failures=3`:
+Resultado: exit code `1` y, como mínimo, estos tres fallos estables:
 
 ```text
 FAIL El centro de Pueblo Norte permanece libre de casas
 FAIL El centro de Pueblo Sur permanece libre de casas
 FAIL El centro de Pueblo Oeste permanece libre de casas
 ```
+
+El total exacto puede subir entre semillas porque las aserciones de ruta
+también dependen de la generación procedural. En 10 ejecuciones limpias de
+`b63c360` el total observado varió entre 3 y 5, pero las tres plazas
+bloqueadas siempre se reprodujeron. Eso basta para probar el defecto de
+producción que motivó el GREEN.
 
 ## GREEN
 
