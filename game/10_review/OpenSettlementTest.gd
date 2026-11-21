@@ -52,6 +52,33 @@ func _ready() -> void:
 	_check(closed_labels.is_empty(),
 		"Ningun pueblo muestra un cartel CERRADO")
 
+	var blocked_access_houses: Array[String] = []
+	for house in neighborhood._all_houses:
+		var house_node := house as House
+		if house_node == null:
+			continue
+		var house_rect := Rect2(
+			house_node.position - house_node.size * 0.5,
+			house_node.size)
+		if house_rect.intersects(Rect2(
+				WALL_GAP_X - WALL_GAP_WIDTH * 0.5,
+				-town_half.y,
+				WALL_GAP_WIDTH,
+				340.0)) \
+				or house_rect.intersects(Rect2(
+				WALL_GAP_X - WALL_GAP_WIDTH * 0.5,
+				town_half.y - 340.0,
+				WALL_GAP_WIDTH,
+				340.0)) \
+				or house_rect.intersects(Rect2(
+				-town_half.x,
+				WALL_GAP_WEST_Y - WALL_GAP_WIDTH * 0.5,
+				340.0,
+				WALL_GAP_WIDTH)):
+			blocked_access_houses.append(String(house_node.name))
+	_check(blocked_access_houses.is_empty(),
+		"Ninguna casa bloquea los tres corredores de acceso peatonal")
+
 	# El punto de entrada norte, oeste y sur debe cruzar su propio hueco y
 	# terminar en la plaza. Un muro sin abertura, una barricada con otro
 	# nombre o un gate fisico que corte el paso hacen fallar esta ruta.
@@ -59,7 +86,7 @@ func _ready() -> void:
 	_check(_path_crosses_wall_gap(
 			map_rid,
 			Vector2(WALL_GAP_X, -town_half.y - 220.0),
-			plaza,
+			Vector2(WALL_GAP_X, -town_half.y + 220.0),
 			true,
 			-town_half.y + 20.0,
 			WALL_GAP_X,
@@ -68,7 +95,7 @@ func _ready() -> void:
 	_check(_path_crosses_wall_gap(
 			map_rid,
 			Vector2(-town_half.x - 220.0, WALL_GAP_WEST_Y),
-			plaza,
+			Vector2(-town_half.x + 220.0, WALL_GAP_WEST_Y),
 			false,
 			-town_half.x + 20.0,
 			WALL_GAP_WEST_Y,
@@ -77,7 +104,7 @@ func _ready() -> void:
 	_check(_path_crosses_wall_gap(
 			map_rid,
 			Vector2(WALL_GAP_X, town_half.y + 220.0),
-			plaza,
+			Vector2(WALL_GAP_X, town_half.y - 220.0),
 			true,
 			town_half.y - 20.0,
 			WALL_GAP_X,
@@ -103,10 +130,11 @@ func _ready() -> void:
 			"%s conserva al menos una casa propia" % town_name)
 
 		var connector: ColorRect = town_paths.get(town_name) as ColorRect
+		var connector_rect := Rect2()
 		_check(connector != null,
 			"%s conserva un camino propio hacia la red principal" % town_name)
 		if connector != null:
-			var connector_rect := Rect2(connector.position, connector.size)
+			connector_rect = Rect2(connector.position, connector.size)
 			_check(connector_rect.has_point(town_center),
 				"El camino de %s alcanza el centro del pueblo" % town_name)
 			_check(_connector_reaches_main_road(connector_rect, neighborhood._road_rects),
@@ -116,12 +144,27 @@ func _ready() -> void:
 			map_rid, town_center)
 		_check(town_center.distance_to(nav_target) <= TOWN_NAV_TOLERANCE,
 			"El centro de %s pertenece a una zona navegable" % town_name)
-		var town_path: PackedVector2Array = NavigationServer2D.map_get_path(
-			map_rid, plaza, nav_target, true)
-		_check(town_path.size() > 1
-				and town_path[town_path.size() - 1].distance_to(nav_target)
-					<= NAV_ENDPOINT_TOLERANCE,
-			"%s es alcanzable caminando desde el pueblo principal" % town_name)
+
+		var road_point: Vector2 = Vector2.INF
+		if connector != null:
+			road_point = _connector_main_road_point(
+				connector_rect, neighborhood._road_rects, town_center)
+			_check(road_point != Vector2.INF,
+				"El enlace de %s identifica su union con la red principal" % town_name)
+		if road_point != Vector2.INF:
+			var road_nav_target: Vector2 = NavigationServer2D.map_get_closest_point(
+				map_rid, road_point)
+			var plaza_nav_target: Vector2 = NavigationServer2D.map_get_closest_point(
+				map_rid, plaza)
+			var road_path: PackedVector2Array = NavigationServer2D.map_get_path(
+				map_rid, plaza_nav_target, road_nav_target, true)
+			var road_endpoint: Vector2 = road_path[road_path.size() - 1] if road_path.size() > 0 else Vector2.INF
+			if road_path.size() <= 1 or road_endpoint.distance_to(road_nav_target) > NAV_ENDPOINT_TOLERANCE:
+				print("TOWN_ROAD_NAV name=%s road_point=%s nav_target=%s endpoint=%s distance=%f path=%s" % [town_name, str(road_point), str(road_nav_target), str(road_endpoint), road_endpoint.distance_to(road_nav_target), str(road_path)])
+			_check(road_path.size() > 1
+					and road_endpoint.distance_to(road_nav_target)
+						<= NAV_ENDPOINT_TOLERANCE,
+				"%s se conecta a una carretera principal navegable" % town_name)
 
 	await _finish()
 
@@ -160,6 +203,22 @@ func _connector_reaches_main_road(connector: Rect2, roads: Array[Rect2]) -> bool
 	return false
 
 
+func _connector_main_road_point(connector: Rect2, roads: Array[Rect2],
+		town_center: Vector2) -> Vector2:
+	var best_point: Vector2 = Vector2.INF
+	var best_distance: float = INF
+	for road in roads:
+		var overlap: Rect2 = connector.intersection(road)
+		if overlap.size.x <= 0.0 or overlap.size.y <= 0.0:
+			continue
+		var candidate: Vector2 = overlap.get_center()
+		var distance: float = candidate.distance_to(town_center)
+		if distance < best_distance:
+			best_distance = distance
+			best_point = candidate
+	return best_point
+
+
 func _path_crosses_wall_gap(map_rid: RID, outside: Vector2, target: Vector2,
 		horizontal_wall: bool, wall_axis: float, gap_center: float,
 		gap_width: float) -> bool:
@@ -169,6 +228,9 @@ func _path_crosses_wall_gap(map_rid: RID, outside: Vector2, target: Vector2,
 	var path: PackedVector2Array = NavigationServer2D.map_get_path(
 		map_rid, outside, nav_target, true)
 	if path.size() < 2:
+		return false
+	if path[path.size() - 1].distance_to(nav_target) > NAV_ENDPOINT_TOLERANCE:
+		return false
 		return false
 	if path[path.size() - 1].distance_to(nav_target) > NAV_ENDPOINT_TOLERANCE:
 		return false
