@@ -165,7 +165,7 @@ recortarlo en silencio, porque un frame recortado rompería el ancla global.
 
 `gen_zombie_skin.py --selftest` es la prueba permanente de que el control de
 derivación **llega a su rama** y de que es la única barrera entre el arte
-pedido y un dibujo procedural. Somete la derivación a tres scenarios:
+pedido y un dibujo procedural. Somete la derivación a cinco escenarios:
 
 1. **Derivación real**: el control pasa (el pack responde a los píxeles).
 2. **Derivación neutralizada** (base constante que **aún cumple el contrato**):
@@ -173,13 +173,20 @@ pedido y un dibujo procedural. Somete la derivación a tres scenarios:
    fuente». Esto responde a la pregunta que quedó abierta en la revisión
    anterior: la reproducción neutralizada **sí** alcanza la rama del control, y
    el pack resultante es válido, así que el control es lo único que lo detecta.
-3. **Derivación que revienta al mutar**: el control tiene que fallar **limpio**
-   (diagnóstico, sin traceback). Antes la excepción se propagaba y la puerta
-   moría con un stack trace en vez de con un mensaje.
+3. **Todos los candidatos fallan**: el control tiene que distinguir ese caso
+   de una derivación que simplemente no responde y emitir un diagnóstico
+   «falla al mutar la fuente».
+4. **Excepción inesperada**: la puerta es el límite de confianza; cualquier
+   excepción normal (`Exception`, no solo `RuntimeError`/`ValueError`/`OSError`)
+   se convierte en diagnóstico y nunca en traceback.
+5. **Candidatos mixtos**: un candidato inválido no significa que todos fallen.
+   Si otro candidato responde con la misma base, el diagnóstico correcto es
+   «la derivación NO responde a los píxeles», no «falla al mutar».
 
 Control negativo del control: revirtiendo el fail-closed en una copia del
-árbol, `ZOMBIE_SKIN_SELFTEST failures=1` («el control debe fallar limpio
-cuando la derivacion lanza al mutar, pero lanzo RuntimeError»).
+árbol, `ZOMBIE_SKIN_SELFTEST failures=2` («el control debe fallar limpio ante
+una excepcion inesperada al mutar, pero lanzo TypeError» y «el control debe
+distinguir todos los candidatos fallan de la derivacion NO responde»).
 
 ### 5.3 Endurecimiento de la ingesta
 

@@ -176,8 +176,10 @@ Además, `--check` ejecuta un **control de derivación**: perfora un píxel
 interior de la fuente (sin tocar la silueta) y exige que el pack **cambie**.
 Es la garantía de que lo que se ve en pantalla procede del sprite pedido y no
 de un dibujo procedural que pasara la comprobación del hash. Ese control se
-sometе a sí mismo en `gen_zombie_skin.py --selftest` (derivación real,
-derivación neutralizada y derivación que revienta al mutar).
+somete a sí mismo en `gen_zombie_skin.py --selftest`: derivación real,
+derivación neutralizada, todos los candidatos fallando, una excepción
+inesperada y candidatos mixtos. La puerta convierte cualquier excepción en un
+diagnóstico y distingue «todos fallan» de «no responde a los píxeles».
 
 `game/tools/skin_pack.py` audita e importa packs externos. El pack entregado
 por el autor (`~/zombie_sprites/`) es el ejemplo canónico de pack defectuoso:

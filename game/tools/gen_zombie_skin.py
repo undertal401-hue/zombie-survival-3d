@@ -338,15 +338,17 @@ def control_derivacion_desde_pixeles() -> list[str]:
     width, height, pixels = _read_source()
     try:
         base_real = _derive_base(width, height, pixels)
-    except (RuntimeError, ValueError, OSError) as exc:
+    except Exception as exc:
         # FAIL CLOSED: si la derivacion revienta con la fuente real, la puerta
-        # debe decirlo con un diagnostico, no con un traceback.
+        # debe decirlo con un diagnostico, no con un traceback. Se captura
+        # cualquier exception normal: la puerta es el limite de confianza.
         return ["la derivacion falla con la fuente real (%s: %s)" %
                 (type(exc).__name__, exc)]
     frames_real = None
     base_changed = False
     frames_changed = False
     invalid_candidates = 0
+    valid_candidates = 0
     tried = 0
     for mutated in _mutated_source_candidates(width, height, pixels):
         tried += 1
@@ -354,16 +356,18 @@ def control_derivacion_desde_pixeles() -> list[str]:
             break
         try:
             base_mut = _derive_base(*mutated)
-        except (RuntimeError, ValueError, OSError):
-            # Este pixel deja la derivacion invalida: se prueba otro.
+        except Exception:
+            # Este pixel deja la derivacion invalida: se prueba otro. Cualquier
+            # exception normal cuenta como fallo de ese candidato.
             invalid_candidates += 1
             continue
+        valid_candidates += 1
         if base_mut == base_real:
             continue
         base_changed = True
         try:
             frames_mut = _frames_from_base(base_mut)
-        except RuntimeError:
+        except Exception:
             invalid_candidates += 1
             continue
         if frames_real is None:
@@ -372,7 +376,7 @@ def control_derivacion_desde_pixeles() -> list[str]:
             frames_changed = True
             break
     if not base_changed:
-        if invalid_candidates:
+        if invalid_candidates and valid_candidates == 0:
             problems.append(
                 "la derivacion falla al mutar la fuente (%d candidatos "
                 "invalidos)" % invalid_candidates)
@@ -702,8 +706,7 @@ def selftest() -> int:
     """Autopruebas del generador (puerta de CI).
 
     El control negativo de derivacion es la garantia de que el pack sale de
-    los PIXELES de la fuente. Estas pruebas lo someten a los dos modos de
-    fallo que importan:
+    los PIXELES de la fuente. Estas pruebas lo someten a cinco escenarios:
 
       1. la derivacion real responde a la fuente (control verde);
       2. una derivacion NEUTRALIZADA (base constante, pack que sigue cumpliendo
@@ -711,7 +714,11 @@ def selftest() -> int:
          a su rama y que es la unica barrera entre el arte pedido y un dibujo
          procedural;
       3. una derivacion que LANZA al mutar la fuente tiene que fallar de
-         forma limpia (sin traceback y con diagnostico), no reventar la puerta.
+         forma limpia (sin traceback y con diagnostico), no reventar la puerta;
+      4. una excepcion inesperada tambien cierra en cerrado, con diagnostico;
+      5. un candidato fallido MIXTO no se confunde con 'todos fallan': si otro
+         candidato responde con la misma base, el diagnostico es que la
+         derivacion NO responde a los pixeles.
     """
     global _derive_base
     failures = []
