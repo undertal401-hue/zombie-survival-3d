@@ -287,13 +287,9 @@ func _fire_shot() -> void:
 		_is_burst_firing = false
 		return
 	
-	# Aguante mínimo por bala. Se comprueba aquí, antes de consumir munición,
-	# para que un disparo rechazado no gaste balas ni deje la ráfaga colgada.
-	if not _has_stamina_for(current_weapon.get_stamina_cost()):
-		_is_burst_firing = false
-		_notify_no_stamina()
-		return
-	
+	# Las balas NO consumen estamina (FASE 1 Punto 5).
+	# El melee tiene su propio chequeo de aguante en _on_melee_attack (Player.gd)
+	# y en _has_stamina_for(MELEE_STAMINA_MIN) más abajo.
 	var now: float = Time.get_ticks_msec() / 1000.0
 	# Dentro de una ráfaga el cadence es burst_delay, no el intervalo normal.
 	var interval: float = current_weapon.burst_delay if _is_burst_firing else current_weapon.get_fire_interval()

@@ -196,15 +196,9 @@ func _on_fire_requested(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> v
 	if is_dead:
 		return
 	
-	# Doble check de aguante: WeaponController ya filtra antes de consumir bala,
-	# aquí se cobra el coste real una sola vez por gatillazo (no por perdigón).
-	var cost: float = maxf(FIRE_STAMINA_MIN, weapon.get_stamina_cost())
-	if stamina + 0.0001 < cost:
-		return
-	stamina = maxf(stamina - cost, 0.0)
-	_regen_delay = REGEN_DELAY
+	# Las balas NO consumen estamina (FASE 1 Punto 5)
+	# El melee tiene su propio coste en _on_melee_attack
 	_mark_combat()
-	_emit_stamina_if_changed()
 	
 	# El retroceso sesga el disparo completo; la dispersión se aplica por
 	# perdigón para que la escopeta abra un cono real y la pistola siga precisa.
