@@ -299,10 +299,13 @@ func _smoke() -> void:
 	print("SMOKE start pos=%s map=%s" % [str(_player.global_position), str(_neighborhood.map_size())])
 
 	# El autopiloto mueve al jugador (y pelea si aparece un zombi): obliga a
-	# correr la IA, el combate, el HUD y las oleadas.
-	var target: Vector2 = _player.global_position + Vector2(420.0, 0.0)
+	# correr la IA, el combate, el HUD y las oleadas. El destino se elige en
+	# una plaza realmente transitable: el barrio es procedural y una casa
+	# generada al azar podia ocupar el punto fijo +X.
 	var start_position: Vector2 = _player.global_position
-	var reached: bool = await _move_to(target, 420, 48.0, true)
+	var target: Vector2 = _choose_smoke_target(start_position)
+	print("SMOKE target=%s offset=%s" % [str(target), str(target - start_position)])
+	var reached: bool = await _move_to(target, 600, 48.0, true)
 	var moved: float = start_position.distance_to(_player.global_position)
 	print("SMOKE move reached=%s moved=%.0f pos=%s" % [
 		str(reached), moved, str(_player.global_position)])
@@ -317,13 +320,9 @@ func _smoke() -> void:
 	# El smoke NO puede quedar verde si el autopiloto no se movio: eso
 	# significa que la navegacion o la entrada de teclado estan rotas, y es
 	# una regresion silenciosa que ni el alive ni el centinela detectan.
-	#
-	# No exigimos alcanzar el punto exacto: durante el smoke la IA puede atacar,
-	# aplicar knockback y desplazar al jugador. El contrato de esta compuerta es
-	# "el bucle real recibio entrada y movio al jugador", no "termino un combate
-	# sin interrupciones". Mantener `reached` como exito inmediato y aceptar un
-	# desplazamiento seguro evita que un zombi aleatorio haga rojo el CI.
-	if alive and moved >= 100.0:
+	# `reached` sigue siendo obligatorio: el contrato R1 exige verificar que
+	# la entrada produce movimiento real hasta un destino alcanzable.
+	if alive and reached and moved >= 100.0:
 		_smoke_ok = true
 		print("PLAY_SMOKE_COMPLETE reached=%s moved=%.0f" % [str(reached), moved])
 	else:
@@ -697,6 +696,54 @@ func _go_extraction() -> void:
 	print("VICTORY fired=%s overlay=%s title='%s'" % [str(_victory_fired), str(overlay.visible), title.text])
 	print("CHECK extraction=%s" % str(_victory_fired and overlay.visible and title.text.contains("EXTRACCIÓN")))
 	_check_compass("extraction")
+
+## Elige un destino corto, dentro del mapa y sin una casa ni un zombi sobre
+## el trayecto. El smoke prueba entrada y movimiento, no una ruta larga: por
+## eso 170 px bastan para superar el umbral de 100 px tras la tolerancia.
+func _choose_smoke_target(start: Vector2) -> Vector2:
+	var offsets: Array[Vector2] = [
+		Vector2(170.0, 0.0),
+		Vector2(0.0, -170.0),
+		Vector2(-170.0, 0.0),
+		Vector2(0.0, 170.0),
+		Vector2(150.0, -150.0),
+		Vector2(-150.0, -150.0),
+		Vector2(150.0, 150.0),
+		Vector2(-150.0, 150.0),
+	]
+	var half: Vector2 = _neighborhood.map_size() * 0.5
+	for offset in offsets:
+		var target: Vector2 = start + offset
+		if absf(target.x) > half.x - 32.0 or absf(target.y) > half.y - 32.0:
+			continue
+		if _smoke_path_is_clear(start, target):
+			return target
+	# Fallback explicito: el primer candidato queda registrado en el log y el
+	# smoke falla de forma visible si ni siquiera puede recorrerse.
+	return start + Vector2(170.0, 0.0)
+
+
+func _smoke_path_is_clear(start: Vector2, target: Vector2) -> bool:
+	var query := PhysicsRayQueryParameters2D.create(start, target, 1, [_player.get_rid()])
+	if not _player.get_world_2d().direct_space_state.intersect_ray(query).is_empty():
+		return false
+	for zombie in get_tree().get_nodes_in_group("zombies"):
+		var node := zombie as Node2D
+		if node == null or not is_instance_valid(node):
+			continue
+		if _distance_to_segment(node.global_position, start, target) < 88.0:
+			return false
+	return true
+
+
+func _distance_to_segment(point: Vector2, start: Vector2, end: Vector2) -> float:
+	var segment: Vector2 = end - start
+	var length_squared: float = segment.length_squared()
+	if length_squared <= 0.0001:
+		return point.distance_to(start)
+	var ratio: float = clampf((point - start).dot(segment) / length_squared, 0.0, 1.0)
+	return point.distance_to(start + segment * ratio)
+
 
 func _move_to(target: Vector2, timeout: int, stop_distance: float, fight_threats: bool = true) -> bool:
 	var path := PackedVector2Array()
