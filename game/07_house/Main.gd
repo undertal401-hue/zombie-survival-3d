@@ -470,8 +470,8 @@ func _configure_world() -> void:
 	if forest != null and forest.has_method("world_half"):
 		world_half = forest.call("world_half")
 	_world_half = world_half
-	ground.position = -world_half
-	# ground es TileMap (suelo pixel art): size y color se definen por las celdas pintadas en GroundTileMap
+	# ground es TileMap (suelo pixel art): las celdas ya están en coordenadas absolutas
+	# no mover el nodo para no desplazar el suelo fuera de vista
 
 	# Estado de zona limpio (tambien tras un reinicio de partida).
 	_in_forest = false
