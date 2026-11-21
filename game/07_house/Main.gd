@@ -69,7 +69,7 @@ var _boss_spawned_wave: int = -1
 
 @onready var neighborhood: Neighborhood = $Level/Neighborhood
 @onready var navigation_region: NavigationRegion2D = $NavigationRegion2D
-@onready var ground: ColorRect = $Ground
+@onready var ground: TileMap = $Ground
 @onready var player: CharacterBody2D = $Player
 @onready var extraction: Area2D = $Extraction
 @onready var forest: Node2D = $Level/Forest
@@ -471,8 +471,7 @@ func _configure_world() -> void:
 		world_half = forest.call("world_half")
 	_world_half = world_half
 	ground.position = -world_half
-	ground.size = world_half * 2.0
-	ground.color = Color(0.055, 0.075, 0.06, 1)
+	# ground es TileMap (suelo pixel art): size y color se definen por las celdas pintadas en GroundTileMap
 
 	# Estado de zona limpio (tambien tras un reinicio de partida).
 	_in_forest = false

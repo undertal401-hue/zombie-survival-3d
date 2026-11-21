@@ -17,6 +17,7 @@
 [ext_resource type="PackedScene" path="res://15_fx/CombatFX.tscn" id="16_combat_fx"]
 [ext_resource type="PackedScene" path="res://16_meta/MetaProgress.tscn" id="17_meta_progress"]
 [ext_resource type="PackedScene" path="res://13_audio/AudioDirector.tscn" id="18_audio_director"]
+[ext_resource type="PackedScene" path="res://05_house/GroundTileMap.tscn" id="19_ground_tilemap"]
 
 [sub_resource type="RectangleShape2D" id="1_hwall"]
 size = Vector2(4800, 40)
@@ -33,14 +34,8 @@ agent_radius = 16.0
 [node name="Main" type="Node2D" unique_id=1027292219]
 script = ExtResource("5_main")
 
-[node name="Ground" type="ColorRect" parent="." unique_id=1233563747]
+[node name="Ground" type="TileMap" parent="." unique_id=1233563747 instance=ExtResource("19_ground_tilemap")]
 z_index = -10
-offset_left = -2400.0
-offset_top = -1500.0
-offset_right = 2400.0
-offset_bottom = 1500.0
-mouse_filter = 2
-color = Color(0.2, 0.24, 0.16, 1)
 
 [node name="Level" type="Node2D" parent="." unique_id=1412999040 groups=["nav_obstacles"]]
 
