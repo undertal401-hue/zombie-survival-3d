@@ -680,12 +680,96 @@ def do_check() -> int:
     return 1 if bad else 0
 
 
+def selftest() -> int:
+    """Autopruebas del generador (puerta de CI).
+
+    El control negativo de derivacion es la garantia de que el pack sale de
+    los PIXELES de la fuente. Estas pruebas lo someten a los dos modos de
+    fallo que importan:
+
+      1. la derivacion real responde a la fuente (control verde);
+      2. una derivacion NEUTRALIZADA (base constante, pack que sigue cumpliendo
+         el contrato) tiene que ser detectada: demuestra que el control llega
+         a su rama y que es la unica barrera entre el arte pedido y un dibujo
+         procedural;
+      3. una derivacion que LANZA al mutar la fuente tiene que fallar de
+         forma limpia (sin traceback y con diagnostico), no reventar la puerta.
+    """
+    global _derive_base
+    failures = []
+    original_derive = _derive_base
+
+    # 1. El control real pasa.
+    try:
+        problems = control_derivacion_desde_pixeles()
+        raised = None
+    except Exception as exc:
+        problems = []
+        raised = exc
+    if raised is not None:
+        failures.append("el control real lanzo %s: %s" %
+                        (type(raised).__name__, raised))
+    elif problems:
+        failures.append("el control real deberia pasar: %s" % problems)
+
+    # 2. Derivacion neutralizada: base constante que TODAVIA cumple el
+    #    contrato. El control tiene que decir que no responde a la fuente.
+    try:
+        width, height, pixels = _read_source()
+        base_real = original_derive(width, height, pixels)
+        _derive_base = lambda w, h, p: base_real
+        problems = control_derivacion_desde_pixeles()
+        raised = None
+    except Exception as exc:
+        problems = []
+        raised = exc
+    finally:
+        _derive_base = original_derive
+    if raised is not None:
+        failures.append("el control lanzo %s: %s" %
+                        (type(raised).__name__, raised))
+    elif not any("NO responde" in problem for problem in problems):
+        failures.append("el control debe detectar una derivacion que ignora "
+                        "la fuente (problemas: %s)" % problems)
+
+    # 3. Derivacion que lanza SOLO al mutar (la fuente real sigue deriving
+    #    bien): el control tiene que fallar de forma limpia, sin traceback.
+    def _boom_only_mutated(w, h, p):
+        if p == pixels:
+            return base_real
+        raise RuntimeError("boom: la derivacion revienta al mutar la fuente")
+
+    try:
+        _derive_base = _boom_only_mutated
+        problems = control_derivacion_desde_pixeles()
+        raised = None
+    except Exception as exc:
+        problems = []
+        raised = exc
+    finally:
+        _derive_base = original_derive
+    if raised is not None:
+        failures.append("el control debe fallar limpio cuando la derivacion "
+                        "lanza al mutar, pero lanzo %s: %s" %
+                        (type(raised).__name__, raised))
+    elif not problems:
+        failures.append("el control debe fallar cuando la derivacion lanza al "
+                        "mutar la fuente")
+
+    print("ZOMBIE_SKIN_SELFTEST failures=%d" % len(failures))
+    for failure in failures:
+        print("  - %s" % failure)
+    return 1 if failures else 0
+
+
 def main(argv) -> int:
     # Un fallo de la fuente (ausente, alterada o ilegible) es un diagnostico,
     # no una excepcion: la puerta debe salir con codigo 2 y sin traceback.
     try:
         if len(argv) > 1 and argv[1] == "--check":
             return do_check()
+        if len(argv) > 1 and argv[1] == "--selftest":
+            return selftest()
         return do_build()
     except (RuntimeError, FileNotFoundError, OSError, ValueError) as exc:
         print("FAIL %s" % exc)

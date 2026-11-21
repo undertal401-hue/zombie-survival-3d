@@ -941,6 +941,13 @@ func _generator_checks() -> void:
 	# corruptos. Trabajo en un directorio temporal, fuera de res://.
 	_run_generator_check(SKIN_PACK_TOOL, PackedStringArray(["selftest"]),
 		"python3 tools/skin_pack.py selftest sale 0")
+	# Autopruebas del GENERADOR: el control negativo de derivacion se somete
+	# a si mismo (derivacion real, derivacion neutralizada que aun cumple el
+	# contrato y derivacion que revienta). Es la prueba permanente de que el
+	# control llega a su rama y de que falla limpio.
+	_run_generator_check(GEN_ZOMBIE_SKIN, PackedStringArray(["--selftest"]),
+		"python3 tools/gen_zombie_skin.py --selftest sale 0",
+		"ZOMBIE_SKIN_SELFTEST failures=0")
 
 
 func _run_generator_check(script_path: String, arguments: PackedStringArray,

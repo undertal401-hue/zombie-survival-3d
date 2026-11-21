@@ -2179,6 +2179,19 @@ def selftest() -> int:
             failures.append("el contrato debe rechazar una union descentrada "
                             "(problemas: %s)" % problems)
 
+        # 28. El contrato compartido exige COMPLETITUD: cada frame puede estar
+        #     perfecto y aun asi el pack ser inservible si le faltan clips.
+        #     Antes un pack con un solo `idle` pasaba el contrato sin dar
+        #     ningun problema (falso negativo de la puerta compartida).
+        partial = {"idle/idle_01.png": contract_frames["idle/idle_01.png"]}
+        problems = validate_pack_contract(partial)
+        if not any("walk" in problem for problem in problems):
+            failures.append("el contrato debe rechazar un pack sin walk "
+                            "(problemas: %s)" % problems)
+        problems = validate_pack_contract({})
+        if not problems:
+            failures.append("el contrato debe rechazar un pack vacio")
+
     print("SKIN_PACK_SELFTEST failures=%d" % len(failures))
     for failure in failures:
         print("  - %s" % failure)
