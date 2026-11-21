@@ -28,20 +28,20 @@ const CAT_MISC := "misc"
 ## `combustible` se conserva: el objetivo de extracción y QA lo usan.
 ## `vehicle_fuel` es un id NUEVO para el crafting / repostaje de vehículos.
 const ITEM_DEFS: Dictionary = {
-	"comida": {"name": "Comida enlatada", "category": CAT_FOOD, "stack": 30, "weight": 0.6},
-	"medkit": {"name": "Botiquín", "category": CAT_MEDICAL, "stack": 12, "weight": 0.8},
-	"pistol_ammo": {"name": "Cartucho 9mm (12 balas)", "category": CAT_AMMO, "stack": 240, "weight": 0.02},
-	"rifle_ammo": {"name": "Cartucho 5.56mm (30 balas)", "category": CAT_AMMO, "stack": 300, "weight": 0.02},
-	"shotgun_ammo": {"name": "Cartucho 12ga (6 balas)", "category": CAT_AMMO, "stack": 120, "weight": 0.04},
-	"Machete": {"name": "Machete", "category": CAT_MISC, "stack": 1, "weight": 1.2},
-	"Pistola 9mm": {"name": "Pistola 9mm", "category": CAT_MISC, "stack": 1, "weight": 1.0},
-	"Escopeta 12ga": {"name": "Escopeta 12ga", "category": CAT_MISC, "stack": 1, "weight": 3.2},
-	"Fusil 5.56mm": {"name": "Fusil 5.56mm", "category": CAT_MISC, "stack": 1, "weight": 3.5},
-	"combustible": {"name": "Bidón de combustible", "category": CAT_FUEL, "stack": 12, "weight": 5.0},
-	"scrap": {"name": "Chatarra", "category": CAT_MATERIAL, "stack": 60, "weight": 0.4},
-	"cloth": {"name": "Tela", "category": CAT_MATERIAL, "stack": 60, "weight": 0.15},
-	"vehicle_fuel": {"name": "Combustible de vehículo", "category": CAT_FUEL, "stack": 20, "weight": 2.5},
-	"llave": {"name": "Llave", "category": CAT_KEY, "stack": 1, "weight": 0.05},
+	"comida": {"name": "Comida enlatada", "category": CAT_FOOD, "stack": 30, "weight": 0.6, "icon": "res://assets/items/comida.png"},
+	"medkit": {"name": "Botiquín", "category": CAT_MEDICAL, "stack": 12, "weight": 0.8, "icon": "res://assets/items/medkit.png"},
+	"pistol_ammo": {"name": "Cartucho 9mm (12 balas)", "category": CAT_AMMO, "stack": 240, "weight": 0.02, "icon": "res://assets/items/pistol_ammo.png"},
+	"rifle_ammo": {"name": "Cartucho 5.56mm (30 balas)", "category": CAT_AMMO, "stack": 300, "weight": 0.02, "icon": "res://assets/items/rifle_ammo.png"},
+	"shotgun_ammo": {"name": "Cartucho 12ga (6 balas)", "category": CAT_AMMO, "stack": 120, "weight": 0.04, "icon": "res://assets/items/shotgun_ammo.png"},
+	"Machete": {"name": "Machete", "category": CAT_MISC, "stack": 1, "weight": 1.2, "icon": "res://assets/items/machete.png"},
+	"Pistola 9mm": {"name": "Pistola 9mm", "category": CAT_MISC, "stack": 1, "weight": 1.0, "icon": "res://assets/items/pistol.png"},
+	"Escopeta 12ga": {"name": "Escopeta 12ga", "category": CAT_MISC, "stack": 1, "weight": 3.2, "icon": "res://assets/items/shotgun.png"},
+	"Fusil 5.56mm": {"name": "Fusil 5.56mm", "category": CAT_MISC, "stack": 1, "weight": 3.5, "icon": "res://assets/items/rifle.png"},
+	"combustible": {"name": "Bidón de combustible", "category": CAT_FUEL, "stack": 12, "weight": 5.0, "icon": "res://assets/items/combustible.png"},
+	"scrap": {"name": "Chatarra", "category": CAT_MATERIAL, "stack": 60, "weight": 0.4, "icon": "res://assets/items/scrap.png"},
+	"cloth": {"name": "Tela", "category": CAT_MATERIAL, "stack": 60, "weight": 0.15, "icon": "res://assets/items/cloth.png"},
+	"vehicle_fuel": {"name": "Combustible de vehículo", "category": CAT_FUEL, "stack": 20, "weight": 2.5, "icon": "res://assets/items/vehicle_fuel.png"},
+	"llave": {"name": "Llave", "category": CAT_KEY, "stack": 1, "weight": 0.05, "icon": "res://assets/items/llave.png"},
 }
 
 ## Recetas: id -> objeto producido, cantidad y coste. El coste de `pistol_ammo` da una
@@ -88,6 +88,9 @@ const LOOT_TABLES: Dictionary = {
 var recipes: Dictionary = RECIPES.duplicate(true)
 
 var _items: Dictionary = {}
+## Cache de iconos data-driven. Una ruta ausente devuelve null y no se inventa
+## ninguna textura sustituta.
+var _item_icon_cache: Dictionary = {}
 ## Condición 0..1 por id de objeto/herramienta; 1.0 = nueva.
 var _conditions: Dictionary = {}
 var _fallback_rng: RandomNumberGenerator
@@ -108,6 +111,21 @@ func _def(id: String) -> Dictionary:
 
 func display_name(id: String) -> String:
 	return String(_def(id).get("name", id))
+
+
+## Resuelve el sprite oficial de un objeto desde su ruta data-driven.
+## `FALTA ASSET - NO INVENTAR`: si el archivo no existe devuelve null; jamás
+## fabrica un rectangulo de color que se haga pasar por el sprite del objeto.
+func get_item_texture(id: String) -> Texture2D:
+	if _item_icon_cache.has(id):
+		return _item_icon_cache[id] as Texture2D
+	var path: String = String(_def(id).get("icon", ""))
+	if path == "" or not ResourceLoader.exists(path, "Texture2D"):
+		_item_icon_cache[id] = null
+		return null
+	var texture: Texture2D = load(path) as Texture2D
+	_item_icon_cache[id] = texture
+	return texture
 
 func get_category(id: String) -> String:
 	return String(_def(id).get("category", CAT_MISC))

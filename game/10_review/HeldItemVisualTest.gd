@@ -63,8 +63,14 @@ func _ready() -> void:
 	_check(Inventory.has_method("get_item_texture"),
 		"Inventory expone la resolucion data-driven de iconos")
 	if Inventory.has_method("get_item_texture"):
-		_check(Inventory.call("get_item_texture", "medkit") == null,
-			"Un icono inexistente resuelve a null sin inventar arte")
+		const MEDKIT_ICON_PATH := "res://assets/items/medkit.png"
+		var resolved: Texture2D = Inventory.call("get_item_texture", "medkit") as Texture2D
+		if ResourceLoader.exists(MEDKIT_ICON_PATH, "Texture2D"):
+			_check(resolved != null and resolved.resource_path == MEDKIT_ICON_PATH,
+				"El icono oficial se carga desde su ruta data-driven")
+		else:
+			_check(resolved == null,
+				"Un icono inexistente resuelve a null sin inventar arte")
 
 	await _finish()
 

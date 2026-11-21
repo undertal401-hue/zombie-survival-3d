@@ -415,9 +415,10 @@ func _on_melee_attack(weapon: Weapon, direction: Vector2) -> void:
 func _on_weapon_changed(weapon: Weapon) -> void:
 	# Cambiar de arma rompe el combo: no se puede rematar con otra herramienta.
 	_reset_combo()
-	# Mostrar el sprite del arma equipada en el personaje
+	# Mostrar el sprite real del arma equipada en el personaje. Si el asset
+	# todavia no existe, PlayerVisual muestra FALTA ASSET - NO INVENTAR.
 	if player_visual != null and not is_dead and weapon != null:
-		player_visual.set_held_item(weapon.weapon_name)
+		player_visual.set_held_item(weapon.weapon_name, weapon.icon)
 
 ## Handlers visuales
 func _on_fire_visual(weapon: Weapon, from_pos: Vector2, to_pos: Vector2) -> void:
@@ -436,10 +437,12 @@ func _on_reload_finished_visual(weapon: Weapon) -> void:
 	# La animación de recarga termina sola, _is_attacking se resetea en animation_finished
 	pass
 
-## Cuando se recoge un objeto del inventario, mostrar su sprite en el personaje
+## Cuando se recoge un objeto del inventario, mostrar su sprite real en el
+## personaje. Inventory resuelve la ruta data-driven y devuelve null mientras
+## el asset oficial no exista; nunca se fabrica un substitute de color.
 func _on_item_picked_up(item_id: String, amount: int) -> void:
 	if player_visual != null and not is_dead:
-		player_visual.set_held_item(item_id)
+		player_visual.set_held_item(item_id, Inventory.get_item_texture(item_id))
 
 ## Activa o desactiva el modo pasajero. Lo llama DriveableVehicle al subir,
 ## bajar o cuando el jugador muere al volante.
