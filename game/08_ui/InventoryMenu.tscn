@@ -317,7 +317,7 @@ size_flags_vertical = 1
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.78, 0.28, 0.9)
 theme_override_font_sizes/font_size = 12
-text = "1–5"
+text = "1–6"
 horizontal_alignment = 2
 vertical_alignment = 1
 
@@ -338,6 +338,18 @@ custom_minimum_size = Vector2(44, 44)
 expand_mode = 0
 stretch_mode = 5
 theme_override_colors/default_color = Color(1, 1, 1, 1)
+
+[node name="WeaponIconMissing" type="Label" parent="Panel/WeaponSection/WeaponInfo"]
+layout_mode = 2
+custom_minimum_size = Vector2(118, 44)
+theme_override_colors/font_color = Color(1, 0.45, 0.4, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 11
+text = "FALTA ASSET - NO INVENTAR"
+horizontal_alignment = 1
+vertical_alignment = 1
+visible = false
 
 [node name="WeaponDetails" type="VBoxContainer" parent="Panel/WeaponSection/WeaponInfo"]
 layout_mode = 2
@@ -534,6 +546,6 @@ offset_right = -16.0
 offset_bottom = -16.0
 theme_override_colors/font_color = Color(0.66, 0.68, 0.64, 0.95)
 theme_override_font_sizes/font_size = 12
-text = "↑↓ elegir · Enter usar · 1-5 arma · F comer · R recargar · Tab cerrar"
+text = "↑↓ elegir · Enter usar · 1-6 arma · F comer · R recargar · Tab cerrar"
 horizontal_alignment = 1
 mouse_filter = 2

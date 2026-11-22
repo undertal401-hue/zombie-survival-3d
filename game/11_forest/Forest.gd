@@ -49,6 +49,15 @@ const BRIDGE_PLANK_COLOR := Color(0.30, 0.22, 0.12, 1.0)
 
 # Fase 4: botín en claros.
 const LOOT_SCENE: PackedScene = preload("res://04_items/LootContainer.tscn")
+const WOOD_PICKUP_SCENE: PackedScene = preload("res://04_items/Pickup.tscn")
+
+# Tala: un arbol sigue siendo una entrada logica; nunca se crea un Node por
+# arbol. Los cuerpos fisicos se agrupan por chunk y las copias visuales se
+# mantienen en los MultiMesh existentes.
+const TREE_MAX_HP: float = 100.0
+const TREE_FALL_DURATION: float = 0.8
+const TREE_FALL_ANGLE: float = PI * 0.5
+const WOOD_DROP_AMOUNT: int = 3
 
 var _rng := RandomNumberGenerator.new()
 var _clearings: Array[Dictionary] = []
@@ -56,6 +65,12 @@ var _paths: Array[Dictionary] = []
 var _fog_bands: Array[Dictionary] = []
 var _shapes: Array[Shape2D] = []
 var _tree_count: int = 0
+var _tree_records: Array[Dictionary] = []
+var _tree_index_by_physics_shape: Dictionary = {}
+var _tree_index_by_body_shape: Dictionary = {}
+var _tree_chunk_bodies: Dictionary = {}
+var _tree_loot_root: Node2D = null
+var _multimesh_nodes: Array[MultiMeshInstance2D] = []
 var _density_tex: ImageTexture = null
 var _river_points: PackedVector2Array = PackedVector2Array()
 
@@ -87,6 +102,117 @@ func town_half() -> Vector2:
 
 func tree_count() -> int:
 	return _tree_count
+
+## Estado observable de un arbol. El indice sigue el orden procedural de
+## generacion y no depende de una escena o un nodo por arbol.
+func tree_snapshot(index: int) -> Dictionary:
+	if index < 0 or index >= _tree_records.size():
+		return {}
+	var tree: Dictionary = _tree_records[index]
+	var body_rid: RID = tree.get("body_rid", RID())
+	var physics_shape_rid: RID = tree.get("physics_shape_rid", RID())
+	var body_shape_count: int = 0
+	if body_rid.is_valid():
+		body_shape_count = PhysicsServer2D.body_get_shape_count(body_rid)
+	var trunk_transform: Transform2D = tree.get("trunk_transform", Transform2D.IDENTITY)
+	var canopy_transforms: Array[Transform2D] = []
+	var raw_bindings: Array = tree.get("canopy_bindings", [])
+	for raw_binding in raw_bindings:
+		var binding: Dictionary = raw_binding
+		var canopy_transform: Transform2D = binding.get(
+			"transform", binding.get("base_transform", Transform2D.IDENTITY))
+		canopy_transforms.append(canopy_transform)
+	return {
+		"position": to_global(Vector2(tree.get("position", Vector2.ZERO))),
+		"height": float(tree.get("height", 0.0)),
+		"chunk_key": tree.get("chunk_key", Vector2i.ZERO),
+		# PhysicsDirectSpaceState2D devuelve el RID del cuerpo y el indice
+		# de la forma. El RID de la forma real se conserva para diagnostico.
+		"shape_rid": physics_shape_rid,
+		"physics_shape_rid": physics_shape_rid,
+		"body_rid": body_rid,
+		"shape_index": int(tree.get("shape_index", -1)),
+		"body_shape_count": body_shape_count,
+		"chunk_body_count": _tree_chunk_bodies.size(),
+		"multimesh_node_count": _multimesh_node_count(),
+		"multimesh_instance_total": _multimesh_instance_total(),
+		"state": String(tree.get("state", "standing")),
+		"hp": float(tree.get("hp", TREE_MAX_HP)),
+		"fall_angle": float(tree.get("fall_angle", 0.0)),
+		"trunk_transform": trunk_transform,
+		"canopy_transforms": canopy_transforms,
+	}
+
+## Aplica dano a la forma fisica exacta que recibio el golpe. La API canonica
+## es damage_tree_by_shape(shape_rid, damage, direction). Tambien acepta la
+## variante explicita (body_rid, shape_index, damage, direction), util cuando
+## quien golpea ya conoce ambas partes de la consulta chunked.
+func damage_tree_by_shape(shape_rid: RID, damage_or_shape_index: Variant,
+		damage_or_direction: Variant, optional_direction: Variant = null) -> bool:
+	var damage: float = 0.0
+	var direction: Vector2 = Vector2.ZERO
+	var explicit_shape_index: int = -1
+	if typeof(optional_direction) == TYPE_VECTOR2:
+		explicit_shape_index = int(damage_or_shape_index)
+		damage = float(damage_or_direction)
+		direction = optional_direction
+	else:
+		if typeof(damage_or_direction) != TYPE_VECTOR2:
+			return false
+		damage = float(damage_or_shape_index)
+		direction = damage_or_direction
+	if not shape_rid.is_valid() or damage <= 0.0:
+		return false
+
+	var tree_index: int = -1
+	if explicit_shape_index >= 0:
+		var body_shapes: Dictionary = _tree_index_by_body_shape.get(shape_rid, {})
+		tree_index = int(body_shapes.get(explicit_shape_index, -1))
+	else:
+		tree_index = int(_tree_index_by_physics_shape.get(shape_rid, -1))
+		if tree_index < 0:
+			tree_index = _resolve_tree_index_by_body_ray(shape_rid, direction)
+	if tree_index < 0 or tree_index >= _tree_records.size():
+		return false
+	var tree: Dictionary = _tree_records[tree_index]
+	if String(tree.get("state", "standing")) != "standing":
+		return false
+
+	var remaining_hp: float = maxf(0.0, float(tree.get("hp", TREE_MAX_HP)) - damage)
+	tree["hp"] = remaining_hp
+	if remaining_hp > 0.0:
+		_tree_records[tree_index] = tree
+		return true
+
+	tree["state"] = "falling"
+	tree["fall_elapsed"] = 0.0
+	tree["fall_angle"] = 0.0
+	tree["fall_target_angle"] = _tree_fall_target_angle(direction)
+	_tree_records[tree_index] = tree
+	return true
+
+## Resuelve el RID de cuerpo que entrega PhysicsDirectSpaceState2D. El rayo
+## se repite desde el jugador para recuperar tambien el shape index exacto;
+## un chunk puede contener muchas formas y el RID del cuerpo, por si solo, no
+## identifica un arbol.
+func _resolve_tree_index_by_body_ray(body_rid: RID, direction: Vector2) -> int:
+	if not body_rid.is_valid():
+		return -1
+	var player := get_tree().get_first_node_in_group("player") as CollisionObject2D
+	if player == null:
+		return -1
+	var ray_direction: Vector2 = direction.normalized()
+	if ray_direction.length_squared() <= 0.0:
+		return -1
+	var ray_end: Vector2 = player.global_position + ray_direction * 256.0
+	var query := PhysicsRayQueryParameters2D.create(
+		player.global_position, ray_end, 1, [player.get_rid()])
+	var result: Dictionary = player.get_world_2d().direct_space_state.intersect_ray(query)
+	if result.is_empty() or result.get("rid", RID()) != body_rid:
+		return -1
+	var shape_index: int = int(result.get("shape", -1))
+	var body_shapes: Dictionary = _tree_index_by_body_shape.get(body_rid, {})
+	return int(body_shapes.get(shape_index, -1))
 
 func in_forest(p: Vector2) -> bool:
 	return not Rect2(-TOWN_HALF, TOWN_HALF * 2.0).has_point(p)
@@ -494,8 +620,7 @@ func _build_trees() -> void:
 			var h: float = _rng.randf_range(float(band["h_min"]), float(band["h_max"]))
 			trees.append({"pos": p, "r": r, "h": h, "kind": kind})
 
-	_tree_count = trees.size()
-	_build_tree_colliders(trees)
+	var collider_records: Array[Dictionary] = _build_tree_colliders(trees)
 
 	var trunk_xf: Array[Transform2D] = []
 	var round_xf: Array[Transform2D] = []
@@ -504,7 +629,11 @@ func _build_trees() -> void:
 	var dead_xf: Array[Transform2D] = []
 	var shadow_xf: Array[Transform2D] = []
 
-	for t in trees:
+	_tree_records.clear()
+	_tree_index_by_physics_shape.clear()
+	_tree_index_by_body_shape.clear()
+	for tree_index in range(trees.size()):
+		var t: Dictionary = trees[tree_index]
 		var p := Vector2(t["pos"])
 		var r: float = float(t["r"])
 		var h: float = float(t["h"])
@@ -513,26 +642,64 @@ func _build_trees() -> void:
 		var trunk := Transform2D.IDENTITY
 		trunk = trunk.scaled(Vector2(maxf(4.0, r * 0.28), h))
 		trunk.origin = p + Vector2(0.0, -h * 0.5)
+		var trunk_index: int = trunk_xf.size()
 		trunk_xf.append(trunk)
 
 		var canopy := Transform2D.IDENTITY
 		canopy = canopy.scaled(Vector2(r * _rng.randf_range(0.85, 1.15), r * _rng.randf_range(0.9, 1.1)))
 		canopy.origin = p + Vector2(0.0, -h * 0.78)
+		var canopy_bindings: Array[Dictionary] = []
 		match kind:
-			0: round_xf.append(canopy)
-			1: ragged_xf.append(canopy)
+			0:
+				var round_index: int = round_xf.size()
+				round_xf.append(canopy)
+				canopy_bindings.append({"category": "round", "index": round_index, "base_transform": canopy, "transform": canopy})
+			1:
+				var ragged_index: int = ragged_xf.size()
+				ragged_xf.append(canopy)
+				canopy_bindings.append({"category": "ragged", "index": ragged_index, "base_transform": canopy, "transform": canopy})
 			2:
 				var dead := Transform2D.IDENTITY
 				dead = dead.scaled(Vector2(h * 0.42, h * 0.42))
 				dead.origin = p + Vector2(0.0, -h * 0.62)
+				var dead_index: int = dead_xf.size()
 				dead_xf.append(dead)
+				canopy_bindings.append({"category": "dead", "index": dead_index, "base_transform": dead, "transform": dead})
 		if kind != 2 and _rng.randf() < 0.12:
+			var light_index: int = light_xf.size()
 			light_xf.append(canopy)
+			canopy_bindings.append({"category": "light", "index": light_index, "base_transform": canopy, "transform": canopy})
 
 		var shadow := Transform2D.IDENTITY
 		shadow = shadow.scaled(Vector2(r * 1.4, r * 0.45))
 		shadow.origin = p + Vector2(-14.0, 10.0)
 		shadow_xf.append(shadow)
+
+		var collider: Dictionary = collider_records[tree_index]
+		_tree_records.append({
+			"position": p,
+			"height": h,
+			"chunk_key": collider.get("chunk_key", Vector2i.ZERO),
+			"body_rid": collider.get("body_rid", RID()),
+			"shape_index": int(collider.get("shape_index", -1)),
+			"physics_shape_rid": collider.get("shape_rid", RID()),
+			"body_shape_count": int(collider.get("body_shape_count", 0)),
+			"hp": TREE_MAX_HP,
+			"state": "standing",
+			"fall_angle": 0.0,
+			"fall_elapsed": 0.0,
+			"fall_target_angle": 0.0,
+			"trunk_transform": trunk,
+			"trunk_binding": {
+				"category": "trunk",
+				"index": trunk_index,
+				"base_transform": trunk,
+				"transform": trunk,
+			},
+			"canopy_bindings": canopy_bindings,
+			"shape_disabled": false,
+			"pickup_spawned": false,
+		})
 
 	var visual := Node2D.new()
 	visual.name = "TreeMeshes"
@@ -543,31 +710,197 @@ func _build_trees() -> void:
 	var ragged := _regular_polygon_mesh(12, 1.0, true)
 	var branches := _branch_mesh(5)
 
-	_make_multimesh(visual, "Shadows", circle, shadow_xf, COL_SHADOW, -5)
-	_make_multimesh(visual, "Trunks", quad, trunk_xf, COL_TRUNK, 0)
-	_make_multimesh(visual, "CanopyRound", circle, round_xf, COL_CANOPY_DARK, 2)
-	_make_multimesh(visual, "CanopyRagged", ragged, ragged_xf, COL_CANOPY_MID, 2)
-	_make_multimesh(visual, "CanopyLight", circle, light_xf, COL_CANOPY_LIGHT, 3)
-	_make_multimesh(visual, "CanopyDead", branches, dead_xf, COL_DEAD, 2)
+	var shadow_mm: MultiMesh = _make_multimesh(visual, "Shadows", circle, shadow_xf, COL_SHADOW, -5)
+	var trunk_mm: MultiMesh = _make_multimesh(visual, "Trunks", quad, trunk_xf, COL_TRUNK, 0)
+	var round_mm: MultiMesh = _make_multimesh(visual, "CanopyRound", circle, round_xf, COL_CANOPY_DARK, 2)
+	var ragged_mm: MultiMesh = _make_multimesh(visual, "CanopyRagged", ragged, ragged_xf, COL_CANOPY_MID, 2)
+	var light_mm: MultiMesh = _make_multimesh(visual, "CanopyLight", circle, light_xf, COL_CANOPY_LIGHT, 3)
+	var dead_mm: MultiMesh = _make_multimesh(visual, "CanopyDead", branches, dead_xf, COL_DEAD, 2)
+	var multimesh_sources: Dictionary = {
+		"shadow": shadow_mm,
+		"trunk": trunk_mm,
+		"round": round_mm,
+		"ragged": ragged_mm,
+		"light": light_mm,
+		"dead": dead_mm,
+	}
+	for tree in _tree_records:
+		_resolve_tree_bindings(tree, multimesh_sources)
+	for tree_index in range(_tree_records.size()):
+		var tree: Dictionary = _tree_records[tree_index]
+		_tree_index_by_physics_shape[tree.get("physics_shape_rid", RID())] = tree_index
+		var body_rid: RID = tree.get("body_rid", RID())
+		var body_shapes: Dictionary = _tree_index_by_body_shape.get(body_rid, {})
+		body_shapes[int(tree.get("shape_index", -1))] = tree_index
+		_tree_index_by_body_shape[body_rid] = body_shapes
 
-func _build_tree_colliders(trees: Array[Dictionary]) -> void:
-	var bodies: Dictionary = {}
+	_tree_count = _tree_records.size()
+	_tree_loot_root = Node2D.new()
+	_tree_loot_root.name = "TreeLoot"
+	add_child(_tree_loot_root)
+
+func _build_tree_colliders(trees: Array[Dictionary]) -> Array[Dictionary]:
+	var records: Array[Dictionary] = []
+	_tree_chunk_bodies.clear()
 	for t in trees:
 		var p := Vector2(t["pos"])
 		var key := Vector2i(int((p.x + WORLD_HALF.x) / CHUNK), int((p.y + WORLD_HALF.y) / CHUNK))
-		if not bodies.has(key):
+		if not _tree_chunk_bodies.has(key):
 			var body := StaticBody2D.new()
 			body.name = "Chunk_r%dc%d" % [key.x, key.y]
 			body.collision_layer = 1
 			body.collision_mask = 1
 			add_child(body)
-			bodies[key] = body
+			_tree_chunk_bodies[key] = body
+		var body: StaticBody2D = _tree_chunk_bodies[key]
 		var shape := CircleShape2D.new()
 		shape.radius = clampf(float(t["r"]) * 0.30, 7.0, 12.0)
 		_shapes.append(shape)
 		var xf := Transform2D.IDENTITY
 		xf.origin = p
-		PhysicsServer2D.body_add_shape((bodies[key] as StaticBody2D).get_rid(), shape.get_rid(), xf)
+		var body_rid: RID = body.get_rid()
+		var shape_index: int = PhysicsServer2D.body_get_shape_count(body_rid)
+		PhysicsServer2D.body_add_shape(body_rid, shape.get_rid(), xf)
+		records.append({
+			"chunk_key": key,
+			"body_rid": body_rid,
+			"shape_index": shape_index,
+			"shape_rid": shape.get_rid(),
+			"body_shape_count": PhysicsServer2D.body_get_shape_count(body_rid),
+		})
+	return records
+
+func _resolve_tree_bindings(tree: Dictionary, sources: Dictionary) -> void:
+	var trunk_binding: Dictionary = tree.get("trunk_binding", {})
+	_resolve_tree_binding(trunk_binding, sources)
+	tree["trunk_binding"] = trunk_binding
+	var raw_bindings: Array = tree.get("canopy_bindings", [])
+	var resolved_bindings: Array[Dictionary] = []
+	for raw_binding in raw_bindings:
+		var binding: Dictionary = raw_binding
+		_resolve_tree_binding(binding, sources)
+		resolved_bindings.append(binding)
+	tree["canopy_bindings"] = resolved_bindings
+
+func _resolve_tree_binding(binding: Dictionary, sources: Dictionary) -> void:
+	var category: String = String(binding.get("category", ""))
+	var multimesh: MultiMesh = sources.get(category, null)
+	binding["multimesh"] = multimesh
+
+func _tree_fall_target_angle(direction: Vector2) -> float:
+	# El tronco crece hacia -Y. Un giro positivo lo lleva hacia +X (derecha).
+	if direction.x < 0.0:
+		return -TREE_FALL_ANGLE
+	return TREE_FALL_ANGLE
+
+func _update_tree_falls(delta: float) -> void:
+	for tree_index in range(_tree_records.size()):
+		var tree: Dictionary = _tree_records[tree_index]
+		if String(tree.get("state", "standing")) != "falling":
+			continue
+		var elapsed: float = float(tree.get("fall_elapsed", 0.0)) + delta
+		var progress: float = clampf(elapsed / TREE_FALL_DURATION, 0.0, 1.0)
+		var eased: float = progress * progress * (3.0 - 2.0 * progress)
+		var target_angle: float = float(tree.get("fall_target_angle", TREE_FALL_ANGLE))
+		var angle: float = target_angle * eased
+		tree["fall_elapsed"] = elapsed
+		tree["fall_angle"] = angle
+		_apply_tree_fall_transform(tree, angle)
+		if progress >= 1.0:
+			tree["fall_angle"] = target_angle
+			tree["state"] = "felled"
+			_apply_tree_fall_transform(tree, target_angle)
+			_disable_tree_shape(tree)
+			_spawn_wood_pickup(tree_index, tree)
+		_tree_records[tree_index] = tree
+
+func _rotate_transform_around_base(base_transform: Transform2D, base_position: Vector2,
+		angle: float) -> Transform2D:
+	# Se rota primero en coordenadas locales a la base y despues se traslada
+	# de vuelta. Así el punto de apoyo no se desplaza al girar el arbol.
+	var local_transform: Transform2D = base_transform
+	local_transform.origin = base_transform.origin - base_position
+	var rotated: Transform2D = local_transform.rotated(angle)
+	rotated.origin += base_position
+	return rotated
+
+func _apply_tree_fall_transform(tree: Dictionary, angle: float) -> void:
+	var base_position: Vector2 = tree.get("position", Vector2.ZERO)
+	var trunk_binding: Dictionary = tree.get("trunk_binding", {})
+	var trunk_multimesh: MultiMesh = trunk_binding.get("multimesh", null)
+	if trunk_multimesh != null:
+		var trunk_index: int = int(trunk_binding.get("index", -1))
+		var trunk_base: Transform2D = trunk_binding.get("base_transform", Transform2D.IDENTITY)
+		var trunk_after: Transform2D = _rotate_transform_around_base(
+			trunk_base, base_position, angle)
+		trunk_multimesh.set_instance_transform_2d(trunk_index, trunk_after)
+		trunk_binding["transform"] = trunk_after
+		tree["trunk_transform"] = trunk_after
+
+	var raw_bindings: Array = tree.get("canopy_bindings", [])
+	for raw_binding in raw_bindings:
+		var binding: Dictionary = raw_binding
+		var multimesh: MultiMesh = binding.get("multimesh", null)
+		if multimesh == null:
+			continue
+		var instance_index: int = int(binding.get("index", -1))
+		var base_transform: Transform2D = binding.get("base_transform", Transform2D.IDENTITY)
+		var rotated: Transform2D = _rotate_transform_around_base(
+			base_transform, base_position, angle)
+		multimesh.set_instance_transform_2d(instance_index, rotated)
+		binding["transform"] = rotated
+
+func _disable_tree_shape(tree: Dictionary) -> void:
+	if bool(tree.get("shape_disabled", false)):
+		return
+	var body_rid: RID = tree.get("body_rid", RID())
+	var shape_index: int = int(tree.get("shape_index", -1))
+	if not body_rid.is_valid() or shape_index < 0:
+		return
+	# La forma permanece en el cuerpo chunked: solo deja de participar en la
+	# simulacion, por lo que no se reindexan ni cambian los shape indices.
+	PhysicsServer2D.body_set_shape_disabled(body_rid, shape_index, true)
+	tree["shape_disabled"] = true
+
+func _spawn_wood_pickup(tree_index: int, tree: Dictionary) -> void:
+	if bool(tree.get("pickup_spawned", false)):
+		return
+	if _tree_loot_root == null or not is_instance_valid(_tree_loot_root):
+		_tree_loot_root = Node2D.new()
+		_tree_loot_root.name = "TreeLoot"
+		add_child(_tree_loot_root)
+	var pickup: Node2D = WOOD_PICKUP_SCENE.instantiate() as Node2D
+	if pickup == null:
+		return
+	pickup.name = "WoodPickup_%04d" % tree_index
+	pickup.set("item_id", "wood")
+	pickup.set("amount", WOOD_DROP_AMOUNT)
+	var base_position: Vector2 = tree.get("position", Vector2.ZERO)
+	var fall_angle: float = float(tree.get("fall_target_angle", TREE_FALL_ANGLE))
+	var tree_height: float = maxf(float(tree.get("height", 0.0)), 0.0)
+	# La madera aparece sobre el tronco ya caido, no bajo los pies del jugador
+	# que acaba de golpear la base.
+	pickup.position = base_position + Vector2.UP.rotated(fall_angle) * tree_height * 0.65
+	_tree_loot_root.add_child(pickup)
+	tree["pickup_spawned"] = true
+	tree["pickup_node"] = pickup
+
+func _multimesh_node_count() -> int:
+	var count: int = 0
+	for node in _multimesh_nodes:
+		if is_instance_valid(node):
+			count += 1
+	return count
+
+func _multimesh_instance_total() -> int:
+	var total: int = 0
+	for node in _multimesh_nodes:
+		if not is_instance_valid(node):
+			continue
+		var multimesh: MultiMesh = node.multimesh
+		if multimesh != null:
+			total += multimesh.instance_count
+	return total
 
 func _build_litter() -> void:
 	var xf: Array[Transform2D] = []
@@ -898,6 +1231,7 @@ func respawn_forest_loot() -> int:
 	return restored
 
 func _process(delta: float) -> void:
+	_update_tree_falls(delta)
 	for band in _fog_bands:
 		var node: Polygon2D = band["node"] as Polygon2D
 		if node == null:
@@ -907,9 +1241,9 @@ func _process(delta: float) -> void:
 			node.position.x = -WORLD_HALF.x - 400.0
 
 func _make_multimesh(parent: Node2D, name: String, mesh: Mesh,
-		transforms: Array[Transform2D], color: Color, z: int) -> void:
+		transforms: Array[Transform2D], color: Color, z: int) -> MultiMesh:
 	if transforms.is_empty():
-		return
+		return null
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_2D
 	mm.mesh = mesh
@@ -922,6 +1256,8 @@ func _make_multimesh(parent: Node2D, name: String, mesh: Mesh,
 	inst.modulate = color
 	inst.z_index = z
 	parent.add_child(inst)
+	_multimesh_nodes.append(inst)
+	return mm
 
 func _quad_mesh() -> ArrayMesh:
 	return _mesh_from_quads([PackedVector2Array([

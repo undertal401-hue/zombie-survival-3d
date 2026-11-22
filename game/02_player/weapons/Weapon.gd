@@ -14,9 +14,9 @@ class_name Weapon
 @export var icon: Texture2D
 
 ## --- Categoría y Slots ---
-enum Category { MELEE, PISTOL, SHOTGUN, RIFLE, HEAVY, SPECIAL, THROWABLE }
+enum Category { MELEE, PISTOL, SHOTGUN, RIFLE, HEAVY, SPECIAL, THROWABLE, TOOL }
 @export var category: Category = Category.PISTOL
-@export var slot_index: int = 1  # 1-5 quick slots
+@export var slot_index: int = 1  # 1-6 quick slots
 
 ## --- Daño y Balística ---
 @export var base_damage: float = 10.0
@@ -86,6 +86,8 @@ var condition: float:
 @export var melee_knockback: float = 200.0
 @export var melee_cooldown: float = 0.6
 @export var melee_hit_stop: float = 0.08           # duración del shake de cámara al golpear (no hit-stop global)
+## Capacidad data-driven: una herramienta puede golpear y además talar recursos.
+@export var can_chop_trees: bool = false
 
 ## --- Efectos Visuales/Sonoros ---
 @export var muzzle_flash: PackedScene

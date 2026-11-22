@@ -346,6 +346,8 @@ func _on_weapon_changed(w: Weapon) -> void:
 		var color: Color = Color(1.0, 0.85, 0.45, 1)
 		if w.category == Weapon.Category.MELEE:
 			color = Color(0.8, 0.8, 0.86, 1)
+		elif w.category == Weapon.Category.TOOL:
+			color = Color(0.86, 0.72, 0.48, 1)
 		_pulse_label(resources_label, color)
 
 func _on_reload_started(weapon: Weapon, _duration: float) -> void:
@@ -362,6 +364,15 @@ func _on_reload_finished(_weapon: Weapon) -> void:
 
 func _on_dry_fire(_weapon: Weapon) -> void:
 	_on_notification("¡Cargador vacío! Pulsa R para recargar")
+
+## Las herramientas son cuerpo a cuerpo: aunque tengan categoria propia, no
+## muestran cargador ni reserva como si fueran armas de fuego.
+func _weapon_uses_ammo(weapon: Weapon) -> bool:
+	if weapon == null:
+		return false
+	return weapon.category != Weapon.Category.MELEE \
+			and weapon.category != Weapon.Category.TOOL
+
 
 func _refresh_resources() -> void:
 	var fuel: int = Inventory.count("combustible")
@@ -380,7 +391,7 @@ func _refresh_resources() -> void:
 
 	# magazine_size ya es la capacidad total (cargador + recámara): el HUD
 	# muestra balas cargadas / capacidad, y oculta el bloque si es melee.
-	if wc != null and wc.current_weapon != null and wc.current_weapon.category != Weapon.Category.MELEE:
+	if wc != null and wc.current_weapon != null and _weapon_uses_ammo(wc.current_weapon):
 		var weapon: Weapon = wc.current_weapon
 		var ammo_key: String = weapon.ammo_type if weapon.ammo_type != "" else "pistol_ammo"
 		resources_label.text = "%s   Munición: %d/%d  Reserva: %d" % [
@@ -390,7 +401,7 @@ func _refresh_resources() -> void:
 
 	# Aviso de munición baja por color de fuente (no por modulate: _pulse_label
 	# ya anima modulate al recargar y se pisaría). Los tests comparan el texto.
-	if wc != null and wc.current_weapon != null and wc.current_weapon.category != Weapon.Category.MELEE:
+	if wc != null and wc.current_weapon != null and _weapon_uses_ammo(wc.current_weapon):
 		var weapon: Weapon = wc.current_weapon
 		var capacity: int = maxi(weapon.get_max_ammo(), 1)
 		var reserve: int = Inventory.count(weapon.ammo_type)

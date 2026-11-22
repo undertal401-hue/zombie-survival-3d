@@ -23,12 +23,21 @@ const MELEE_STAMINA_MIN: float = 20.0
 ## dentro del rango 50-80 ms acordado; nunca se aplica a disparos normales.
 const HIT_STOP_SECONDS: float = 0.06
 
-## Loadout data-driven: los cuatro .tres son recursos reales (no Weapon.new()
-## con campos copiados a mano). Su resource_path es válido: save/load funciona.
+## Loadout data-driven: las cinco armas base son recursos reales (no
+## Weapon.new() con campos copiados a mano). Su resource_path es válido:
+## save/load funciona.
 const RES_MACHETE: Weapon = preload("res://02_player/weapons/Machete.tres")
 const RES_PISTOL: Weapon = preload("res://02_player/weapons/Pistol9mm.tres")
 const RES_SHOTGUN: Weapon = preload("res://02_player/weapons/Shotgun12ga.tres")
 const RES_RIFLE: Weapon = preload("res://02_player/weapons/Rifle556.tres")
+const RES_AXE: Weapon = preload("res://02_player/weapons/Hacha.tres")
+
+## Seis ranuras: machete, tres armas de fuego, hacha y una reservada a la
+## mejora meta. Los indices 0..5 coinciden con las teclas 1..6.
+const LOADOUT_SLOT_COUNT: int = 6
+const LOADOUT_VERSION: int = 2
+const SLOT_AXE: int = 4
+const SLOT_META_BONUS: int = 5
 
 @onready var player: CharacterBody2D = get_parent()
 
@@ -219,12 +228,12 @@ func _handle_input() -> void:
 		_start_reload()
 	_reload_pressed = Input.is_action_pressed("reload")
 	
-	# Cambio arma (rueda ratón / 1-5)
+	# Cambio arma (rueda ratón / 1-6)
 	_handle_weapon_switch()
 
 func _handle_weapon_switch() -> void:
-	# Teclas 1-5
-	for i in range(5):
+	# Teclas 1-6
+	for i in range(LOADOUT_SLOT_COUNT):
 		var action: String = "weapon_slot_%d" % (i + 1)
 		if Input.is_action_just_pressed(action):
 			if i < weapons.size() and weapons[i] != null:
@@ -260,7 +269,8 @@ func _try_fire() -> void:
 	if current_weapon == null:
 		return
 	
-	if current_weapon.category == Weapon.Category.MELEE:
+	if current_weapon.category == Weapon.Category.MELEE \
+			or current_weapon.category == Weapon.Category.TOOL:
 		_do_melee()
 		return
 	
@@ -443,6 +453,17 @@ func add_weapon(weapon_resource: Weapon, slot: int = -1) -> bool:
 	
 	return true
 
+
+## Añade un arma SOLO si la ranura indicada sigue vacía. La mejora meta usa
+## esta API para no sobrescribir el hacha ni ninguna otra recompensa existente.
+func add_weapon_if_empty(weapon_resource: Weapon, slot: int) -> bool:
+	if weapon_resource == null or slot < 0 or slot >= weapons.size():
+		return false
+	if weapons[slot] != null:
+		return false
+	return add_weapon(weapon_resource, slot)
+
+
 func get_weapon_in_slot(slot: int) -> Weapon:
 	if slot >= 0 and slot < weapons.size():
 		return weapons[slot]
@@ -572,26 +593,30 @@ func _on_shake_timeout() -> void:
 	_shake_camera = null
 
 func _load_default_loadout() -> void:
-	# Cuatro recursos reales en sus ranuras naturales; la quinta queda libre.
+	# Cinco recursos reales en sus ranuras naturales. La sexta queda reservada
+	# para la mejora meta y no se sustituye por un placeholder.
+	# La plantilla del machete sigue disponible para cargar saves antigos.
 	# add_weapon() duplica el recurso y reinicia su estado: cada slot conserva
 	# su propia munición, bloom y desgaste sin compartir referencias.
 	add_weapon(RES_MACHETE, 0)
 	add_weapon(RES_PISTOL, 1)
 	add_weapon(RES_SHOTGUN, 2)
 	add_weapon(RES_RIFLE, 3)
-	weapons.resize(5)
+	add_weapon(RES_AXE, SLOT_AXE)
+	weapons.resize(LOADOUT_SLOT_COUNT)
 
 ## API pública para save/load
 ## Las instancias son duplicate() de los .tres y no conservan resource_path,
 ## así que se serializa el nombre y se resuelve contra las plantillas reales.
 func _template_by_name(weapon_name: String) -> Weapon:
-	for template: Weapon in [RES_MACHETE, RES_PISTOL, RES_SHOTGUN, RES_RIFLE]:
+	for template: Weapon in [RES_MACHETE, RES_PISTOL, RES_SHOTGUN, RES_RIFLE, RES_AXE]:
 		if template != null and template.weapon_name == weapon_name:
 			return template
 	return null
 
 func get_save_data() -> Dictionary:
 	var data: Dictionary = {}
+	data["loadout_version"] = LOADOUT_VERSION
 	data["current_slot"] = current_slot
 	var entries: Array = []
 	for w in weapons:
@@ -610,7 +635,7 @@ func load_save_data(data: Dictionary) -> void:
 	var saved_slot: int = int(data.get("current_slot", 0))
 	var weapons_data: Array = data.get("weapons", [])
 	weapons.clear()
-	weapons.resize(5)
+	weapons.resize(LOADOUT_SLOT_COUNT)
 	for entry in weapons_data:
 		if entry == null:
 			continue
@@ -622,6 +647,25 @@ func load_save_data(data: Dictionary) -> void:
 		var slot: int = int(entry.get("slot", -1))
 		if slot >= 0 and slot < weapons.size():
 			weapons[slot] = instance
+	# Save v1: cinco ranuras, con la recompensa metaTodavia en el slot 4.
+	# La nueva ranura 4 es del hacha y la 5 pertenece a MetaProgress. Se
+	# traslada la recompensa antes de instalar el hacha para no duplicarla ni
+	# perderla. Los saves sin version se interpretan como v1 por compatibilidad.
+	var loadout_version: int = int(data.get("loadout_version", 1))
+	var legacy_v1: bool = loadout_version < LOADOUT_VERSION \
+			and weapons_data.size() < LOADOUT_SLOT_COUNT
+	if legacy_v1:
+		var legacy_slot_four: Weapon = weapons[SLOT_AXE]
+		weapons[SLOT_META_BONUS] = legacy_slot_four
+		weapons[SLOT_AXE] = null
+		if saved_slot == SLOT_AXE and legacy_slot_four != null:
+			saved_slot = SLOT_META_BONUS
+	# El hacha es obligatorio en la ranura 4 incluso si un save antiguo no lo
+	# contenia. La ranura 5 no se rellena a ciegas: sigue siendo de MetaProgress.
+	if weapons[SLOT_AXE] == null:
+		var axe: Weapon = RES_AXE.duplicate() as Weapon
+		axe._initialize_state()
+		weapons[SLOT_AXE] = axe
 	current_slot = -1
 	current_weapon = null
 	if saved_slot >= 0 and saved_slot < weapons.size() and weapons[saved_slot] != null:

@@ -347,8 +347,9 @@ func _kill_is_melee(zombie) -> bool:
 			var weapon: Variant = controller.get("current_weapon")
 			if weapon != null:
 				var category: Variant = weapon.get("category")
-				# Weapon.Category.MELEE == 0 (evita depender del enum aquí).
-				if category != null and int(category) == 0:
+				# MELEE == 0 y TOOL == 7. Una herramienta cuerpo a cuerpo tambien
+				# arma el combo, aunque use categoria propia para la UI.
+				if category != null and (int(category) == 0 or int(category) == 7):
 					return true
 	return _combo_melee_armed
 

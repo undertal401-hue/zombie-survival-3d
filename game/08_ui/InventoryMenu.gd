@@ -3,14 +3,14 @@ extends CanvasLayer
 ## Menú de inventario interactivo - se abre/cierra con Tab
 ## No pausa el juego, solo bloquea inputs del jugador.
 ## Controles: click en botones, ↑↓ para elegir, Enter para usar,
-## 1-5 para equipar arma, F comer, Q botiquín, R recargar, Tab/Escape cerrar.
+## 1-6 para equipar arma, F comer, Q botiquín, R recargar, Tab/Escape cerrar.
 
 const AMBER := Color(1.0, 0.78, 0.28, 1)
 const BONE := Color(0.94, 0.91, 0.84, 1)
 const DIM := Color(0.66, 0.68, 0.64, 0.95)
 const ASH := Color(0.45, 0.48, 0.45, 0.9)
 const BLOOD := Color(1.0, 0.45, 0.4, 1)
-const DEFAULT_HINT := "↑↓ elegir · Enter usar · F Comer · Q Botiquín · R Recargar · 1-5 Arma · Tab/Esc cerrar"
+const DEFAULT_HINT := "↑↓ elegir · Enter usar · F Comer · Q Botiquín · R Recargar · 1-6 Arma · Tab/Esc cerrar"
 const SHORTCUTS := {"comida": "F", "medkit": "Q", "pistol_ammo": "R"}
 
 @onready var background: ColorRect = $Background
@@ -25,6 +25,7 @@ const SHORTCUTS := {"comida": "F", "medkit": "Q", "pistol_ammo": "R"}
 @onready var weapon_state: Label = $Panel/WeaponSection/WeaponInfo/WeaponDetails/WeaponState
 @onready var reload_bar: ProgressBar = $Panel/WeaponSection/WeaponInfo/WeaponDetails/ReloadBar
 @onready var weapon_icon: TextureRect = $Panel/WeaponSection/WeaponInfo/WeaponIcon
+@onready var weapon_icon_missing: Label = $Panel/WeaponSection/WeaponInfo/WeaponIconMissing
 @onready var eat_hint: Label = $Panel/EatHint
 # Panel de crafting superpuesto a la lista: no altera las rutas ni la geometría
 # de ItemsSection/ItemsContainer que comprueba el test 39.
@@ -51,13 +52,11 @@ var _button_active: StyleBoxFlat
 var _row_style: StyleBoxFlat
 var _panel_normal: StyleBoxFlat
 var _panel_critical: StyleBoxFlat
-var _icon_texture: Texture2D
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 	_player = get_tree().get_first_node_in_group("player") as Node2D
-	_icon_texture = _make_icon_texture()
 
 	_button_normal = _make_style(Color(0.1, 0.11, 0.1, 1), Color(0.3, 0.26, 0.2, 0.85), 1)
 	_button_hover = _make_style(Color(0.2, 0.18, 0.13, 1), Color(1.0, 0.78, 0.28, 0.75), 1)
@@ -96,21 +95,6 @@ func _ready() -> void:
 
 	_set_visible(false)
 
-func _make_icon_texture() -> Texture2D:
-	# Icono genérico procedural: ningún .tres de arma define `icon`, así que se
-	# usa un degradado radial en blanco y se tiñe según la categoría del arma.
-	var grad := Gradient.new()
-	grad.set_color(0, Color(1, 1, 1, 1))
-	grad.set_color(1, Color(1, 1, 1, 0.25))
-	var tex := GradientTexture2D.new()
-	tex.gradient = grad
-	tex.width = 16
-	tex.height = 16
-	tex.fill = GradientTexture2D.FILL_RADIAL
-	tex.fill_from = Vector2(0.5, 0.5)
-	tex.fill_to = Vector2(0.0, 0.5)
-	return tex
-
 func _category_color(category: int) -> Color:
 	match category:
 		Weapon.Category.PISTOL: return Color(1.0, 0.85, 0.45, 1)
@@ -118,6 +102,7 @@ func _category_color(category: int) -> Color:
 		Weapon.Category.RIFLE: return Color(0.6, 0.9, 0.6, 1)
 		Weapon.Category.HEAVY: return Color(1.0, 0.45, 0.4, 1)
 		Weapon.Category.MELEE: return Color(0.8, 0.8, 0.86, 1)
+		Weapon.Category.TOOL: return Color(0.86, 0.72, 0.48, 1)
 		_: return Color(0.8, 0.8, 0.8, 1)
 
 func _make_style(bg: Color, border: Color, width: int,
@@ -155,7 +140,7 @@ func _style_button(btn: Button) -> void:
 	btn.mouse_filter = Control.MOUSE_FILTER_STOP
 
 func _build_slot_buttons() -> void:
-	for slot in range(5):
+	for slot in range(WeaponController.LOADOUT_SLOT_COUNT):
 		var btn := Button.new()
 		btn.text = "—"
 		_style_button(btn)
@@ -209,7 +194,7 @@ func _input(event: InputEvent) -> void:
 			KEY_C:
 				toggle_crafting()
 			_:
-				if event.keycode < KEY_1 or event.keycode > KEY_5:
+				if event.keycode < KEY_1 or event.keycode > KEY_6:
 					return
 				_on_slot_pressed(event.keycode - KEY_1)
 		get_viewport().set_input_as_handled()
@@ -307,20 +292,35 @@ func _refresh_weapon() -> void:
 		weapon_name.text = "Sin arma equipada"
 		weapon_icon.texture = null
 		weapon_icon.visible = false
-		ammo_label.text = "Pulsa 1-5 para equipar un arma"
+		if weapon_icon_missing != null:
+			weapon_icon_missing.visible = false
+		ammo_label.text = "Pulsa 1-6 para equipar un arma"
 		weapon_state.text = "SIN ARMA"
 		weapon_state.add_theme_color_override("font_color", ASH)
 		reload_bar.visible = false
 	else:
 		weapon_name.text = w.weapon_name
-		weapon_icon.texture = w.icon if w.icon != null else _icon_texture
+		# Solo se presenta un Texture2D oficial. Si falta, el inventario declara
+		# el asset pendiente; nunca fabrica un icono procedural de relleno.
+		var resolved_icon: Texture2D = w.icon
+		if resolved_icon == null:
+			resolved_icon = Inventory.get_item_texture(w.weapon_name)
+		weapon_icon.texture = resolved_icon
 		weapon_icon.modulate = _category_color(w.category)
-		weapon_icon.visible = true
+		weapon_icon.visible = resolved_icon != null
+		if weapon_icon_missing != null:
+			weapon_icon_missing.visible = resolved_icon == null
+			weapon_icon_missing.text = "FALTA ASSET - NO INVENTAR"
 
-		if w.category == Weapon.Category.MELEE:
-			ammo_label.text = "Sin munición · cuerpo a cuerpo"
-			weapon_state.text = "DAÑO %d · COSTE 20 AGUANTE · SILENCIOSA" % int(w.base_damage)
-			weapon_state.add_theme_color_override("font_color", Color(0.8, 0.8, 0.86, 1))
+		if w.category == Weapon.Category.MELEE or w.category == Weapon.Category.TOOL:
+			if w.category == Weapon.Category.TOOL:
+				ammo_label.text = "Sin munición · herramienta de tala"
+				weapon_state.text = "DAÑO %d · TALAR ÁRBOLES · COSTE 20 AGUANTE" % int(w.base_damage)
+				weapon_state.add_theme_color_override("font_color", Color(0.86, 0.72, 0.48, 1))
+			else:
+				ammo_label.text = "Sin munición · cuerpo a cuerpo"
+				weapon_state.text = "DAÑO %d · COSTE 20 AGUANTE · SILENCIOSA" % int(w.base_damage)
+				weapon_state.add_theme_color_override("font_color", Color(0.8, 0.8, 0.86, 1))
 			reload_bar.visible = false
 		else:
 			var ammo_key: String = w.ammo_type if w.ammo_type != "" else "pistol_ammo"
@@ -396,6 +396,7 @@ func _refresh_items() -> void:
 		"vehicle_fuel": Inventory.count("vehicle_fuel"),
 		"scrap": Inventory.count("scrap"),
 		"cloth": Inventory.count("cloth"),
+		"wood": Inventory.count("wood"),
 	}
 	var has_items: bool = false
 	for item_id in items_data:

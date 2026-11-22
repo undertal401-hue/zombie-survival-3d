@@ -67,7 +67,7 @@ const UPGRADE_TREE: Dictionary = {
 const UPGRADE_BRANCHES: Array[String] = ["supervivencia", "arsenal", "botin"]
 const MAX_UPGRADE_LEVEL: int = 2
 const MAX_CREDITS: int = 1000000
-# Plantilla real para el efecto "arma inicial extra" (ranura libre 4).
+# Plantilla real para el efecto "arma inicial extra" (ranura meta reservada).
 const EXTRA_WEAPON_RES: Weapon = preload("res://02_player/weapons/Shotgun12ga.tres")
 
 const SURVIVOR_LOW_HP: float = 45.0
@@ -418,24 +418,32 @@ func _apply_effects_to_nodes() -> void:
 		_equip_extra_weapon()
 
 
-## Equipa el arma extra SOLO en la ranura 4 (que el loadout deja libre). Si el
-## loadout cambiara, no hace nada: el HARD_GATE exige exactamente 5 ranuras.
-func _equip_extra_weapon() -> void:
+## Equipa el arma extra SOLO en su propia ranura reservada. Nunca sustituye
+## el hacha ni otra recompensa: si la ranura esta ocupada, la operacion falla
+## sin destruir el arma existente y sin emitir un aviso falso.
+func _equip_extra_weapon() -> bool:
 	var player_node: Node2D = _player()
 	if player_node == null:
-		return
+		return false
 	var controller: Node = player_node.get_node_or_null("WeaponController")
-	if controller == null or not controller.has_method("add_weapon") \
+	if controller == null or not controller.has_method("add_weapon_if_empty") \
 			or not controller.has_method("get_weapon_in_slot"):
-		return
+		return false
 	var slots: Variant = controller.get("weapons")
-	if not (slots is Array) or (slots as Array).size() != 5:
-		return
+	if not (slots is Array) or (slots as Array).size() <= WeaponController.SLOT_META_BONUS:
+		return false
 	var key: String = "extra_%d" % player_node.get_instance_id()
-	if _applied_extra_weapon.has(key) or controller.call("get_weapon_in_slot", 4) != null:
-		return
-	_applied_extra_weapon[key] = true
-	controller.call("add_weapon", EXTRA_WEAPON_RES, 4)
+	var target: Weapon = controller.call("get_weapon_in_slot", WeaponController.SLOT_META_BONUS) as Weapon
+	if target != null:
+		# Idempotente: una segunda llamada solo confirma la recompensa ya instalada.
+		return target.weapon_name == EXTRA_WEAPON_RES.weapon_name
+	if _applied_extra_weapon.has(key):
+		return false
+	var equipped: bool = bool(controller.call("add_weapon_if_empty",
+		EXTRA_WEAPON_RES, WeaponController.SLOT_META_BONUS))
+	if equipped:
+		_applied_extra_weapon[key] = true
+	return equipped
 
 
 func _grant_starting_loot() -> void:
@@ -456,8 +464,8 @@ func _grant_starting_loot() -> void:
 				clampi(int(_number((ammo as Dictionary)[ammo_id], 0.0)), 0, 20), true)
 	_granted_run = 1
 	var extra_weapon: String = String(active_effects.get("extra_weapon", ""))
-	if not extra_weapon.is_empty():
-		_emit_unlock_notice("Mejora equipada: %s" % extra_weapon)
+	if not extra_weapon.is_empty() and _equip_extra_weapon():
+		_emit_unlock_notice("Mejora equipada: %s" % EXTRA_WEAPON_RES.weapon_name)
 
 
 func _on_wave_started_upgrades(wave: int) -> void:

@@ -12,6 +12,23 @@ script = ExtResource("1")
 color = Color(0.95, 0.85, 0.3, 1)
 polygon = PackedVector2Array(-8, -8, 8, -8, 8, 8, -8, 8)
 
+[node name="ItemIcon" type="Sprite2D" parent="."]
+visible = false
+
+[node name="MissingAsset" type="Label" parent="."]
+offset_left = -90.0
+offset_top = -9.0
+offset_right = 90.0
+offset_bottom = 9.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.95, 0.78, 0.25, 1)
+theme_override_colors/font_outline_color = Color(0.04, 0.03, 0.02, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 10
+text = "FALTA ASSET - NO INVENTAR"
+horizontal_alignment = 1
+vertical_alignment = 1
+
 [node name="Trigger" type="CollisionShape2D" parent="."]
 shape = SubResource("1_circle")
 

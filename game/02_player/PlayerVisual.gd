@@ -301,7 +301,8 @@ func play_attack(weapon_category: int) -> void:
 	_is_attacking = true
 	var anim_name: String
 	match weapon_category:
-		0: anim_name = "attack_melee"
+		Weapon.Category.MELEE: anim_name = "attack_melee"
+		Weapon.Category.TOOL: anim_name = "attack_melee"
 		1: anim_name = "attack_pistol"
 		2: anim_name = "attack_shotgun"
 		3: anim_name = "attack_rifle"

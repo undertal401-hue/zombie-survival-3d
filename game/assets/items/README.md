@@ -14,6 +14,8 @@ El autor debe aportar los PNG pixel-art finales en estas rutas:
 - `rifle_ammo.png`
 - `shotgun_ammo.png`
 - `machete.png`
+- `hacha.png`
+- `wood.png`
 - `pistol.png`
 - `shotgun.png`
 - `rifle.png`

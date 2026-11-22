@@ -1,0 +1,59 @@
+[gd_resource type="Resource" script_class="Weapon" load_steps=2 format=3]
+
+[ext_resource type="Script" uid="uid://crftr2oeat4vj" path="res://02_player/weapons/Weapon.gd" id="1_weapon"]
+
+[resource]
+script = ExtResource("1_weapon")
+weapon_name = "Hacha"
+description = "Herramienta cuerpo a cuerpo. Tala árboles y deja madera recuperable."
+category = 7
+slot_index = 4
+base_damage = 30.0
+damage_falloff_start = 0.0
+damage_falloff_end = 0.0
+min_damage = 30.0
+headshot_multiplier = 1.0
+limb_multiplier = 1.0
+range = 0.0
+spread = 0.0
+spread_per_shot = 0.0
+max_spread = 0.0
+spread_recovery = 0.0
+recoil_per_shot = 0.0
+max_recoil = 0.0
+recoil_recovery = 0.0
+recoil_camera_kick = 1.0
+stamina_cost = 0.0
+condition_item_id = "Hacha"
+wear_per_shot = 0.0
+fire_rate = 90.0
+burst_count = 1
+is_automatic = false
+move_speed_multiplier = 1.0
+ammo_type = ""
+magazine_size = 0
+ammo_per_shot = 0
+start_with_full_mag = false
+pellets_per_shot = 1
+reload_time = 0.0
+reload_time_empty = 0.0
+reload_shell_by_shell = false
+shell_reload_time = 0.0
+can_reload_cancel = false
+chambered_round = false
+melee_range = 56.0
+melee_arc = 1.2
+melee_knockback = 280.0
+melee_cooldown = 0.65
+melee_hit_stop = 0.12
+can_chop_trees = true
+muzzle_flash_offset = Vector2(0, 0)
+muzzle_flash_scale = 1.0
+camera_shake_magnitude = 3.5
+camera_shake_duration = 0.14
+penetration = 0
+ricochet_chance = 0.0
+projectile_speed = 1000.0
+projectile_gravity = 0.0
+explosive_radius = 0.0
+explosive_damage_falloff = 0.5

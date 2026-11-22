@@ -1,5 +1,9 @@
 extends CharacterBody2D
 
+## La tala se resuelve contra la forma fisica exacta del arbol golpeado. El
+## bosque escucha esta senal; el jugador no conoce su estructura interna.
+signal tree_chop_requested(body_rid: RID, shape_index: int, damage: float, direction: Vector2)
+
 const SPEED := 200.0
 const SPRINT_SPEED := 320.0
 const MAX_HP := 100.0
@@ -419,6 +423,34 @@ func _on_melee_attack(weapon: Weapon, direction: Vector2) -> void:
 		var knockback_scale: float = 0.18 if _combo_step == 2 else 0.1
 		_melee_knockback = -direction * weapon.melee_knockback * knockback_scale
 		_knockback_timer = KNOCKBACK_TIME
+
+	# Una herramienta puede golpear zombis y, en el mismo arco, talar el arbol
+	# fisico que拦住 el alcance. El RID identifica la forma exacta; Main lo
+	# entrega al bosque y este decide si el arbol sigue en pie.
+	if weapon.can_chop_trees:
+		_try_chop_tree(weapon, direction)
+
+
+## Raycast corto de la herramienta. No busca por nombre ni por posicion: emite
+## el RID del cuerpo y el indice de la primera forma fisica alcanzada. Esa
+## pareja identifica un arbol exacto dentro de un chunk; una pared u otra
+## forma se ignoran de forma segura en el bosque.
+func _try_chop_tree(weapon: Weapon, direction: Vector2) -> void:
+	var attack_direction: Vector2 = direction.normalized()
+	if attack_direction.length_squared() <= 0.0:
+		return
+	var origin: Vector2 = global_position
+	var target: Vector2 = origin + attack_direction * maxf(weapon.melee_range, 0.0)
+	var query := PhysicsRayQueryParameters2D.create(origin, target, 1, [get_rid()])
+	var result: Dictionary = get_world_2d().direct_space_state.intersect_ray(query)
+	if result.is_empty():
+		return
+	var body_rid: RID = result.get("rid", RID())
+	var shape_index: int = int(result.get("shape", -1))
+	if not body_rid.is_valid() or shape_index < 0:
+		return
+	tree_chop_requested.emit(body_rid, shape_index,
+		maxf(weapon.base_damage, 0.0), attack_direction)
 
 func _on_weapon_changed(weapon: Weapon) -> void:
 	# Cambiar de arma rompe el combo: no se puede rematar con otra herramienta.

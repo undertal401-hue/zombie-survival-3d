@@ -99,8 +99,8 @@ func _ready() -> void:
 	Inventory.add_item("medkit", 1, true)
 	# Las armas también son objetos: Inventory es la única fuente de verdad de
 	# su condición y desgaste (Weapon._read_condition). Sin estas entradas los
-	# cuatro .tres equipados no se gastarían nunca.
-	for weapon_id: String in ["Machete", "Pistola 9mm", "Escopeta 12ga", "Fusil 5.56mm"]:
+	# cinco .tres equipados no se gastarían nunca.
+	for weapon_id: String in ["Machete", "Pistola 9mm", "Escopeta 12ga", "Fusil 5.56mm", "Hacha"]:
 		Inventory.add_item(weapon_id, 1, true)
 	# Sin munición de reserva de regalo: cada arma arranca solo con su cargador.
 	# Los cartuchos (9mm/12ga/5.56) aparecen en botín y se pueden fabricar.
@@ -114,8 +114,12 @@ func _ready() -> void:
 	_spawn_zombies()
 	
 	# Dar pistola al jugador via WeaponController (ya se hace en _load_default_loadout)
-	# El WeaponController ya equipa machete en slot 0 y pistola en slot 1
-	pass
+	# El WeaponController ya equipa machete en slot 0, pistola en slot 1 y
+	# hacha en slot 4.
+	# La tala usa la senal del jugador: Main solo conecta el bosque real.
+	var chop_callback := Callable(self, "_on_tree_chop_requested")
+	if not player.is_connected("tree_chop_requested", chop_callback):
+		player.connect("tree_chop_requested", chop_callback)
 	
 	# Refrescar HUD para mostrar munición inicial
 	var hud := get_tree().get_first_node_in_group("hud") as Node
@@ -459,6 +463,15 @@ func _on_victory_for_state() -> void:
 
 func _on_game_over_for_state() -> void:
 	GameState.set_phase(&"death")
+
+
+## Puente de tala: el jugador entrega el RID exacto de la forma golpeada y el
+## bosque conserva la autoridad sobre vida, caida, colision y botin.
+func _on_tree_chop_requested(body_rid: RID, shape_index: int, damage: float, direction: Vector2) -> void:
+	if forest == null or not forest.has_method("damage_tree_by_shape"):
+		return
+	forest.call("damage_tree_by_shape", body_rid, shape_index, damage, direction)
+
 
 ## Ajusta suelo, muros, inicio y extraccion al barrio; la camara al mundo completo.
 func _configure_world() -> void:
