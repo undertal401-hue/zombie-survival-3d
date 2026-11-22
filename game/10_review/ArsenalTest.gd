@@ -90,6 +90,8 @@ func _ready() -> void:
 	if meta_template != null:
 		wc.weapons[5] = meta_template.duplicate() as Weapon
 		var six_slot_data: Dictionary = wc.get_save_data()
+		_check(int(six_slot_data.get("loadout_version", 0)) == 2,
+			"save/load versiona el contrato de seis ranuras")
 		wc.load_save_data(six_slot_data)
 		_check(wc.get_weapon_in_slot(4) != null
 				and wc.get_weapon_in_slot(4).weapon_name == "Hacha",
@@ -98,14 +100,35 @@ func _ready() -> void:
 				and wc.get_weapon_in_slot(5).weapon_name == "Escopeta 12ga",
 			"save/load conserva la mejora meta en la ranura 5")
 
-		# Un save anterior al hacha solo tenia cinco entradas. La migracion
-		# debe completar la sexta ranura con el hacha sin ocupar la ranura 5,
-		# que sigue perteneciendo a la mejora meta.
+		# Save v1 real: cinco entradas y la recompensa meta en el antiguo
+		# slot 4. La migracion debe mover esa escopeta al slot 5, instalar el
+		# hacha en el slot 4 y trasladar tambien la arma seleccionada.
 		var legacy_data: Dictionary = six_slot_data.duplicate(true)
-		var legacy_entries: Array = legacy_data.get("weapons", []) as Array
-		legacy_data["weapons"] = legacy_entries.slice(0, 4)
-		legacy_data["current_slot"] = 1
+		var current_entries: Array = legacy_data.get("weapons", []) as Array
+		var legacy_entries: Array = current_entries.slice(0, 5)
+		var old_slot_four: Dictionary = (current_entries[5] as Dictionary).duplicate(true)
+		old_slot_four["slot"] = 4
+		legacy_entries[4] = old_slot_four
+		legacy_data["weapons"] = legacy_entries
+		legacy_data["current_slot"] = 4
+		legacy_data.erase("loadout_version")
 		wc.load_save_data(legacy_data)
+		_check(wc.weapons.size() == 6 and wc.get_weapon_in_slot(4) != null
+				and wc.get_weapon_in_slot(4).weapon_name == "Hacha",
+			"load v1 mueve la recompensa y restaura el hacha en el slot 4")
+		_check(wc.get_weapon_in_slot(5) != null
+				and wc.get_weapon_in_slot(5).weapon_name == "Escopeta 12ga",
+			"load v1 mueve la recompensa meta del slot 4 al slot 5")
+		_check(wc.current_slot == 5,
+			"load v1 traslada la seleccion del antiguo slot 4 al slot 5")
+
+		# Variante v1 sin recompensa meta: el hacha ocupa el slot 4 y la
+		# ranura 5 sigue reservada para MetaProgress.
+		var legacy_without_meta: Dictionary = six_slot_data.duplicate(true)
+		legacy_without_meta["weapons"] = (legacy_without_meta.get("weapons", []) as Array).slice(0, 4)
+		legacy_without_meta["current_slot"] = 1
+		legacy_without_meta.erase("loadout_version")
+		wc.load_save_data(legacy_without_meta)
 		_check(wc.weapons.size() == 6 and wc.get_weapon_in_slot(4) != null
 				and wc.get_weapon_in_slot(4).weapon_name == "Hacha",
 			"load migratorio completa el slot del hacha en saves antiguos")
