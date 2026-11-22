@@ -126,6 +126,7 @@ var _rng: RandomNumberGenerator
 var _road_rects: Array[Rect2] = []
 var _road_widths: Array[float] = []
 var _all_houses: Array[House] = []
+var _town_connectors: Dictionary = {}
 var _houses_by_zone: Dictionary = {}
 var _special_houses: Dictionary = {}
 var _start_position: Vector2
@@ -152,6 +153,7 @@ func build() -> void:
 	_rng.seed = layout_seed
 	_road_rects.clear()
 	_road_widths.clear()
+	_town_connectors.clear()
 	_all_houses.clear()
 	_houses_by_zone.clear()
 	_special_houses.clear()
@@ -164,6 +166,9 @@ func build() -> void:
 
 	_build_ground_patches()
 	_build_roads()
+	# Los conectores se reservan ANTES de construir casas: ninguna casa de la
+	# rejilla ni de anillo puede ocupar el paso real hacia el pueblo.
+	_build_towns()
 	_build_houses()
 	_assign_loot()
 	_build_plaza()
@@ -173,7 +178,6 @@ func build() -> void:
 	_build_yards()
 	# Todos los asentamientos se recorren a pie: no hay barricada ni cartel
 	# de acceso cerrado en el pueblo principal.
-	_build_towns()
 	_build_streetlights()
 	_build_start_camp()
 	_build_extraction_lot()
@@ -203,6 +207,13 @@ func _town_clearance_rect(center: Vector2) -> Rect2:
 func _intersects_town_clearance(rect: Rect2) -> bool:
 	for center in _town_centers():
 		if rect.intersects(_town_clearance_rect(center)):
+			return true
+	return false
+
+
+func _intersects_town_connector(rect: Rect2) -> bool:
+	for connector in _town_connectors.values():
+		if rect.intersects(connector as Rect2):
 			return true
 	return false
 
@@ -336,9 +347,10 @@ func _build_houses() -> void:
 			var house_rect: Rect2 = Rect2(
 				position - house_size * 0.5,
 				house_size)
-			# Los centros de los pueblos son plazas publicas: una casa de la
-			# rejilla nunca puede ocupar el centro ni su corredor minimo.
-			if _intersects_town_clearance(house_rect):
+			# Los centros y conectores de los pueblos son via publica: una
+			# casa de la rejilla nunca puede cerrar la plaza ni el paso real.
+			if _intersects_town_clearance(house_rect) \
+					or _intersects_town_connector(house_rect):
 				continue
 
 			var house := HOUSE_SCENE.instantiate() as House
@@ -806,8 +818,8 @@ func _build_towns() -> void:
 	var centers: Array[Vector2] = _town_centers()
 	for i in range(centers.size()):
 		var town_name: String = town_names[i]
-		_build_town_at(centers[i], town_name)
 		_connect_town_to_road(centers[i], town_name)
+		_build_town_at(centers[i], town_name)
 
 func _build_town_at(center: Vector2, name: String) -> void:
 	# Crear un pueblo con 3-5 casas alrededor del centro
@@ -823,6 +835,12 @@ func _build_town_at(center: Vector2, name: String) -> void:
 			_rng.randf_range(house_min_size.y, house_max_size.y)
 		)
 		var position: Vector2 = _town_house_position(center, house_size, angle)
+		var house_rect: Rect2 = Rect2(
+			position - house_size * 0.5,
+			house_size)
+		if _intersects_town_clearance(house_rect) \
+				or _intersects_town_connector(house_rect):
+			continue
 
 		# Crear casa
 		var house := HOUSE_SCENE.instantiate() as House
@@ -864,6 +882,17 @@ func _town_house_position(center: Vector2, house_size: Vector2,
 		/ maxf(absf(direction.y), 0.001)
 	var required_radius: float = minf(required_x, required_y) + 24.0
 	var radius: float = maxf(_rng.randf_range(220.0, 300.0), required_radius)
+	# Un conector es via publica: si el angulo elegido cae sobre el camino,
+	# se recorre el anillo en pasos discretos hasta un angulo libre.
+	for step in range(24):
+		var candidate_angle: float = angle + TAU * float(step) / 24.0
+		var candidate: Vector2 = center + Vector2.from_angle(candidate_angle) * radius
+		var candidate_rect: Rect2 = Rect2(
+			candidate - house_size * 0.5,
+			house_size)
+		if not _intersects_town_clearance(candidate_rect) \
+				and not _intersects_town_connector(candidate_rect):
+			return candidate
 	return center + direction * radius
 
 
@@ -894,6 +923,9 @@ func _connect_town_to_road(town_center: Vector2, town_name: String) -> void:
 			Vector2(road_min_x, road_min_y),
 			Vector2(road_max_x - road_min_x, road_max_y - road_min_y)
 		).grow(40.0)
+		# El conector se publica antes de colocar casas: el mismo rectangulo
+		# que se dibuja es el que queda reservado para el paso peatonal.
+		_town_connectors[town_name] = road_rect
 		_add_rect(road_rect, road_color, -6, "TownPath_" + town_name)
 
 		# Dibujar aceras

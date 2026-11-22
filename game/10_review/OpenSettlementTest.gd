@@ -36,8 +36,11 @@ func _ready() -> void:
 	var main: Node2D = MAIN_SCENE.instantiate() as Node2D
 	# La semilla se fija antes de entrar al árbol: el barrio debe poder
 	# reproducir un layout exacto. 105 es el caso conocido en el que una casa
-	# de anillo invadia el conector del Pueblo Sur.
-	(main.get_node("Level/Neighborhood") as Neighborhood).layout_seed = 105
+	# de anillo invadia el conector del Pueblo Sur. La variable de entorno solo
+	# existe para barridos deterministas fuera del CI.
+	var layout_seed_text: String = OS.get_environment("OPEN_SETTLEMENT_TEST_SEED")
+	var layout_seed: int = 105 if layout_seed_text.is_empty() else int(layout_seed_text)
+	(main.get_node("Level/Neighborhood") as Neighborhood).layout_seed = layout_seed
 	add_child(main)
 	await get_tree().process_frame
 	await get_tree().physics_frame
