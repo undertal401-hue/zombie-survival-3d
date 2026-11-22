@@ -18,6 +18,7 @@ var _main: Node
 var _player: CharacterBody2D
 var _weapon_controller: WeaponController
 var _forest: Node2D
+var _controller_melee_weapon: Weapon = null
 
 
 func _check(condition: bool, label: String) -> void:
@@ -75,6 +76,27 @@ func _ready() -> void:
 					and _weapon_controller.get_weapon_in_slot(5).weapon_name == "Escopeta 12ga",
 				"La mejora meta ocupa su propia sexta ranura")
 
+	# El hacha debe atravesar la ruta real del controlador: equipar la ranura
+	# TOOL y pedir un disparo debe emitir melee_attack, no un disparo de arma.
+	if axe_slot == 4 and _weapon_controller != null and _player != null:
+		_controller_melee_weapon = null
+		var melee_callback := Callable(self, "_on_controller_melee_attack")
+		if not _weapon_controller.melee_attack.is_connected(melee_callback):
+			_weapon_controller.melee_attack.connect(melee_callback)
+		_weapon_controller.call("_equip_slot", axe_slot)
+		_player.global_position = Vector2(100000.0, 100000.0)
+		_player.set("stamina", 100.0)
+		var equipped_axe: Weapon = _weapon_controller.get_weapon_in_slot(axe_slot)
+		if equipped_axe != null:
+			equipped_axe.set("last_shot_time", 0.0)
+		_weapon_controller.call("_try_fire")
+		await get_tree().process_frame
+		_check(_controller_melee_weapon != null
+				and _controller_melee_weapon.weapon_name == "Hacha",
+			"El controlador enruta el hacha por la ruta cuerpo a cuerpo")
+		if _weapon_controller.melee_attack.is_connected(melee_callback):
+			_weapon_controller.melee_attack.disconnect(melee_callback)
+
 	_check(Inventory.ITEM_DEFS.has("wood"), "Madera existe como objeto de inventario")
 	_check(Inventory.ITEM_DEFS.has("Hacha"), "Hacha existe como objeto de inventario")
 	_check(_missing_asset_is_honest("wood"), "El icono ausente de madera no se sustituye por arte fabricado")
@@ -118,6 +140,8 @@ func _exercise_felling(axe: Weapon, axe_slot: int) -> void:
 	var shape_rid: RID = before.get("shape_rid", RID())
 	var shape_index: int = int(before.get("shape_index", -1))
 	var trunk_before: Transform2D = before.get("trunk_transform", Transform2D.IDENTITY)
+	var tree_height: float = float(before.get("height", 0.0))
+	var canopy_before: Array = before.get("canopy_transforms", []) as Array
 	var body_shapes_before: int = int(before.get("body_shape_count", 0))
 	var chunk_bodies_before: int = int(before.get("chunk_body_count", 0))
 	var multimesh_nodes_before: int = int(before.get("multimesh_node_count", 0))
@@ -149,10 +173,31 @@ func _exercise_felling(axe: Weapon, axe_slot: int) -> void:
 	state = String(after.get("state", ""))
 	var fall_angle: float = float(after.get("fall_angle", 0.0))
 	var trunk_after: Transform2D = after.get("trunk_transform", Transform2D.IDENTITY)
+	var canopy_after: Array = after.get("canopy_transforms", []) as Array
 
 	_check(state == "felled", "El arbol termina talado")
 	_check(absf(absf(fall_angle) - PI * 0.5) < 0.02, "El arbol cae horizontal a la izquierda o a la derecha")
 	_check(trunk_after != trunk_before, "El MultiMesh rota el arbol alrededor de su base")
+	_check(tree_height > 0.0, "El arbol expone su altura real para verificar el pivote")
+
+	var trunk_angle: float = wrapf(trunk_after.get_rotation() - trunk_before.get_rotation(), -PI, PI)
+	var trunk_offset: Vector2 = trunk_after.get_origin() - tree_position
+	_check(absf(absf(trunk_angle) - PI * 0.5) < 0.02,
+		"El tronco gira noventa grados reales alrededor de la base")
+	_check(tree_height > 0.0
+			and absf(trunk_offset.length() - tree_height * 0.5) < 1.0
+			and absf(trunk_offset.y) < 1.0,
+		"El pivote del tronco permanece en la base y queda horizontal")
+	_check(canopy_before.size() > 0 and canopy_after.size() == canopy_before.size(),
+		"El bosque expone las transformaciones reales de la copa")
+	if canopy_before.size() > 0 and canopy_after.size() == canopy_before.size():
+		var canopy_before_xf: Transform2D = canopy_before[0]
+		var canopy_after_xf: Transform2D = canopy_after[0]
+		var canopy_angle: float = wrapf(
+			canopy_after_xf.get_rotation() - canopy_before_xf.get_rotation(), -PI, PI)
+		_check(canopy_after_xf != canopy_before_xf
+				and absf(absf(canopy_angle) - PI * 0.5) < 0.02,
+			"La copa gira noventa grados con el tronco")
 	_check(int(after.get("body_shape_count", 0)) == body_shapes_before,
 		"Talar no elimina la forma del cuerpo chunked")
 	_check(int(after.get("chunk_body_count", 0)) == chunk_bodies_before,
@@ -166,6 +211,8 @@ func _exercise_felling(axe: Weapon, axe_slot: int) -> void:
 	_check(not still_blocks, "Solo la forma del arbol talado deja de bloquear")
 
 	var control_index: int = _find_control_tree(0, before.get("chunk_key", Vector2i(0, 0)))
+	_check(control_index >= 0,
+		"La semilla de prueba incluye un arbol control del mismo chunk")
 	if control_index >= 0:
 		var control: Dictionary = _forest.call("tree_snapshot", control_index) as Dictionary
 		var control_body_rid: RID = control.get("body_rid", RID())
@@ -192,11 +239,31 @@ func _exercise_felling(axe: Weapon, axe_slot: int) -> void:
 				and missing_asset.text.contains("FALTA ASSET - NO INVENTAR"),
 			"El botin declara el icono oficial pendiente")
 
-		var wood_before: int = Inventory.count("wood")
+		# El contrato de recogida admite aceptacion parcial: al llenarse la
+		# pila, el objeto conserva el resto. Si se destruye tras aceptar solo
+		# una unidad, las otras dos desaparecen del mundo.
+		var existing_wood: int = Inventory.count("wood")
+		if existing_wood > 0:
+			Inventory.remove_item("wood", existing_wood)
+		Inventory.add_item("wood", 98, true)
 		_player.global_position = pickup_2d.global_position
 		await get_tree().physics_frame
 		await get_tree().physics_frame
-		_check(Inventory.count("wood") == wood_before + 3, "El jugador recoge las tres unidades de madera")
+		_check(Inventory.count("wood") == 99,
+			"La aceptacion parcial de madera rellena la pila hasta 99")
+		var pickup_survives: bool = is_instance_valid(pickup)
+		_check(pickup_survives,
+			"La pickup parcial permanece viva hasta recoger todo su contenido")
+		if pickup_survives:
+			_check(int(pickup.get("amount")) == 2,
+				"La pickup parcial conserva las dos unidades no recogidas")
+		Inventory.remove_item("wood", 3)
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		_check(Inventory.count("wood") == 98,
+			"La pickup parcial entrega el resto cuando vuelve a caber")
+		_check(not is_instance_valid(pickup),
+			"La pickup se elimina solo cuando no queda contenido")
 
 	# El machete no es una herramienta de tala: otro arbol permanece intacto.
 	var machete: Weapon = load(MACHETE_PATH) as Weapon
@@ -215,6 +282,11 @@ func _exercise_felling(axe: Weapon, axe_slot: int) -> void:
 
 	# El hacha debe quedar visible en el loadout sin fabricar su sprite.
 	if axe_slot >= 0:
+		# Recoger madera cambia el objeto visible en la mano. Si el hacha ya
+		# estaba equipada, _equip_slot no reemite weapon_changed; pasar por otra
+		# ranura fuerza la presentacion real del hacha que se quiere comprobar.
+		if _weapon_controller.current_slot == axe_slot:
+			_weapon_controller.call("_equip_slot", 1)
 		_weapon_controller.call("_equip_slot", axe_slot)
 		await get_tree().process_frame
 		var visual: Node = _player.get_node_or_null("PlayerVisual")
@@ -272,6 +344,10 @@ func _wood_pickups() -> Array[Node]:
 		if is_instance_valid(node) and String(node.get("item_id")) == "wood":
 			result.append(node)
 	return result
+
+
+func _on_controller_melee_attack(weapon: Weapon, _direction: Vector2) -> void:
+	_controller_melee_weapon = weapon
 
 
 func _finish() -> void:

@@ -84,6 +84,33 @@ func _ready() -> void:
 		"save/load restaura armas por resource_path")
 	_check(wc.get_weapon_in_slot(4) != null and wc.get_weapon_in_slot(4).weapon_name == "Hacha",
 		"save/load conserva el hacha")
+
+	# La mejora meta debe sobrevivir un round-trip en su ranura reservada.
+	var meta_template: Weapon = load("res://02_player/weapons/Shotgun12ga.tres") as Weapon
+	if meta_template != null:
+		wc.weapons[5] = meta_template.duplicate() as Weapon
+		var six_slot_data: Dictionary = wc.get_save_data()
+		wc.load_save_data(six_slot_data)
+		_check(wc.get_weapon_in_slot(4) != null
+				and wc.get_weapon_in_slot(4).weapon_name == "Hacha",
+			"save/load de seis ranuras conserva el hacha")
+		_check(wc.get_weapon_in_slot(5) != null
+				and wc.get_weapon_in_slot(5).weapon_name == "Escopeta 12ga",
+			"save/load conserva la mejora meta en la ranura 5")
+
+		# Un save anterior al hacha solo tenia cinco entradas. La migracion
+		# debe completar la sexta ranura con el hacha sin ocupar la ranura 5,
+		# que sigue perteneciendo a la mejora meta.
+		var legacy_data: Dictionary = six_slot_data.duplicate(true)
+		var legacy_entries: Array = legacy_data.get("weapons", []) as Array
+		legacy_data["weapons"] = legacy_entries.slice(0, 4)
+		legacy_data["current_slot"] = 1
+		wc.load_save_data(legacy_data)
+		_check(wc.weapons.size() == 6 and wc.get_weapon_in_slot(4) != null
+				and wc.get_weapon_in_slot(4).weapon_name == "Hacha",
+			"load migratorio completa el slot del hacha en saves antiguos")
+		_check(wc.get_weapon_in_slot(5) == null,
+			"load migratorio no ocupa la ranura reservada a la mejora meta")
 	await _finish()
 
 func _finish() -> void:
