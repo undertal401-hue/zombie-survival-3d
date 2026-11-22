@@ -834,10 +834,10 @@ func _ready() -> void:
 	var gate_wc: WeaponController = null
 	if gate_player != null:
 		gate_wc = gate_player.get_node_or_null("WeaponController") as WeaponController
-	if gate_wc == null or gate_wc.weapons.size() != 5:
-		hard_failures.append("loadout de 5 ranuras ausente")
+	if gate_wc == null or gate_wc.weapons.size() != 6:
+		hard_failures.append("loadout de 6 ranuras ausente")
 	else:
-		for slot: int in range(4):
+		for slot: int in range(5):
 			var slot_weapon: Weapon = gate_wc.get_weapon_in_slot(slot)
 			if slot_weapon == null:
 				hard_failures.append("ranura de arma %d vacia" % slot)
@@ -851,7 +851,7 @@ func _ready() -> void:
 					hard_failures.append("ranura %d sin identidad" % slot)
 				if slot_weapon.base_damage <= 0.0:
 					hard_failures.append("ranura %d sin dano" % slot)
-	if Inventory.count("Hacha") <= 0:
+	if Inventory.count("Machete") <= 0 or Inventory.count("Hacha") <= 0:
 		hard_failures.append("condicion de armas no inicializada")
 	if not EventBus.has_signal("victory") or not EventBus.has_signal("game_over"):
 		hard_failures.append("EventBus sin senales de fin de partida")
@@ -870,7 +870,7 @@ func _ready() -> void:
 	var gate_exit_code: int = 1 if not hard_failures.is_empty() else 0
 	get_tree().quit(gate_exit_code)
 	if gate_wc != null:
-		for slot: int in range(4):
+		for slot: int in range(5):
 			var w: Weapon = gate_wc.get_weapon_in_slot(slot)
 			if w != null:
 				assert(w.get_script() != null,

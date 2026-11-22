@@ -45,8 +45,8 @@ func _ready() -> void:
 
 	_check(_player != null, "Main crea el jugador real")
 	_check(_weapon_controller != null, "El jugador tiene WeaponController")
-	_check(_weapon_controller != null and _weapon_controller.weapons.size() == 5,
-		"El loadout conserva cinco ranuras para armas, hacha y mejora meta")
+	_check(_weapon_controller != null and _weapon_controller.weapons.size() == 6,
+		"El loadout conserva seis ranuras para armas, hacha y mejora meta")
 	_check(_forest != null, "Main crea el bosque real")
 	_check(_forest != null and _forest.tree_count() > 1, "El bosque contiene arboles para talar")
 
@@ -60,19 +60,20 @@ func _ready() -> void:
 		_check(axe.base_damage > 0.0, "El hacha tiene dano real")
 
 	var axe_slot: int = _find_axe_slot(_weapon_controller)
-	_check(axe_slot == 0, "El hacha ocupa la ranura cuerpo a cuerpo 0")
-	if axe_slot == 0 and _weapon_controller != null and _weapon_controller.weapons.size() > 4:
+	_check(axe_slot == 4, "El hacha ocupa la ranura propia 4")
+	_check(InputMap.has_action("weapon_slot_6"), "La sexta ranura tiene una tecla directa")
+	if axe_slot == 4 and _weapon_controller != null and _weapon_controller.weapons.size() > 5:
 		var meta: Node = _main.get_node_or_null("MetaProgress")
 		if meta != null and meta.has_method("_equip_extra_weapon"):
 			meta.set("_applied_extra_weapon", {})
-			_weapon_controller.weapons[4] = null
+			_weapon_controller.weapons[5] = null
 			meta.call("_equip_extra_weapon")
-			_check(_weapon_controller.get_weapon_in_slot(0) != null
-					and _weapon_controller.get_weapon_in_slot(0).weapon_name == "Hacha",
-				"La mejora meta no reemplaza el hacha")
 			_check(_weapon_controller.get_weapon_in_slot(4) != null
-					and _weapon_controller.get_weapon_in_slot(4).weapon_name == "Escopeta 12ga",
-				"La mejora meta conserva su propia quinta ranura")
+					and _weapon_controller.get_weapon_in_slot(4).weapon_name == "Hacha",
+				"La mejora meta no reemplaza el hacha")
+			_check(_weapon_controller.get_weapon_in_slot(5) != null
+					and _weapon_controller.get_weapon_in_slot(5).weapon_name == "Escopeta 12ga",
+				"La mejora meta ocupa su propia sexta ranura")
 
 	_check(Inventory.ITEM_DEFS.has("wood"), "Madera existe como objeto de inventario")
 	_check(Inventory.ITEM_DEFS.has("Hacha"), "Hacha existe como objeto de inventario")
@@ -113,7 +114,9 @@ func _exercise_felling(axe: Weapon, axe_slot: int) -> void:
 
 	var before: Dictionary = _forest.call("tree_snapshot", 0) as Dictionary
 	var tree_position: Vector2 = before.get("position", Vector2.ZERO)
+	var body_rid: RID = before.get("body_rid", RID())
 	var shape_rid: RID = before.get("shape_rid", RID())
+	var shape_index: int = int(before.get("shape_index", -1))
 	var trunk_before: Transform2D = before.get("trunk_transform", Transform2D.IDENTITY)
 	var body_shapes_before: int = int(before.get("body_shape_count", 0))
 	var chunk_bodies_before: int = int(before.get("chunk_body_count", 0))
@@ -121,7 +124,8 @@ func _exercise_felling(axe: Weapon, axe_slot: int) -> void:
 	var multimesh_instances_before: int = int(before.get("multimesh_instance_total", 0))
 
 	_check(String(before.get("state", "")) == "standing", "El arbol empieza en pie")
-	_check(shape_rid.is_valid(), "El arbol conserva la identidad RID de su forma")
+	_check(body_rid.is_valid() and shape_rid.is_valid() and shape_index >= 0,
+		"El arbol conserva la identidad exacta de cuerpo y forma")
 
 	# El hacha golpea el arbol por el raycast real del jugador. La posicion se
 	# fija a 30 px del tronco para que el resultado no dependa de la semilla.
@@ -158,36 +162,23 @@ func _exercise_felling(axe: Weapon, axe_slot: int) -> void:
 	_check(int(after.get("multimesh_instance_total", 0)) == multimesh_instances_before,
 		"Talar preserva el batching y el instance_count MultiMesh")
 
-	var point_query := PhysicsPointQueryParameters2D.new()
-	point_query.position = tree_position
-	point_query.collision_mask = 1
-	point_query.collide_with_bodies = true
-	var still_blocks: bool = false
-	for hit: Dictionary in _player.get_world_2d().direct_space_state.intersect_point(point_query, 8):
-		if hit.get("rid", RID()) == shape_rid:
-			still_blocks = true
-			break
+	var still_blocks: bool = _shape_still_blocks(tree_position, body_rid, shape_index)
 	_check(not still_blocks, "Solo la forma del arbol talado deja de bloquear")
 
 	var control_index: int = _find_control_tree(0, before.get("chunk_key", Vector2i(0, 0)))
 	if control_index >= 0:
 		var control: Dictionary = _forest.call("tree_snapshot", control_index) as Dictionary
-		var control_rid: RID = control.get("shape_rid", RID())
-		var control_query := PhysicsPointQueryParameters2D.new()
-		control_query.position = control.get("position", Vector2.ZERO)
-		control_query.collision_mask = 1
-		control_query.collide_with_bodies = true
-		var control_still_blocks: bool = false
-		for hit: Dictionary in _player.get_world_2d().direct_space_state.intersect_point(control_query, 8):
-			if hit.get("rid", RID()) == control_rid:
-				control_still_blocks = true
-				break
+		var control_body_rid: RID = control.get("body_rid", RID())
+		var control_shape_index: int = int(control.get("shape_index", -1))
+		var control_still_blocks: bool = _shape_still_blocks(
+			control.get("position", Vector2.ZERO), control_body_rid, control_shape_index)
 		_check(control_still_blocks, "Otro arbol del mismo chunk conserva su colision")
 		_check(String(control.get("state", "")) == "standing", "El arbol control del mismo chunk permanece intacto")
 
 	var wood_pickups: Array[Node] = _wood_pickups()
 	_check(wood_pickups.size() == 1, "El arbol deja un unico Pickup de madera")
-	var accepted_again: bool = bool(_forest.call("damage_tree_by_shape", shape_rid, 999.0, Vector2.RIGHT))
+	var accepted_again: bool = bool(_forest.call("damage_tree_by_shape",
+		body_rid, shape_index, 999.0, Vector2.RIGHT))
 	_check(not accepted_again, "Un arbol ya talado no admite otro talado")
 	_check(_wood_pickups().size() == 1, "Un segundo golpe no duplica el botin")
 
@@ -239,8 +230,28 @@ func _exercise_felling(axe: Weapon, axe_slot: int) -> void:
 			"El inventario declara el icono pendiente del hacha")
 		var slots_row: HBoxContainer = menu.get_node_or_null(
 			"Panel/WeaponSection/SlotsRow") as HBoxContainer if menu != null else null
-		_check(slots_row != null and slots_row.get_child_count() == 5,
-			"El inventario muestra las cinco ranuras")
+		_check(slots_row != null and slots_row.get_child_count() == 6,
+			"El inventario muestra las seis ranuras")
+
+
+## Consulta por forma: el RID identifica el cuerpo chunked y `shape` identifica
+## la forma dentro de ese cuerpo. Un point query solo devolveria el RID del
+## cuerpo y no podria probar que se desactivo una forma concreta.
+func _shape_still_blocks(position: Vector2, body_rid: RID, shape_index: int) -> bool:
+	if _player == null or not body_rid.is_valid() or shape_index < 0:
+		return false
+	var circle := CircleShape2D.new()
+	circle.radius = 1.0
+	var query := PhysicsShapeQueryParameters2D.new()
+	query.shape = circle
+	query.transform = Transform2D(0.0, position)
+	query.collision_mask = 1
+	query.collide_with_bodies = true
+	query.collide_with_areas = false
+	for hit: Dictionary in _player.get_world_2d().direct_space_state.intersect_shape(query, 32):
+		if hit.get("rid", RID()) == body_rid and int(hit.get("shape", -1)) == shape_index:
+			return true
+	return false
 
 
 func _find_control_tree(target_index: int, chunk_key: Vector2i) -> int:
