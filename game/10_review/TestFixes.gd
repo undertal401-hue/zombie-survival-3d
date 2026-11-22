@@ -183,9 +183,9 @@ func _ready() -> void:
 	
 	# 19. Velocidad reducida con pistola
 	if wc != null:
-		var machete := wc.get_weapon_in_slot(0)
+		var axe := wc.get_weapon_in_slot(0)
 		var pistol := wc.get_weapon_in_slot(1)
-		print("19. Speed multiplier machete=", machete.move_speed_multiplier if machete != null else -1,
+		print("19. Speed multiplier hacha=", axe.move_speed_multiplier if axe != null else -1,
 			" pistol=", pistol.move_speed_multiplier if pistol != null else -1)
 	
 	# 20. Melee no debe alterar el tiempo global ni congelar el mundo
@@ -197,11 +197,11 @@ func _ready() -> void:
 		for child in wc.get_children():
 			if child is Timer:
 				timers += 1
-		print("20. Machete equipado: ", wc.current_weapon.weapon_name,
+		print("20. Hacha equipada: ", wc.current_weapon.weapon_name,
 			" time_scale=", Engine.time_scale, " timers=", timers)
 		wc.call("_equip_slot", 1)
 	
-	# 21. Movimiento real tras atacar con machete
+	# 21. Movimiento real tras atacar con hacha
 	if wc != null:
 		menu.call("close")
 		wc.call("_equip_slot", 0)
@@ -213,7 +213,7 @@ func _ready() -> void:
 			await get_tree().physics_frame
 		Input.action_release("move_right")
 		var moved: float = player.global_position.distance_to(start_pos)
-		print("21. Desplazamiento tras golpe machete: ", snappedf(moved, 0.01), "px (time_scale=", Engine.time_scale, ")")
+		print("21. Desplazamiento tras golpe hacha: ", snappedf(moved, 0.01), "px (time_scale=", Engine.time_scale, ")")
 		wc.call("_equip_slot", 1)
 	
 	# 22. C1: cambiar de slot conserva la munición real (sin recarga gratis)
@@ -421,7 +421,7 @@ func _ready() -> void:
 		var text_pistol: String = hud_label.text
 		wc.call("_equip_slot", 0)
 		var text_melee: String = hud_label.text
-		print("33. HUD pistola='", text_pistol, "' | machete='", text_melee, "'")
+		print("33. HUD pistola='", text_pistol, "' | hacha='", text_melee, "'")
 		wc.call("_equip_slot", 1)
 
 	# 34. Fase 2: menú con layout válido, icono de arma y cierre al terminar
@@ -834,10 +834,10 @@ func _ready() -> void:
 	var gate_wc: WeaponController = null
 	if gate_player != null:
 		gate_wc = gate_player.get_node_or_null("WeaponController") as WeaponController
-	if gate_wc == null or gate_wc.weapons.size() != 6:
-		hard_failures.append("loadout de 6 ranuras ausente")
+	if gate_wc == null or gate_wc.weapons.size() != 5:
+		hard_failures.append("loadout de 5 ranuras ausente")
 	else:
-		for slot: int in range(5):
+		for slot: int in range(4):
 			var slot_weapon: Weapon = gate_wc.get_weapon_in_slot(slot)
 			if slot_weapon == null:
 				hard_failures.append("ranura de arma %d vacia" % slot)
@@ -851,7 +851,7 @@ func _ready() -> void:
 					hard_failures.append("ranura %d sin identidad" % slot)
 				if slot_weapon.base_damage <= 0.0:
 					hard_failures.append("ranura %d sin dano" % slot)
-	if Inventory.count("Machete") <= 0 or Inventory.count("Hacha") <= 0:
+	if Inventory.count("Hacha") <= 0:
 		hard_failures.append("condicion de armas no inicializada")
 	if not EventBus.has_signal("victory") or not EventBus.has_signal("game_over"):
 		hard_failures.append("EventBus sin senales de fin de partida")
@@ -870,7 +870,7 @@ func _ready() -> void:
 	var gate_exit_code: int = 1 if not hard_failures.is_empty() else 0
 	get_tree().quit(gate_exit_code)
 	if gate_wc != null:
-		for slot: int in range(5):
+		for slot: int in range(4):
 			var w: Weapon = gate_wc.get_weapon_in_slot(slot)
 			if w != null:
 				assert(w.get_script() != null,

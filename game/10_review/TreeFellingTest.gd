@@ -45,8 +45,8 @@ func _ready() -> void:
 
 	_check(_player != null, "Main crea el jugador real")
 	_check(_weapon_controller != null, "El jugador tiene WeaponController")
-	_check(_weapon_controller != null and _weapon_controller.weapons.size() == 6,
-		"El loadout conserva seis ranuras para armas, hacha y mejora meta")
+	_check(_weapon_controller != null and _weapon_controller.weapons.size() == 5,
+		"El loadout conserva cinco ranuras para armas, hacha y mejora meta")
 	_check(_forest != null, "Main crea el bosque real")
 	_check(_forest != null and _forest.tree_count() > 1, "El bosque contiene arboles para talar")
 
@@ -60,20 +60,19 @@ func _ready() -> void:
 		_check(axe.base_damage > 0.0, "El hacha tiene dano real")
 
 	var axe_slot: int = _find_axe_slot(_weapon_controller)
-	_check(axe_slot == 4, "El hacha ocupa la ranura propia 4")
-	_check(InputMap.has_action("weapon_slot_6"), "La sexta ranura tiene una tecla directa")
-	if axe_slot == 4 and _weapon_controller != null and _weapon_controller.weapons.size() > 5:
+	_check(axe_slot == 0, "El hacha ocupa la ranura cuerpo a cuerpo 0")
+	if axe_slot == 0 and _weapon_controller != null and _weapon_controller.weapons.size() > 4:
 		var meta: Node = _main.get_node_or_null("MetaProgress")
 		if meta != null and meta.has_method("_equip_extra_weapon"):
 			meta.set("_applied_extra_weapon", {})
-			_weapon_controller.weapons[5] = null
+			_weapon_controller.weapons[4] = null
 			meta.call("_equip_extra_weapon")
-			_check(_weapon_controller.get_weapon_in_slot(4) != null
-					and _weapon_controller.get_weapon_in_slot(4).weapon_name == "Hacha",
+			_check(_weapon_controller.get_weapon_in_slot(0) != null
+					and _weapon_controller.get_weapon_in_slot(0).weapon_name == "Hacha",
 				"La mejora meta no reemplaza el hacha")
-			_check(_weapon_controller.get_weapon_in_slot(5) != null
-					and _weapon_controller.get_weapon_in_slot(5).weapon_name == "Escopeta 12ga",
-				"La mejora meta ocupa su propia sexta ranura")
+			_check(_weapon_controller.get_weapon_in_slot(4) != null
+					and _weapon_controller.get_weapon_in_slot(4).weapon_name == "Escopeta 12ga",
+				"La mejora meta conserva su propia quinta ranura")
 
 	_check(Inventory.ITEM_DEFS.has("wood"), "Madera existe como objeto de inventario")
 	_check(Inventory.ITEM_DEFS.has("Hacha"), "Hacha existe como objeto de inventario")
@@ -240,8 +239,8 @@ func _exercise_felling(axe: Weapon, axe_slot: int) -> void:
 			"El inventario declara el icono pendiente del hacha")
 		var slots_row: HBoxContainer = menu.get_node_or_null(
 			"Panel/WeaponSection/SlotsRow") as HBoxContainer if menu != null else null
-		_check(slots_row != null and slots_row.get_child_count() == 6,
-			"El inventario muestra las seis ranuras")
+		_check(slots_row != null and slots_row.get_child_count() == 5,
+			"El inventario muestra las cinco ranuras")
 
 
 func _find_control_tree(target_index: int, chunk_key: Vector2i) -> int:

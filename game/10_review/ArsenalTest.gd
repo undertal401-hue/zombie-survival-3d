@@ -1,7 +1,7 @@
 extends Node
-## Regresión del arsenal: los cinco .tres base se cargan como Weapon, el
-## loadout conserva una ranura para la mejora meta, la munición se consume de
-## verdad y el save/load round-tripa.
+## Regresión del arsenal: los .tres base se cargan como Weapon, el loadout
+## conserva una ranura para la mejora meta, la munición se consume de verdad
+## y el save/load round-tripa.
 
 var _failures: Array[String] = []
 var _main: Node
@@ -26,9 +26,9 @@ func _ready() -> void:
 		await _finish()
 		return
 
-	_check(wc.weapons.size() == 6, "loadout de 6 ranuras")
-	_check(wc.get_weapon_in_slot(0) != null and wc.get_weapon_in_slot(0).category == Weapon.Category.MELEE,
-		"slot 0 = machete (MELEE)")
+	_check(wc.weapons.size() == 5, "loadout de 5 ranuras")
+	_check(wc.get_weapon_in_slot(0) != null and wc.get_weapon_in_slot(0).category == Weapon.Category.TOOL,
+		"slot 0 = hacha (TOOL)")
 	_check(wc.get_weapon_in_slot(1) != null and wc.get_weapon_in_slot(1).ammo_type == "pistol_ammo",
 		"slot 1 = pistola 9mm")
 	var shotgun: Weapon = wc.get_weapon_in_slot(2)
@@ -37,10 +37,10 @@ func _ready() -> void:
 		"slot 2 = escopeta con 8 perdigones")
 	_check(rifle != null and rifle.ammo_type == "rifle_ammo" and rifle.burst_count == 3,
 		"slot 3 = fusil con ráfaga de 3")
-	var axe: Weapon = wc.get_weapon_in_slot(4)
+	var axe: Weapon = wc.get_weapon_in_slot(0)
 	_check(axe != null and axe.weapon_name == "Hacha" and int(axe.category) == 7,
-		"slot 4 = hacha (TOOL)")
-	_check(wc.get_weapon_in_slot(5) == null, "slot 5 libre para la mejora meta")
+		"slot 0 = hacha (TOOL)")
+	_check(wc.get_weapon_in_slot(4) == null, "slot 4 libre para la mejora meta")
 
 	wc.call("_equip_slot", 2)
 	_check(wc.current_weapon == shotgun, "equipar escopeta por ranura")
@@ -82,7 +82,7 @@ func _ready() -> void:
 	wc.load_save_data(data)
 	_check(wc.get_weapon_in_slot(2) != null and wc.get_weapon_in_slot(2).weapon_name == "Escopeta 12ga",
 		"save/load restaura armas por resource_path")
-	_check(wc.get_weapon_in_slot(4) != null and wc.get_weapon_in_slot(4).weapon_name == "Hacha",
+	_check(wc.get_weapon_in_slot(0) != null and wc.get_weapon_in_slot(0).weapon_name == "Hacha",
 		"save/load conserva el hacha")
 	await _finish()
 
