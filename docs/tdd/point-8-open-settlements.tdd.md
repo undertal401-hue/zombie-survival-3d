@@ -121,14 +121,36 @@ Checkpoint final: `de88f91` (`fix: reservar las plazas de los pueblos`).
 - El test ya no usa la pertenencia a una isla aislada como prueba de
   conectividad: exige una ruta del navmesh desde la red principal.
 
-Resultado actual:
+### Caminos libres de casas
+
+Checkpoint RED: `c05a7ef` (`test: exigir caminos de pueblo libres`).
+Checkpoint GREEN: `7dcfdde` (`fix: reservar los conectores de los pueblos`).
+
+La revisión independiente detectó un defecto residual: una casa de anillo
+podía invadir el `TownPath` y cortar la ruta real hacia el pueblo. Para poder
+reproducirlo exactamente, `layout_seed` pasó a ser efectiva: `0` conserva el
+comportamiento aleatorio por partida y un valor positivo fija la generación.
+La puerta añadió la semilla `105` y la garantía explícita de que ninguna casa
+ocupa el propio camino.
+
+```text
+FAIL Ninguna casa bloquea el camino de Pueblo Sur
+FAIL Pueblo Sur esta conectado a la red principal
+OPEN_SETTLEMENT_TEST failures=2
+```
+
+El GREEN reserva el rectángulo de cada conector antes de colocar casas. Las
+casas de rejilla y de anillo comprueban ese rectángulo, y las de anillo
+recorren ángulos discretos hasta encontrar una posición libre.
+
+Resultado del barrido determinista `0..299`:
 
 ```text
 OPEN_SETTLEMENT_TEST failures=0
+300/300 semillas
 ```
 
-La puerta final se ejecutó **50/50 veces** con posiciones y casas procedurales
-diferentes, sin flakes.
+## Garantías de la puerta
 
 ## Garantías de la puerta
 
@@ -145,6 +167,7 @@ diferentes, sin flakes.
 | 9 | El camino de cada pueblo toca una carretera principal | PASS |
 | 10 | El centro de cada pueblo pertenece a una zona navegable | PASS |
 | 11 | Existe una ruta real desde la red principal a cada centro | PASS |
+| 12 | Ninguna casa bloquea el propio camino de cada pueblo | PASS |
 
 ## Nota de reproducibilidad
 
