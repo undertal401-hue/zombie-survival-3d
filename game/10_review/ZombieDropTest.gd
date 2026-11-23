@@ -26,6 +26,13 @@ const BOSS_REWARD_RANGES: Dictionary = {
 	"shotgun_ammo": Vector2i(6, 12),
 	"rifle_ammo": Vector2i(12, 24),
 }
+const WALKER_REWARD_RANGES: Dictionary = {
+	"scrap": Vector2i(1, 1),
+	"cloth": Vector2i(1, 1),
+	"pistol_ammo": Vector2i(2, 6),
+	"shotgun_ammo": Vector2i(2, 4),
+	"rifle_ammo": Vector2i(4, 8),
+}
 ## Semillas frontera -> roll compartido -> IDs y cantidades exactos. Cada
 ## umbral 0,30/0,50/0,70 tiene una muestra inmediatamente debajo y encima.
 const BOSS_BRANCH_CASES: Array[Dictionary] = [
@@ -67,6 +74,124 @@ const BOSS_BRANCH_CASES: Array[Dictionary] = [
 		"roll": 0.700000047684,
 		"label": "justo encima de 0,70: sin municion",
 		"rewards": {"scrap": 6, "medkit": 2},
+	},
+]
+
+## Matriz exacta del caminante. El orden de draws es: material (0,18),
+## split scrap/tela (0,60) solo si hubo material y municion (0,08/0,12/0,15).
+## Cada umbral tiene una muestra inmediata debajo y encima.
+const WALKER_BRANCH_CASES: Array[Dictionary] = [
+	{
+		"seed": 71992855,
+		"material_roll": 0.179999679327011,
+		"split_roll": 0.932130336761475,
+		"ammo_roll": 0.757405042648315,
+		"label": "material justo debajo de 0,18: tela",
+		"rewards": {"cloth": 1},
+	},
+	{
+		"seed": 73709094,
+		"material_roll": 0.180000498890877,
+		"split_roll": -1.0,
+		"ammo_roll": 0.663103103637695,
+		"label": "material justo encima de 0,18: sin material",
+		"rewards": {},
+	},
+	{
+		"seed": 80196757,
+		"material_roll": 0.110469706356525,
+		"split_roll": 0.599999964237213,
+		"ammo_roll": 0.740165889263153,
+		"label": "split justo debajo de 0,60: chatarra",
+		"rewards": {"scrap": 1},
+	},
+	{
+		"seed": 90640042,
+		"material_roll": 0.114339120686054,
+		"split_roll": 0.600000381469727,
+		"ammo_roll": 0.186253398656845,
+		"label": "split justo encima de 0,60: tela",
+		"rewards": {"cloth": 1},
+	},
+	{
+		"seed": 71599343,
+		"material_roll": 0.380890697240829,
+		"split_roll": -1.0,
+		"ammo_roll": 0.079999707639217,
+		"label": "municion justo debajo de 0,08: pistola",
+		"rewards": {"pistol_ammo": 3},
+	},
+	{
+		"seed": 71719984,
+		"material_roll": 0.401184171438217,
+		"split_roll": -1.0,
+		"ammo_roll": 0.080000311136246,
+		"label": "municion justo encima de 0,08: escopeta",
+		"rewards": {"shotgun_ammo": 2},
+	},
+	{
+		"seed": 74476158,
+		"material_roll": 0.660870373249054,
+		"split_roll": -1.0,
+		"ammo_roll": 0.119999669492245,
+		"label": "municion justo debajo de 0,12: escopeta",
+		"rewards": {"shotgun_ammo": 3},
+	},
+	{
+		"seed": 71845937,
+		"material_roll": 0.808587372303009,
+		"split_roll": -1.0,
+		"ammo_roll": 0.120000027120113,
+		"label": "municion justo encima de 0,12: fusil",
+		"rewards": {"rifle_ammo": 8},
+	},
+	{
+		"seed": 72595980,
+		"material_roll": 0.427841901779175,
+		"split_roll": -1.0,
+		"ammo_roll": 0.149999707937241,
+		"label": "municion justo debajo de 0,15: fusil",
+		"rewards": {"rifle_ammo": 7},
+	},
+	{
+		"seed": 68068886,
+		"material_roll": 0.441972225904465,
+		"split_roll": -1.0,
+		"ammo_roll": 0.150000080466270,
+		"label": "municion justo encima de 0,15: sin recompensa",
+		"rewards": {},
+	},
+	{
+		"seed": 71813614,
+		"material_roll": 0.064877346158028,
+		"split_roll": 0.419527769088745,
+		"ammo_roll": 0.041581209748983,
+		"label": "material y pistola comparten el mismo stream",
+		"rewards": {"scrap": 1, "pistol_ammo": 5},
+	},
+	{
+		"seed": 71813463,
+		"material_roll": 0.001634263666347,
+		"split_roll": 0.887996613979340,
+		"ammo_roll": 0.081622533500195,
+		"label": "material y escopeta comparten el mismo stream",
+		"rewards": {"cloth": 1, "shotgun_ammo": 4},
+	},
+	{
+		"seed": 71813565,
+		"material_roll": 0.107130177319050,
+		"split_roll": 0.354757159948349,
+		"ammo_roll": 0.141732335090637,
+		"label": "material y fusil comparten el mismo stream",
+		"rewards": {"scrap": 1, "rifle_ammo": 8},
+	},
+	{
+		"seed": 71813510,
+		"material_roll": 0.329559087753296,
+		"split_roll": -1.0,
+		"ammo_roll": 0.276594847440720,
+		"label": "caminante sin recompensa",
+		"rewards": {},
 	},
 ]
 
@@ -205,6 +330,9 @@ func _ready() -> void:
 		await _exercise_collection(scrap_pickups[0], scrap_amount)
 
 	await _exercise_boss_rng_matrix()
+	_check_walker_policy_constants()
+	await _exercise_walker_rng_matrix()
+	await _exercise_queued_stale_root()
 	await _exercise_forest_cleanup()
 	await _exercise_horde_cleanup()
 	await _finish()
@@ -219,6 +347,17 @@ func _make_boss() -> CharacterBody2D:
 	boss.set("close_sense_radius", 0.0)
 	boss.set("lose_radius", 0.0)
 	return boss
+
+
+func _make_walker() -> CharacterBody2D:
+	var walker: CharacterBody2D = ZOMBIE_SCENE.instantiate() as CharacterBody2D
+	walker.name = "ZombieDropWalker"
+	walker.set("kind", 0)
+	walker.set("speed", 0.0)
+	walker.set("detect_radius", 0.0)
+	walker.set("close_sense_radius", 0.0)
+	walker.set("lose_radius", 0.0)
+	return walker
 
 
 func _pickup_snapshot() -> Dictionary:
@@ -291,6 +430,22 @@ func _all_amounts_in_ranges(pickups: Array[Node]) -> bool:
 	return true
 
 
+func _all_walker_amounts_in_ranges(pickups: Array[Node]) -> bool:
+	if pickups.is_empty():
+		return false
+	for node in pickups:
+		if not is_instance_valid(node):
+			return false
+		var item_id: String = String(node.get("item_id"))
+		if not WALKER_REWARD_RANGES.has(item_id):
+			return false
+		var limits: Vector2i = WALKER_REWARD_RANGES[item_id]
+		var amount: int = int(node.get("amount"))
+		if amount < limits.x or amount > limits.y:
+			return false
+	return true
+
+
 func _all_below_root(pickups: Array[Node], root: Node) -> bool:
 	if root == null or pickups.is_empty():
 		return false
@@ -342,6 +497,18 @@ func _reward_amounts(pickups: Array[Node]) -> Dictionary:
 func _same_amounts(actual: Dictionary, expected: Dictionary) -> bool:
 	if actual.is_empty() or expected.is_empty():
 		return false
+	if actual.size() != expected.size():
+		return false
+	for item_id in expected.keys():
+		if not actual.has(item_id) or int(actual[item_id]) != int(expected[item_id]):
+			return false
+	return true
+
+
+## Compara un mapa de recompensa que permite estar vacio. Se usa para las ramas del
+## caminante donde no dropear nada es un resultado valido y debe distinguirse
+## de una prueba que nunca llego a ejecutarse.
+func _same_reward_map(actual: Dictionary, expected: Dictionary) -> bool:
 	if actual.size() != expected.size():
 		return false
 	for item_id in expected.keys():
@@ -446,6 +613,123 @@ func _exercise_boss_rng_matrix() -> void:
 				pickup.queue_free()
 		await get_tree().process_frame
 	GameState.reset_rngs(GameState.MASTER_SEED)
+
+
+func _check_walker_policy_constants() -> void:
+	var zombie_script: Script = load("res://03_zombies/Zombie.gd") as Script
+	var constants: Dictionary = {}
+	if zombie_script != null:
+		constants = zombie_script.get_script_constant_map()
+	var expected: Dictionary = {
+		"WALKER_MATERIAL_CHANCE": 0.18,
+		"WALKER_SCRAP_CHANCE": 0.60,
+		"WALKER_PISTOL_CHANCE": 0.08,
+		"WALKER_SHOTGUN_CHANCE": 0.12,
+		"WALKER_RIFLE_CHANCE": 0.15,
+	}
+	for constant_name in expected.keys():
+		_check(constants.has(constant_name)
+				and absf(float(constants[constant_name]) - float(expected[constant_name])) < 0.000000001,
+			"La politica del caminante conserva la constante %s" % constant_name)
+
+
+func _exercise_walker_rng_matrix() -> void:
+	for case_data in WALKER_BRANCH_CASES:
+		var seed_value: int = int(case_data.get("seed", GameState.MASTER_SEED))
+		var label: String = String(case_data.get("label", "rama de caminante"))
+		var expected_material: float = float(case_data.get("material_roll", -1.0))
+		var expected_split: float = float(case_data.get("split_roll", -1.0))
+		var expected_ammo: float = float(case_data.get("ammo_roll", -1.0))
+		var expected: Dictionary = case_data.get("rewards", {}) as Dictionary
+
+		GameState.reset_rngs(seed_value)
+		var production_rng: RandomNumberGenerator = GameState.rng(&"loot")
+		var draw_probe := RandomNumberGenerator.new()
+		draw_probe.state = production_rng.state
+		var actual_material: float = draw_probe.randf()
+		var actual_split: float = -1.0
+		if actual_material < 0.18:
+			actual_split = draw_probe.randf()
+		var actual_ammo: float = draw_probe.randf()
+		_check(absf(actual_material - expected_material) < 0.000000001,
+			"La matriz reproduce el roll de material exacto (%s)" % label)
+		_check(absf(actual_split - expected_split) < 0.000000001,
+			"La matriz reproduce el roll de split exacto (%s)" % label)
+		_check(absf(actual_ammo - expected_ammo) < 0.000000001,
+			"La matriz reproduce el roll de municion exacto (%s)" % label)
+
+		var inventory_before: Dictionary = Inventory.items()
+		var pickups_before: Dictionary = _pickup_snapshot()
+		var walker: CharacterBody2D = _make_walker()
+		walker.name = "ZombieDropMatrixWalker"
+		_main.add_child(walker)
+		walker.global_position = Vector2(100000.0, 100000.0)
+		await get_tree().process_frame
+		walker.call("_drop_loot")
+		var pickups: Array[Node] = _new_pickups(pickups_before, _pickup_snapshot())
+
+		_check(_same_reward_map(_reward_amounts(pickups), expected),
+			"La matriz RNG del caminante conserva IDs y cantidades exactas (%s)" % label)
+		_check(_same_inventory(Inventory.items(), inventory_before),
+			"La matriz del caminante no muta el inventario (%s)" % label)
+		if expected.is_empty():
+			_check(pickups.is_empty(),
+				"La rama sin recompensa no crea ninguna pickup (%s)" % label)
+		else:
+			_check(_all_amounts_positive(pickups),
+				"La matriz del caminante solo crea cantidades positivas (%s)" % label)
+			_check(_all_walker_amounts_in_ranges(pickups),
+				"La matriz del caminante conserva los rangos originales (%s)" % label)
+
+		walker.queue_free()
+		for pickup in pickups:
+			if is_instance_valid(pickup):
+				pickup.queue_free()
+		await get_tree().process_frame
+	GameState.reset_rngs(GameState.MASTER_SEED)
+
+
+func _exercise_queued_stale_root() -> void:
+	var original_scene: Node = get_tree().current_scene
+	var isolated_scene := Node2D.new()
+	isolated_scene.name = "QueuedRootProbeScene"
+	get_tree().root.add_child(isolated_scene)
+	get_tree().current_scene = isolated_scene
+
+	var stale_root := Node2D.new()
+	stale_root.name = "QueuedZombieDrops"
+	stale_root.add_to_group("zombie_drop_root")
+	isolated_scene.add_child(stale_root)
+	stale_root.queue_free()
+
+	var inventory_before: Dictionary = Inventory.items()
+	var pickups_before: Dictionary = _pickup_snapshot()
+	var boss: CharacterBody2D = _make_boss()
+	boss.name = "QueuedRootProbeBoss"
+	isolated_scene.add_child(boss)
+	boss.call("_drop_loot")
+	var pickups: Array[Node] = _new_pickups(pickups_before, _pickup_snapshot())
+	var fallback: Node = isolated_scene.get_node_or_null("ZombieDropsFallback")
+
+	_check(stale_root.is_queued_for_deletion(),
+		"La raiz de grupo obsoleta esta pendiente de liberacion")
+	_check(pickups.size() >= 2,
+		"La raiz pendiente no puede recibir las recompensas")
+	_check(fallback != null,
+		"El mundo actual crea una raiz de botin valida de reemplazo")
+	_check(fallback != null and _all_below_root(pickups, fallback),
+		"Las recompensas pertenecen a la raiz valida de reemplazo")
+	_check(not _all_below_root(pickups, stale_root),
+		"Ninguna recompensa pertenece a la raiz pendiente de liberacion")
+	_check(_same_inventory(Inventory.items(), inventory_before),
+		"La prueba de raiz obsoleta no concede botin directamente")
+
+	for pickup in pickups:
+		if is_instance_valid(pickup):
+			pickup.queue_free()
+	get_tree().current_scene = original_scene
+	isolated_scene.queue_free()
+	await get_tree().process_frame
 
 
 func _exercise_forest_cleanup() -> void:
