@@ -5,8 +5,8 @@ extends Node
 ## Esta puerta ejercita la ruta real de muerte y el contrato completo del
 ## botín: el inventario no cambia al morir, cada recompensa aparece como
 ## Pickup, la matriz determinista fija la politica de municion del jefe, el
-## objeto sobrevive al cadaver y a las limpiezas de bosque/horda, una aceptacion
-## parcial conserva el resto y una recogida nunca duplica unidades.
+## objeto sobrevive al cadaver y a los ciclos reales de bosque/horda, una
+## aceptacion parcial conserva el resto y una recogida nunca duplica unidades.
 ## ============================================================================
 
 const MAIN_SCENE: PackedScene = preload("res://07_house/Main.tscn")
@@ -15,36 +15,58 @@ const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
 const BOSS_KIND: int = 1
 const NEAR_CAPACITY: int = 57
 const SCRAP_STACK_LIMIT: int = 60
-const DEFAULT_MASTER_SEED: int = 20261117
 const MISSING_ASSET_TEXT: String = "FALTA ASSET - NO INVENTAR"
 const ALLOWED_BOSS_REWARD_IDS: Array[String] = [
 	"scrap", "medkit", "pistol_ammo", "shotgun_ammo", "rifle_ammo",
 ]
-## Semillas maestras -> stream `loot` -> rama compartida de municion.
-## Las cantidades exactas fixation ademas el orden de los draws del RNG.
+const BOSS_REWARD_RANGES: Dictionary = {
+	"scrap": Vector2i(5, 8),
+	"medkit": Vector2i(1, 2),
+	"pistol_ammo": Vector2i(12, 24),
+	"shotgun_ammo": Vector2i(6, 12),
+	"rifle_ammo": Vector2i(12, 24),
+}
+## Semillas frontera -> roll compartido -> IDs y cantidades exactos. Cada
+## umbral 0,30/0,50/0,70 tiene una muestra inmediatamente debajo y encima.
 const BOSS_BRANCH_CASES: Array[Dictionary] = [
 	{
-		"seed": 1,
-		"label": "roll < 0,30: pistola + escopeta + fusil",
+		"seed": 2592291,
+		"roll": 0.299999743700,
+		"label": "justo debajo de 0,30: pistola + escopeta + fusil",
 		"rewards": {
-			"scrap": 7, "pistol_ammo": 22, "shotgun_ammo": 8,
-			"rifle_ammo": 24, "medkit": 1,
+			"scrap": 8, "pistol_ammo": 12, "shotgun_ammo": 10,
+			"rifle_ammo": 19, "medkit": 2,
 		},
 	},
 	{
-		"seed": 6,
-		"label": "0,30 <= roll < 0,50: pistola + escopeta",
-		"rewards": {"scrap": 6, "pistol_ammo": 20, "shotgun_ammo": 11, "medkit": 2},
+		"seed": 2639706,
+		"roll": 0.300000071526,
+		"label": "justo encima de 0,30: pistola + escopeta",
+		"rewards": {"scrap": 8, "pistol_ammo": 18, "shotgun_ammo": 9, "medkit": 2},
 	},
 	{
-		"seed": 16,
-		"label": "0,50 <= roll < 0,70: solo pistola",
-		"rewards": {"scrap": 6, "pistol_ammo": 21, "medkit": 1},
+		"seed": 547937,
+		"roll": 0.499999880791,
+		"label": "justo debajo de 0,50: pistola + escopeta",
+		"rewards": {"scrap": 5, "pistol_ammo": 17, "shotgun_ammo": 9, "medkit": 1},
 	},
 	{
-		"seed": 3,
-		"label": "roll >= 0,70: sin municion",
-		"rewards": {"scrap": 5, "medkit": 1},
+		"seed": 1585036,
+		"roll": 0.500000178814,
+		"label": "justo encima de 0,50: solo pistola",
+		"rewards": {"scrap": 6, "pistol_ammo": 22, "medkit": 2},
+	},
+	{
+		"seed": 403054,
+		"roll": 0.699999868870,
+		"label": "justo debajo de 0,70: solo pistola",
+		"rewards": {"scrap": 8, "pistol_ammo": 17, "medkit": 1},
+	},
+	{
+		"seed": 1299245,
+		"roll": 0.700000047684,
+		"label": "justo encima de 0,70: sin municion",
+		"rewards": {"scrap": 6, "medkit": 2},
 	},
 ]
 
@@ -91,9 +113,7 @@ func _ready() -> void:
 	_player.global_position = Vector2(-120000.0, -120000.0)
 
 	var pickups_before: Dictionary = _pickup_snapshot()
-	var inventory_before: Dictionary = _inventory_counts([
-		"scrap", "medkit", "pistol_ammo", "shotgun_ammo", "rifle_ammo",
-	])
+	var inventory_before: Dictionary = Inventory.items()
 	var boss: CharacterBody2D = _make_boss()
 	_main.add_child(boss)
 	boss.global_position = Vector2(100000.0, 100000.0)
@@ -105,9 +125,7 @@ func _ready() -> void:
 	var new_pickups: Array[Node] = _new_pickups(pickups_before, pickups_after)
 
 	_check(bool(boss.get("_dead")), "El jefe muere por la ruta real de dano")
-	_check(_same_counts(
-			_inventory_counts(["scrap", "medkit", "pistol_ammo", "shotgun_ammo", "rifle_ammo"]),
-			inventory_before),
+	_check(_same_inventory(Inventory.items(), inventory_before),
 		"La muerte del zombi no concede ninguna recompensa directamente")
 	_check(Inventory.count("scrap") == NEAR_CAPACITY,
 		"La muerte del zombi no concede chatarra directamente al inventario")
@@ -129,6 +147,8 @@ func _ready() -> void:
 		"Toda recompensa usa un ID de botin permitido")
 	_check(_all_amounts_positive(new_pickups),
 		"Toda recompensa contiene una cantidad positiva")
+	_check(_all_amounts_in_ranges(new_pickups),
+		"Toda recompensa conserva su rango original")
 	_check(scrap_pickups.size() == 1,
 		"El jefe crea una unica pickup de chatarra")
 	_check(medkit_pickups.size() == 1,
@@ -155,7 +175,8 @@ func _ready() -> void:
 		"La raiz de botin de zombis es resoluble por su grupo")
 	_check(_all_below_root(new_pickups, drop_root),
 		"Todas las recompensas fisicas pertenecen a la raiz persistente")
-	_check(not _all_below_root(new_pickups, _foreign_drop_root),
+	_check(not new_pickups.is_empty()
+			and not _all_below_root(new_pickups, _foreign_drop_root),
 		"La raiz persistente de la escena actual tiene prioridad sobre otros grupos")
 
 	var scrap_amount: int = 0
@@ -235,6 +256,8 @@ func _amount_in_range(node: Node, minimum: int, maximum: int) -> bool:
 
 
 func _all_ids_allowed(pickups: Array[Node]) -> bool:
+	if pickups.is_empty():
+		return false
 	for node in pickups:
 		if not is_instance_valid(node):
 			return false
@@ -244,14 +267,32 @@ func _all_ids_allowed(pickups: Array[Node]) -> bool:
 
 
 func _all_amounts_positive(pickups: Array[Node]) -> bool:
+	if pickups.is_empty():
+		return false
 	for node in pickups:
 		if not is_instance_valid(node) or int(node.get("amount")) <= 0:
 			return false
 	return true
 
 
+func _all_amounts_in_ranges(pickups: Array[Node]) -> bool:
+	if pickups.is_empty():
+		return false
+	for node in pickups:
+		if not is_instance_valid(node):
+			return false
+		var item_id: String = String(node.get("item_id"))
+		if not BOSS_REWARD_RANGES.has(item_id):
+			return false
+		var limits: Vector2i = BOSS_REWARD_RANGES[item_id]
+		var amount: int = int(node.get("amount"))
+		if amount < limits.x or amount > limits.y:
+			return false
+	return true
+
+
 func _all_below_root(pickups: Array[Node], root: Node) -> bool:
-	if root == null:
+	if root == null or pickups.is_empty():
 		return false
 	for node in pickups:
 		var ancestor: Node = node.get_parent()
@@ -276,14 +317,7 @@ func _missing_asset_is_honest(pickup: Node) -> bool:
 			and icon != null and not icon.visible
 
 
-func _inventory_counts(item_ids: Array[String]) -> Dictionary:
-	var counts: Dictionary = {}
-	for item_id in item_ids:
-		counts[item_id] = Inventory.count(item_id)
-	return counts
-
-
-func _same_counts(actual: Dictionary, expected: Dictionary) -> bool:
+func _same_inventory(actual: Dictionary, expected: Dictionary) -> bool:
 	if actual.size() != expected.size():
 		return false
 	for item_id in expected.keys():
@@ -306,6 +340,8 @@ func _reward_amounts(pickups: Array[Node]) -> Dictionary:
 
 
 func _same_amounts(actual: Dictionary, expected: Dictionary) -> bool:
+	if actual.is_empty() or expected.is_empty():
+		return false
 	if actual.size() != expected.size():
 		return false
 	for item_id in expected.keys():
@@ -363,19 +399,28 @@ func _exercise_collection(pickup: Node, original_amount: int) -> void:
 
 	_check(Inventory.count("scrap") == SCRAP_STACK_LIMIT - 10,
 		"La recompensa no vuelve a concederse despues de recogerse")
+	_check(_scrap_pickup_events.size() == 2,
+		"No se emite una tercera recogida de chatarra")
 	_check(_pickups_with_id(_all_pickups(), "scrap").is_empty(),
 		"No queda ninguna pickup de chatarra tras la recogida completa")
 
 
 func _exercise_boss_rng_matrix() -> void:
 	for case_data in BOSS_BRANCH_CASES:
-		var seed_value: int = int(case_data.get("seed", DEFAULT_MASTER_SEED))
+		var seed_value: int = int(case_data.get("seed", GameState.MASTER_SEED))
 		var label: String = String(case_data.get("label", "rama de jefe"))
+		var expected_roll: float = float(case_data.get("roll", -1.0))
 		var expected: Dictionary = case_data.get("rewards", {}) as Dictionary
 		GameState.reset_rngs(seed_value)
-		var inventory_before: Dictionary = _inventory_counts([
-			"scrap", "medkit", "pistol_ammo", "shotgun_ammo", "rifle_ammo",
-		])
+		var production_rng: RandomNumberGenerator = GameState.rng(&"loot")
+		var roll_probe := RandomNumberGenerator.new()
+		roll_probe.state = production_rng.state
+		roll_probe.randi_range(5, 8)
+		var actual_roll: float = roll_probe.randf()
+		_check(absf(actual_roll - expected_roll) < 0.000000001,
+			"La matriz reproduce el roll compartido exacto (%s)" % label)
+
+		var inventory_before: Dictionary = Inventory.items()
 		var pickups_before: Dictionary = _pickup_snapshot()
 		var boss: CharacterBody2D = _make_boss()
 		boss.name = "ZombieDropMatrixBoss"
@@ -388,11 +433,11 @@ func _exercise_boss_rng_matrix() -> void:
 			"La matriz del jefe solo crea IDs permitidos (%s)" % label)
 		_check(_all_amounts_positive(pickups),
 			"La matriz del jefe solo crea cantidades positivas (%s)" % label)
+		_check(_all_amounts_in_ranges(pickups),
+			"La matriz del jefe conserva los rangos originales (%s)" % label)
 		_check(_same_amounts(_reward_amounts(pickups), expected),
 			"La matriz RNG del jefe conserva IDs y cantidades exactas (%s)" % label)
-		_check(_same_counts(
-				_inventory_counts(["scrap", "medkit", "pistol_ammo", "shotgun_ammo", "rifle_ammo"]),
-				inventory_before),
+		_check(_same_inventory(Inventory.items(), inventory_before),
 			"La matriz del jefe no muta el inventario (%s)" % label)
 
 		boss.queue_free()
@@ -400,7 +445,7 @@ func _exercise_boss_rng_matrix() -> void:
 			if is_instance_valid(pickup):
 				pickup.queue_free()
 		await get_tree().process_frame
-	GameState.reset_rngs(DEFAULT_MASTER_SEED)
+	GameState.reset_rngs(GameState.MASTER_SEED)
 
 
 func _exercise_forest_cleanup() -> void:
@@ -408,24 +453,40 @@ func _exercise_forest_cleanup() -> void:
 	_check(forest != null, "Main crea el gestor real de zombis del bosque")
 	if forest == null:
 		return
-	var boss: CharacterBody2D = _make_boss()
-	boss.name = "ZombieDropForestBoss"
-	forest.add_child(boss)
-	boss.global_position = Vector2(110000.0, 110000.0)
-	var spawned: Array = forest.get("_spawned")
-	spawned.append(boss)
+	EventBus.forest_entered.emit()
 	await get_tree().process_frame
-
+	var forest_actors: Array[CharacterBody2D] = _actors_with_meta(forest, "forest_zombie")
+	_check(forest_actors.size() >= 2,
+		"La entrada al bosque crea varios zombis reales")
+	if forest_actors.is_empty():
+		return
+	var boss: CharacterBody2D = forest_actors[0]
+	boss.set("kind", BOSS_KIND)
+	boss.call("_apply_kind")
+	var inventory_before: Dictionary = Inventory.items()
 	var pickups_before: Dictionary = _pickup_snapshot()
+
 	boss.take_damage(10000.0, _player)
 	var pickups: Array[Node] = _new_pickups(pickups_before, _pickup_snapshot())
-	forest.call("_clear_zombies")
-	await get_tree().process_frame
-
-	_check(not is_instance_valid(boss),
-		"La limpieza del bosque libera sus zombis")
+	var amounts_before: Dictionary = _reward_amounts(pickups)
+	_check(_same_inventory(Inventory.items(), inventory_before),
+		"El zombi real del bosque no concede botin directamente")
 	_check(pickups.size() >= 2 and _all_valid(pickups),
-		"La recompensa del bosque sobrevive a su limpieza")
+		"El zombi real del bosque deja recompensas fisicas")
+	var forest_survivors: Array[CharacterBody2D] = []
+	for actor in forest_actors:
+		if actor != boss:
+			forest_survivors.append(actor)
+
+	EventBus.forest_exited.emit()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(_all_invalid(forest_survivors),
+		"La salida del bosque libera sus zombis reales")
+	_check(_all_valid(pickups),
+		"La recompensa del bosque sobrevive a la salida real")
+	_check(_same_amounts(_reward_amounts(pickups), amounts_before),
+		"La recompensa del bosque conserva su cantidad pendiente")
 	_check(_all_below_root(pickups, _main.get_node_or_null("ZombieDrops")),
 		"La recompensa del bosque conserva el propietario persistente")
 	for pickup in pickups:
@@ -439,30 +500,60 @@ func _exercise_horde_cleanup() -> void:
 	_check(director != null, "Main crea el WorldDirector real")
 	if director == null:
 		return
-	var boss: CharacterBody2D = _make_boss()
-	boss.name = "ZombieDropHordeBoss"
-	director.add_child(boss)
-	boss.global_position = Vector2(120000.0, 120000.0)
-	var horde: Array = director.get("_horde_zombies")
-	horde.append(boss)
+	director.call("force_phase", "night")
+	EventBus.forest_entered.emit()
 	await get_tree().process_frame
-
+	director.call("trigger_horde")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var horde_actors: Array[CharacterBody2D] = _actors_with_meta(director, "horde_zombie")
+	_check(horde_actors.size() >= 2,
+		"La horda real crea varios zombis reales")
+	_check(int(director.call("horde_size")) == horde_actors.size(),
+		"La horda real conserva su lista de zombis")
+	if horde_actors.is_empty():
+		return
+	var boss: CharacterBody2D = horde_actors[0]
+	boss.set("kind", BOSS_KIND)
+	boss.call("_apply_kind")
+	var inventory_before: Dictionary = Inventory.items()
 	var pickups_before: Dictionary = _pickup_snapshot()
+
 	boss.take_damage(10000.0, _player)
 	var pickups: Array[Node] = _new_pickups(pickups_before, _pickup_snapshot())
-	director.call("_clear_horde_zombies", false)
-	await get_tree().process_frame
-
-	_check(not is_instance_valid(boss),
-		"La limpieza de horda libera sus zombis")
+	var amounts_before: Dictionary = _reward_amounts(pickups)
+	_check(_same_inventory(Inventory.items(), inventory_before),
+		"El zombi real de horda no concede botin directamente")
 	_check(pickups.size() >= 2 and _all_valid(pickups),
-		"La recompensa de horda sobrevive a su limpieza")
+		"El zombi real de horda deja recompensas fisicas")
+
+	director.call("_end_horde")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(_all_invalid(horde_actors),
+		"La dispersion real de horda libera sus zombis")
+	_check(int(director.call("horde_size")) == 0
+			and not bool(director.call("is_horde_active")),
+		"La horda real queda cerrada y vacia")
+	_check(_all_valid(pickups),
+		"La recompensa de horda sobrevive a la dispersion real")
+	_check(_same_amounts(_reward_amounts(pickups), amounts_before),
+		"La recompensa de horda conserva su cantidad pendiente")
 	_check(_all_below_root(pickups, _main.get_node_or_null("ZombieDrops")),
 		"La recompensa de horda conserva el propietario persistente")
 	for pickup in pickups:
 		if is_instance_valid(pickup):
 			pickup.queue_free()
+	EventBus.forest_exited.emit()
 	await get_tree().process_frame
+
+
+func _actors_with_meta(parent: Node, meta_name: String) -> Array[CharacterBody2D]:
+	var result: Array[CharacterBody2D] = []
+	for child in parent.get_children():
+		if child is CharacterBody2D and bool(child.get_meta(meta_name, false)):
+			result.append(child as CharacterBody2D)
+	return result
 
 
 func _all_pickups() -> Array[Node]:
@@ -474,8 +565,19 @@ func _all_pickups() -> Array[Node]:
 
 
 func _all_valid(pickups: Array[Node]) -> bool:
+	if pickups.is_empty():
+		return false
 	for pickup in pickups:
 		if not is_instance_valid(pickup):
+			return false
+	return true
+
+
+func _all_invalid(instances: Array[CharacterBody2D]) -> bool:
+	if instances.is_empty():
+		return false
+	for instance in instances:
+		if is_instance_valid(instance):
 			return false
 	return true
 
@@ -486,6 +588,7 @@ func _on_item_picked_up(item_id: String, amount: int) -> void:
 
 
 func _finish() -> void:
+	GameState.reset_rngs(GameState.MASTER_SEED)
 	if Inventory.item_picked_up.is_connected(_on_item_picked_up):
 		Inventory.item_picked_up.disconnect(_on_item_picked_up)
 	if is_instance_valid(_main):

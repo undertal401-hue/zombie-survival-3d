@@ -99,15 +99,13 @@ func _loot_checks() -> void:
 	get_tree().root.add_child(boss_z)
 	boss_z.set("kind", boss)
 	boss_z.call("_apply_kind")
-	var inventory_before: Dictionary = _inventory_counts([
-		"scrap", "medkit", "pistol_ammo", "shotgun_ammo", "rifle_ammo"])
+	var inventory_before: Dictionary = _inventory_snapshot()
 	var pickups_before: Dictionary = _pickup_ids()
 	boss_z.call("_drop_loot")
 	var boss_pickups: Array[Node] = _new_pickups(pickups_before)
 	var boss_scrap: Array[Node] = _pickups_with_id(boss_pickups, "scrap")
 	var boss_medkit: Array[Node] = _pickups_with_id(boss_pickups, "medkit")
-	_check(_inventory_counts(["scrap", "medkit", "pistol_ammo", "shotgun_ammo", "rifle_ammo"])
-			== inventory_before,
+	_check(_same_inventory(_inventory_snapshot(), inventory_before),
 		"el jefe no concede el botin directamente al inventario")
 	_check(boss_scrap.size() == 1 and _amount_in_range(boss_scrap[0], 5, 8),
 		"el jefe suelta una pickup de 5-8 de chatarra")
@@ -119,17 +117,14 @@ func _loot_checks() -> void:
 	get_tree().root.add_child(walker_z)
 	walker_z.set("kind", walker)
 	walker_z.call("_apply_kind")
-	var walker_inventory_before: Dictionary = _inventory_counts([
-		"scrap", "cloth", "pistol_ammo", "shotgun_ammo", "rifle_ammo"])
+	var walker_inventory_before: Dictionary = _inventory_snapshot()
 	var walker_pickups_before: Dictionary = _pickup_ids()
 	walker_z.call("_drop_loot")
 	var walker_pickups: Array[Node] = _new_pickups(walker_pickups_before)
 	var walker_materials: Array[Node] = _pickups_with_id(walker_pickups, "scrap")
 	walker_materials.append_array(_pickups_with_id(walker_pickups, "cloth"))
-	_check(_inventory_counts([
-			"scrap", "cloth", "pistol_ammo", "shotgun_ammo", "rifle_ammo"])
-			== walker_inventory_before,
-		"el caminante no concede materiales ni municion directamente al inventario")
+	_check(_same_inventory(_inventory_snapshot(), walker_inventory_before),
+		"el caminante no concede ninguna recompensa directamente al inventario")
 	_check(walker_materials.size() <= 1,
 		"el caminante suelta como mucho una pieza fisica")
 	walker_z.queue_free()
@@ -152,11 +147,17 @@ func _horde_checks() -> void:
 
 
 # --- Utilidades ---------------------------------------------------------------
-func _inventory_counts(item_ids: Array) -> Dictionary:
-	var counts: Dictionary = {}
-	for item_id in item_ids:
-		counts[item_id] = Inventory.count(String(item_id))
-	return counts
+func _inventory_snapshot() -> Dictionary:
+	return Inventory.items()
+
+
+func _same_inventory(actual: Dictionary, expected: Dictionary) -> bool:
+	if actual.size() != expected.size():
+		return false
+	for item_id in expected.keys():
+		if not actual.has(item_id) or int(actual[item_id]) != int(expected[item_id]):
+			return false
+	return true
 
 
 func _pickup_ids() -> Dictionary:
