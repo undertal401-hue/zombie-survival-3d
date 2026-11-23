@@ -119,14 +119,17 @@ func _loot_checks() -> void:
 	get_tree().root.add_child(walker_z)
 	walker_z.set("kind", walker)
 	walker_z.call("_apply_kind")
-	var walker_inventory_before: Dictionary = _inventory_counts(["scrap", "cloth"])
+	var walker_inventory_before: Dictionary = _inventory_counts([
+		"scrap", "cloth", "pistol_ammo", "shotgun_ammo", "rifle_ammo"])
 	var walker_pickups_before: Dictionary = _pickup_ids()
 	walker_z.call("_drop_loot")
 	var walker_pickups: Array[Node] = _new_pickups(walker_pickups_before)
 	var walker_materials: Array[Node] = _pickups_with_id(walker_pickups, "scrap")
 	walker_materials.append_array(_pickups_with_id(walker_pickups, "cloth"))
-	_check(_inventory_counts(["scrap", "cloth"]) == walker_inventory_before,
-		"el caminante no concede materiales directamente al inventario")
+	_check(_inventory_counts([
+			"scrap", "cloth", "pistol_ammo", "shotgun_ammo", "rifle_ammo"])
+			== walker_inventory_before,
+		"el caminante no concede materiales ni municion directamente al inventario")
 	_check(walker_materials.size() <= 1,
 		"el caminante suelta como mucho una pieza fisica")
 	walker_z.queue_free()
