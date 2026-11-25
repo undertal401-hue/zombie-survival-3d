@@ -4,37 +4,38 @@ class_name GroundTileMapV2
 ## =============================================================================
 ## GROUND TILEMAP V2 - Sistema de tiles explícito tipo Minecraft/Terraria
 ## =============================================================================
-## Basado en GroundTileMap original (funciona) + API V2 con nombres de tile.
-## Usa ground_tiles.png (512x512) como atlas 10x10 de 48x48.
-## Crea la cuadrícula completa 10x10 (100 tiles) como el original.
-## Tipos: ROAD, DIRT, GRASS, DIRT_GRASS, STONE, FOREST_FLOOR, WATER, SAND
+## Usa ground_tiles.png (512x512) como atlas 16x16 de 32x32 (layout original Lumina).
+## El atlas original tiene 256 tiles (16 columnas x 16 filas).
+## Filas por bioma (según GroundTileMap original):
+##   GRASS_ROWS: 0, 1, 6, 7, 8     EARTH_ROWS: 2, 3
+##   STONE_ROWS: 4, 5              FOREST_ROWS: 8, 9
 ## =============================================================================
 
 const ATLAS_PATH: String = "res://assets/lumina_textures/ground_tiles.png"
-const ATLAS_CELL_SIZE: Vector2i = Vector2i(48, 48)
-const ATLAS_COLUMNS: int = 10
-const ATLAS_ROWS: int = 10
+const ATLAS_CELL_SIZE: Vector2i = Vector2i(32, 32)
+const ATLAS_COLUMNS: int = 16
+const ATLAS_ROWS: int = 16
 
 ## Capas del TileMap
 const LAYER_GROUND: int = 0      # Suelo base
 const LAYER_OVERLAY: int = 1     # Transiciones (hierba sobre tierra, etc.)
 const LAYER_DECORATION: int = 2  # Decoración (flores, rocas, etc.)
 
-## Tipos de tile explícitos con sus coordenadas en el atlas 10x10
+## Tipos de tile explícitos con sus coordenadas en el atlas 16x16
 ## Formato: { "nombre": { "atlas_coords": Vector2i(col, row), "nombre_visible": String, "transitable": bool, "variants": Array[Vector2i] } }
 const TILE_TYPES: Dictionary = {
-	# Suelos base
+	# Suelos base (columnas 0-3 para tiles principales, 1-3 para variantes)
 	"DIRT": {
 		"atlas_coords": Vector2i(0, 2),
 		"nombre_visible": "Tierra",
 		"transitable": true,
-		"variants": [Vector2i(1, 2), Vector2i(2, 2), Vector2i(3, 2)]
+		"variants": [Vector2i(1, 2), Vector2i(2, 2), Vector2i(3, 2), Vector2i(0, 3), Vector2i(1, 3), Vector2i(2, 3), Vector2i(3, 3)]
 	},
 	"GRASS": {
 		"atlas_coords": Vector2i(0, 0),
 		"nombre_visible": "Pasto",
 		"transitable": true,
-		"variants": [Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(2, 1), Vector2i(3, 1)]
+		"variants": [Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(2, 1), Vector2i(3, 1), Vector2i(0, 6), Vector2i(1, 6), Vector2i(2, 6), Vector2i(3, 6), Vector2i(0, 7), Vector2i(1, 7), Vector2i(2, 7), Vector2i(3, 7), Vector2i(0, 8), Vector2i(1, 8), Vector2i(2, 8), Vector2i(3, 8)]
 	},
 	"DIRT_GRASS": {
 		"atlas_coords": Vector2i(4, 0),
@@ -55,64 +56,64 @@ const TILE_TYPES: Dictionary = {
 		"variants": [Vector2i(1, 8), Vector2i(2, 8), Vector2i(3, 8), Vector2i(0, 9), Vector2i(1, 9), Vector2i(2, 9), Vector2i(3, 9)]
 	},
 	
-	# Carretera / caminos
+	# Carretera / caminos (columnas 12-15, filas 2-7)
 	"ROAD_H": {
-		"atlas_coords": Vector2i(8, 2),
+		"atlas_coords": Vector2i(12, 2),
 		"nombre_visible": "Carretera horizontal",
 		"transitable": true
 	},
 	"ROAD_V": {
-		"atlas_coords": Vector2i(9, 2),
+		"atlas_coords": Vector2i(13, 2),
 		"nombre_visible": "Carretera vertical",
 		"transitable": true
 	},
 	"ROAD_CORNER_TL": {
-		"atlas_coords": Vector2i(8, 3),
+		"atlas_coords": Vector2i(12, 3),
 		"nombre_visible": "Esquina carretera TL",
 		"transitable": true
 	},
 	"ROAD_CORNER_TR": {
-		"atlas_coords": Vector2i(9, 3),
+		"atlas_coords": Vector2i(13, 3),
 		"nombre_visible": "Esquina carretera TR",
 		"transitable": true
 	},
 	"ROAD_CORNER_BL": {
-		"atlas_coords": Vector2i(8, 4),
+		"atlas_coords": Vector2i(12, 4),
 		"nombre_visible": "Esquina carretera BL",
 		"transitable": true
 	},
 	"ROAD_CORNER_BR": {
-		"atlas_coords": Vector2i(9, 4),
+		"atlas_coords": Vector2i(13, 4),
 		"nombre_visible": "Esquina carretera BR",
 		"transitable": true
 	},
 	"ROAD_T_UP": {
-		"atlas_coords": Vector2i(8, 5),
+		"atlas_coords": Vector2i(12, 5),
 		"nombre_visible": "Carretera T arriba",
 		"transitable": true
 	},
 	"ROAD_T_DOWN": {
-		"atlas_coords": Vector2i(9, 5),
+		"atlas_coords": Vector2i(13, 5),
 		"nombre_visible": "Carretera T abajo",
 		"transitable": true
 	},
 	"ROAD_T_LEFT": {
-		"atlas_coords": Vector2i(8, 6),
+		"atlas_coords": Vector2i(12, 6),
 		"nombre_visible": "Carretera T izquierda",
 		"transitable": true
 	},
 	"ROAD_T_RIGHT": {
-		"atlas_coords": Vector2i(9, 6),
+		"atlas_coords": Vector2i(13, 6),
 		"nombre_visible": "Carretera T derecha",
 		"transitable": true
 	},
 	"ROAD_CROSS": {
-		"atlas_coords": Vector2i(8, 7),
+		"atlas_coords": Vector2i(12, 7),
 		"nombre_visible": "Cruce carretera",
 		"transitable": true
 	},
 	
-	# Transiciones (overlay layer)
+	# Transiciones (overlay layer) - fila 2, columnas 4-6
 	"GRASS_TO_DIRT": {
 		"atlas_coords": Vector2i(4, 2),
 		"nombre_visible": "Pasto a tierra",
@@ -129,7 +130,7 @@ const TILE_TYPES: Dictionary = {
 		"transitable": true
 	},
 	
-	# Agua
+	# Agua - fila 8, columnas 4-5
 	"WATER": {
 		"atlas_coords": Vector2i(4, 8),
 		"nombre_visible": "Agua",
@@ -141,7 +142,7 @@ const TILE_TYPES: Dictionary = {
 		"transitable": true
 	},
 	
-	# Arena
+	# Arena - fila 8, columna 6
 	"SAND": {
 		"atlas_coords": Vector2i(6, 8),
 		"nombre_visible": "Arena",
@@ -190,7 +191,7 @@ func _setup_tileset() -> void:
 	source.margins = Vector2i(0, 0)
 	source.separation = Vector2i(0, 0)
 	
-	# Crear todos los tiles del atlas 10x10 (igual que el original)
+	# Crear todos los tiles del atlas 16x16 (layout original Lumina)
 	for row in range(ATLAS_ROWS):
 		for column in range(ATLAS_COLUMNS):
 			source.create_tile(Vector2i(column, row))
@@ -438,14 +439,6 @@ func _rect2i_intersection(a: Rect2i, b: Rect2i) -> Rect2i:
 	
 	return Rect2i(min_x, min_y, max_x - min_x, max_y - min_y)
 	
-	var road_points: Array[Vector2i] = [
-		Vector2i(-2160, 0), Vector2i(0, 0), Vector2i(2160, 0),
-		Vector2i(0, -1350), Vector2i(0, 0), Vector2i(0, 1350),
-	]
-	generate_road_network(road_points, LAYER_GROUND)
-	
-	_apply_all_transitions(b)
-
 func _apply_all_transitions(bounds: Rect2i) -> void:
 	for y in range(bounds.position.y, bounds.position.y + bounds.size.y):
 		for x in range(bounds.position.x, bounds.position.x + bounds.size.x):

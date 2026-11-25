@@ -4,20 +4,21 @@ class_name GroundTileMap
 ## =============================================================================
 ## GROUND TILEMAP - suelo pixel art con los atlas originales de Lumina
 ## =============================================================================
-## ground_tiles.png no es una rejilla 16x16 de 32 px: contiene 10x10 piezas
-## con paso de 48 px. La imagen de 512 px incluye margen y el arte no ocupa
-## todo el PNG. Este nodo conserva los PNG sin modificarlos y los proyecta
-## como una capa de parches sobre las bases planas ya existentes.
-##
+## ground_tiles.png es una rejilla 16x16 de 32 px (layout original Lumina 512x512).
 ## decoration_tiles.png contiene cinco sprites individuales (dos arboles y tres
 ## arbustos), no una rejilla 16x16. Se recorta mediante AtlasTexture para no
 ## inventar arte ni alterar los originales.
+##
+## Filas por bioma (indices 0-15 en atlas 16x16):
+##   GRASS_ROWS: 0, 1, 6, 7, 8     EARTH_ROWS: 2, 3
+##   STONE_ROWS: 4, 5              FOREST_ROWS: 8, 9
+## =============================================================================
 
 const GROUND_TEXTURE_PATH: String = "res://assets/lumina_textures/ground_tiles.png"
 const DECORATION_TEXTURE_PATH: String = "res://assets/lumina_textures/decoration_tiles.png"
-const ATLAS_CELL_SIZE: Vector2i = Vector2i(48, 48)
-const ATLAS_COLUMNS: int = 10
-const ATLAS_ROWS: int = 10
+const ATLAS_CELL_SIZE: Vector2i = Vector2i(32, 32)
+const ATLAS_COLUMNS: int = 16
+const ATLAS_ROWS: int = 16
 
 ## Frecuencia de parches de suelo sobre la base procedural. La base sigue
 ## garantizando que el mundo no tenga huecos negros entre las piezas irregulares.
@@ -78,7 +79,7 @@ func set_biome_at(position: Vector2, biome: String) -> void:
 
 
 ## Crea el TileSet en runtime porque las hojas originales se deben conservar
-## intactas. La region 48x48 corresponde al paso real de los 10x10 sprites.
+## intactas. La region 32x32 corresponde al paso real de los 16x16 sprites.
 func _ensure_tile_set() -> void:
 	if _tile_set != null:
 		return

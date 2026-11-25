@@ -2,8 +2,8 @@ extends Node
 ## ============================================================================
 ## LUMINA GROUND TEST V2 — contrato visual del suelo pixel art con tiles explícitos.
 ## ============================================================================
-## El atlas ground_tiles.png contiene 10x10 piezas con paso de 48 px. Este
-## arnés comprueba que el juego usa ese paso real, que existe una sola capa
+## El atlas ground_tiles.png contiene 16x16 piezas con paso de 32 px (layout original Lumina).
+## Este arnés comprueba que el juego usa ese paso real (32x32), que existe una sola capa
 ## global de suelo con tiles explícitos (DIRT, GRASS, ROAD, etc.), que queda
 ## por encima de las bases planas y que decoration_tiles.png se pinta como decoración.
 ## ============================================================================
@@ -43,8 +43,8 @@ func _ready() -> void:
 	if ground != null:
 		_check(ground.get_tileset() != null, "Ground tiene un TileSet asignado")
 		if ground.get_tileset() != null:
-			_check(ground.get_tileset().tile_size == Vector2i(48, 48),
-				"Ground usa el paso real de 48 px del atlas (obtenido=%s)" %
+			_check(ground.get_tileset().tile_size == Vector2i(32, 32),
+				"Ground usa el paso real de 32 px del atlas (obtenido=%s)" %
 				str(ground.get_tileset().tile_size))
 			_check(ground.get_tileset().get_source_count() == 1,
 				"El TileSet tiene una unica fuente de atlas (encontradas=%d)" %
@@ -77,11 +77,11 @@ func _ready() -> void:
 					break
 		_check(ground_source != null, "El TileSet referencia ground_tiles.png")
 		if ground_source != null:
-			_check(ground_source.texture_region_size == Vector2i(48, 48),
-				"La fuente de ground_tiles usa regiones 48x48 (obtenido=%s)" %
+			_check(ground_source.texture_region_size == Vector2i(32, 32),
+				"La fuente de ground_tiles usa regiones 32x32 (obtenido=%s)" %
 				str(ground_source.texture_region_size))
 			
-			# Verificar que existen los tiles explícitos definidos en GroundTileMapV2
+			# Verificar que existen los tiles explícitos definidos en GroundTileMapV2 (atlas 16x16)
 			var required_tiles: Array[String] = ["DIRT", "GRASS", "DIRT_GRASS", "STONE", "FOREST_FLOOR", 
 				"ROAD_H", "ROAD_V", "ROAD_CORNER_TL", "ROAD_CORNER_TR", "ROAD_CORNER_BL", "ROAD_CORNER_BR",
 				"ROAD_T_UP", "ROAD_T_DOWN", "ROAD_T_LEFT", "ROAD_T_RIGHT", "ROAD_CROSS"]
@@ -89,24 +89,24 @@ func _ready() -> void:
 			for tile_name in required_tiles:
 				var found: bool = false
 				# Hardcoded expected atlas coordinates for each required tile type
-				# (matching GroundTileMapV2.TILE_TYPES)
+				# (matching GroundTileMapV2.TILE_TYPES for 16x16 atlas)
 				var tile_expected_coords: Dictionary = {
 					"DIRT": Vector2i(0, 2),
 					"GRASS": Vector2i(0, 0),
 					"DIRT_GRASS": Vector2i(4, 0),
 					"STONE": Vector2i(0, 4),
 					"FOREST_FLOOR": Vector2i(0, 8),
-					"ROAD_H": Vector2i(8, 2),
-					"ROAD_V": Vector2i(9, 2),
-					"ROAD_CORNER_TL": Vector2i(8, 3),
-					"ROAD_CORNER_TR": Vector2i(9, 3),
-					"ROAD_CORNER_BL": Vector2i(8, 4),
-					"ROAD_CORNER_BR": Vector2i(9, 4),
-					"ROAD_T_UP": Vector2i(8, 5),
-					"ROAD_T_DOWN": Vector2i(9, 5),
-					"ROAD_T_LEFT": Vector2i(8, 6),
-					"ROAD_T_RIGHT": Vector2i(9, 6),
-					"ROAD_CROSS": Vector2i(8, 7),
+					"ROAD_H": Vector2i(12, 2),
+					"ROAD_V": Vector2i(13, 2),
+					"ROAD_CORNER_TL": Vector2i(12, 3),
+					"ROAD_CORNER_TR": Vector2i(13, 3),
+					"ROAD_CORNER_BL": Vector2i(12, 4),
+					"ROAD_CORNER_BR": Vector2i(13, 4),
+					"ROAD_T_UP": Vector2i(12, 5),
+					"ROAD_T_DOWN": Vector2i(13, 5),
+					"ROAD_T_LEFT": Vector2i(12, 6),
+					"ROAD_T_RIGHT": Vector2i(13, 6),
+					"ROAD_CROSS": Vector2i(12, 7),
 					"GRASS_TO_DIRT": Vector2i(4, 2),
 					"DIRT_TO_STONE": Vector2i(5, 2),
 					"GRASS_TO_STONE": Vector2i(6, 2),
@@ -116,21 +116,21 @@ func _ready() -> void:
 				}
 				var expected_coords: Vector2i = tile_expected_coords.get(tile_name, Vector2i(-1, -1))
 				if expected_coords != Vector2i(-1, -1):
-					# Verify tile exists at expected coordinates
-					var tile_id: int = expected_coords.y * 10 + expected_coords.x
-					if tile_id >= 0 and tile_id < 100:
+					# Verify tile exists at expected coordinates (16x16 = 256 tiles)
+					var tile_id: int = expected_coords.y * 16 + expected_coords.x
+					if tile_id >= 0 and tile_id < 256:
 						found = true
 				if not found:
 					missing_tiles.append(tile_name)
 			_check(missing_tiles.is_empty(),
 				"Todos los tiles explícitos requeridos existen (faltantes=%s)" % str(missing_tiles))
 			
-			# Verificar que el atlas tiene las 100 coordenadas válidas 10x10
+			# Verificar que el atlas tiene las 256 coordenadas válidas 16x16
 			var invalid_atlas_cells: int = 0
 			for cell in ground.get_used_cells(0):
 				var atlas_coords := ground.get_cell_atlas_coords(0, cell)
-				if atlas_coords.x < 0 or atlas_coords.x > 9 \
-						or atlas_coords.y < 0 or atlas_coords.y > 9:
+				if atlas_coords.x < 0 or atlas_coords.x > 15 \
+						or atlas_coords.y < 0 or atlas_coords.y > 15:
 					invalid_atlas_cells += 1
 			_check(invalid_atlas_cells == 0,
 				"Todas las celdas pintadas usan coordenadas existentes (invalidas=%d)" %
