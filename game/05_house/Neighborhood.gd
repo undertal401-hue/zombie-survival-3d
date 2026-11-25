@@ -938,22 +938,18 @@ func _build_streetlights() -> void:
 	for y in range(-1350, 1501, 450):
 		_add_streetlight(Vector2(1044, y))
 
+const STREETLIGHT_SCENE: PackedScene = preload("res://07_house/StreetLight.tscn")
+
 func _add_streetlight(position: Vector2) -> void:
 	if _road_width_at(position) > 0.0:
 		return
-	var pole := Polygon2D.new()
-	pole.color = Color(0.2, 0.2, 0.2)
-	pole.position = position + Vector2(0, -10)
-	pole.polygon = PackedVector2Array([Vector2(-2, -12), Vector2(2, -12), Vector2(2, 12), Vector2(-2, 12)])
-	pole.z_index = 3
-	add_child(pole)
-
-	var lamp := Polygon2D.new()
-	lamp.color = Color(0.95, 0.88, 0.5)
-	lamp.position = position + Vector2(0, -24)
-	lamp.polygon = PackedVector2Array([Vector2(-6, -4), Vector2(6, -4), Vector2(4, 4), Vector2(-4, 4)])
-	lamp.z_index = 4
-	add_child(lamp)
+	var light := STREETLIGHT_SCENE.instantiate() as PointLight2D
+	if light == null:
+		return
+	light.name = "StreetLight_" + str(position.x) + "_" + str(position.y)
+	light.position = position
+	# NO añadir a nav_obstacles: las farolas no bloquean navegación
+	add_child(light)
 
 func _build_start_camp() -> void:
 	var center: Vector2 = _cell_center(0, 9)

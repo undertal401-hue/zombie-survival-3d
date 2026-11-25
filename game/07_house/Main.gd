@@ -661,12 +661,11 @@ func _refresh_forest_zone() -> void:
 
 	if _in_forest:
 		EventBus.forest_entered.emit()
-		if solar_lighting != null:
-			solar_lighting.set_ambient_energy(0.62)
-			solar_lighting.set_sun_energy(0.08)
+		# WorldDirector._on_forest_entered maneja la iluminación via apply_state()
 		EventBus.notification.emit("¡Bosque: visibilidad reducida. Sigue la brújula.")
 	else:
 		EventBus.forest_exited.emit()
+		# reset_to_defaults es legado permitido para compatibilidad
 		if solar_lighting != null:
 			solar_lighting.reset_to_defaults()
 		EventBus.notification.emit("Vuelves a las calles del pueblo.")

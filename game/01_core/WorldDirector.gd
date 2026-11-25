@@ -830,6 +830,23 @@ func get_wave() -> int:
 	return _horde_wave
 
 
+## Factor de noche continuo [0,1] para sistemas que necesitan transición suave.
+## 0 = día pleno, 1 = noche profunda. Crepúsculos = valores intermedios.
+## Se usa en MetaProgress, DriveableVehicle, etc. SOLO cuando no hay current_phase() binario.
+func night_factor() -> float:
+	match _phase:
+		0: # dawn: 0.0 -> 0.35
+			return _phase_t * 0.35
+		1: # day: 0.0
+			return 0.0
+		2: # dusk: 0.35 -> 0.85
+			return 0.35 + _phase_t * 0.50
+		3: # night: 0.85 -> 1.0
+			return 0.85 + _phase_t * 0.15
+		_:
+			return 0.0
+
+
 func is_horde_active() -> bool:
 	return _horde_active
 
