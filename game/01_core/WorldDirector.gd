@@ -102,6 +102,9 @@ var _events: Array[Dictionary] = []
 
 
 func _ready() -> void:
+	# Contrato explícito: una pausa real del árbol congela el ciclo del mundo.
+	# El menú principal no pausa el árbol, así que el tiempo del menú cuenta.
+	process_mode = Node.PROCESS_MODE_PAUSABLE
 	_rng.seed = 20261117 + SEED_OFFSET
 	_resolve_nodes()
 	_connect_bus()
@@ -161,6 +164,12 @@ func _connect_bus() -> void:
 		var vehicle_cb: Callable = Callable(self, "_on_vehicle_state_changed")
 		if not EventBus.is_connected("vehicle_state_changed", vehicle_cb):
 			EventBus.connect("vehicle_state_changed", vehicle_cb)
+	# La colección de la horda es live-only: al morir un miembro se retira
+	# sin reemitir `zombie_died` y sin liberar su cadáver persistente.
+	if EventBus != null and EventBus.has_signal("zombie_died"):
+		var death_cb: Callable = Callable(self, "_on_zombie_died")
+		if not EventBus.is_connected("zombie_died", death_cb):
+			EventBus.connect("zombie_died", death_cb)
 
 
 # --- Bucle principal -------------------------------------------------------
@@ -424,6 +433,20 @@ func _victory_guard() -> bool:
 	if gs.has_method("is_game_over") and bool(gs.call("is_game_over")):
 		return true
 	return false
+
+
+## Retira de la horda a un zombi que acaba de morir. El payload del bus no
+## está tipado y puede llegar liberado; se valida antes de consultarlo.
+func _on_zombie_died(zombie) -> void:
+	if typeof(zombie) == TYPE_NIL or typeof(zombie) != TYPE_OBJECT:
+		return
+	if not is_instance_valid(zombie):
+		return
+	if not (zombie is Node):
+		return
+	if not bool(zombie.get_meta("horde_zombie", false)):
+		return
+	_horde_zombies.erase(zombie)
 
 
 func _horde_count() -> int:
@@ -731,6 +754,12 @@ func _emit_bus(signal_name: String, args: Array) -> void:
 
 func current_phase() -> String:
 	return PHASE_NAMES[_phase]
+
+
+## Duración canónica de un ciclo completo (un día de juego), publicada por
+## Main en GameState para las persistencias largas.
+func cycle_duration_seconds() -> float:
+	return maxf(cycle_seconds, 0.001)
 
 
 func current_weather() -> String:

@@ -40,6 +40,13 @@ const STREAM_VEHICLE := &"vehicle"
 
 const MASTER_SEED: int = 20261117
 
+## Reloj absoluto del mundo para persistencias largas (p. ej. cadáveres). Es
+## independiente de `run_clock`: el menú cuenta como tiempo de mundo, mientras
+## que una pausa real del árbol lo congela. Un ciclo completo de
+## WorldDirector equivale a un día de juego.
+const DEFAULT_WORLD_CYCLE_SECONDS: float = 300.0
+const CORPSE_LIFETIME_CYCLES: float = 2.0
+
 # Ritmo de la dificultad: crece con el tiempo, las bajas y la distancia.
 const DIFFICULTY_TIME_RATE: float = 0.004
 const DIFFICULTY_KILL_RATE: float = 0.015
@@ -79,6 +86,11 @@ var _combo_melee_armed: bool = false
 # Reloj de la partida para el HUD (requisito del arnés de tensión). Se cachea
 # aquí para que el HUD no tenga que escanear el árbol en cada frame.
 var run_clock: float = 0.0
+## Tiempo absoluto de mundo activo desde el último reset de sesión. El menú
+## principal lo consume; el árbol pausado lo congela.
+var _world_epoch: float = 0.0
+## Duración canónica de un ciclo/día. Main la publica desde WorldDirector.
+var _world_cycle_seconds: float = DEFAULT_WORLD_CYCLE_SECONDS
 
 func _init() -> void:
 	# Debe seguir evaluando la pausa aunque el árbol esté detenido.
@@ -101,6 +113,11 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	# Reloj y combo avanzan aunque el árbol esté detenido (process_mode ALWAYS).
 	_tick_combo(delta)
+	# El epoch del mundo cuenta el menú, pero una pausa real lo congela. El
+	# guard precede al retorno del menú para que ambos contratos sean
+	# independientes del cronómetro de partida.
+	if not get_tree().paused:
+		_world_epoch += maxf(delta, 0.0)
 	# En el menú principal no avanza ni el reloj ni la dificultad de la partida.
 	if _phase == PHASE_MENU:
 		return
@@ -143,6 +160,35 @@ func set_phase(value) -> void:
 		_victory = false
 	phase_changed.emit(old_phase, next)
 	_queue_state_changed()
+
+## Tiempo absoluto del mundo activo. A diferencia de `run_clock`, avanza en el
+## menú principal y se congela únicamente cuando el árbol está pausado.
+func world_epoch() -> float:
+	return _world_epoch
+
+
+## Seam determinista para QA. No permite avanzar un mundo pausado ni aceptar
+## valores negativos; producción no necesita jumping temporal.
+func advance_world_epoch(seconds: float) -> void:
+	if get_tree().paused:
+		return
+	_world_epoch += maxf(seconds, 0.0)
+
+
+## Duración canónica de un ciclo completo de mundo (un día de juego).
+func world_cycle_seconds() -> float:
+	return _world_cycle_seconds
+
+
+## Publica la duración real configurada en WorldDirector.
+func set_world_cycle_seconds(value: float) -> void:
+	_world_cycle_seconds = maxf(value, 0.001)
+
+
+## Expiry canónico de un cadáver: exactamente dos ciclos/días desde la baja.
+func corpse_expiry_epoch(death_epoch: float) -> float:
+	return float(death_epoch) + CORPSE_LIFETIME_CYCLES * _world_cycle_seconds
+
 
 ## Nivel de dificultad normalizado [0, 1].
 func difficulty() -> float:
@@ -264,6 +310,8 @@ func reset_session(seed_value: int = MASTER_SEED) -> void:
 	_combo_timer = 0.0
 	_combo_melee_armed = false
 	run_clock = 0.0
+	_world_epoch = 0.0
+	_world_cycle_seconds = DEFAULT_WORLD_CYCLE_SECONDS
 	combo_changed.emit(combo_multiplier, combo_count)
 	set_phase(PHASE_BOOT)
 

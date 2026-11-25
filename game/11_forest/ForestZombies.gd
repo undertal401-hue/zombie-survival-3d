@@ -1,8 +1,8 @@
 extends Node2D
 
-## Zombies exclusivos del bosque. Se crean solo mientras el jugador está dentro
-## del bosque y se liberan al salir o al morir, para no dejar bodies extra en el
-## mundo ni contaminar las comprobaciones de QA.
+## Zombies exclusivos del bosque. `_spawned` contiene únicamente actores
+## vivos: al morir uno se retira de la lista y su cadáver persistente pasa a la
+## raíz de cadáveres de la escena. Los vivos se liberan al salir del bosque.
 
 const ZOMBIE_SCENE: PackedScene = preload("res://03_zombies/Zombie.tscn")
 ## R3 (ADR-006): el bosque spawnea MAS caminantes (6 -> 9) porque el juego

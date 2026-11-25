@@ -30,6 +30,11 @@ const ALERT_TIME := 5.0
 ## icono oficial o marque honestamente el asset pendiente.
 const PICKUP_SCENE: PackedScene = preload("res://04_items/Pickup.tscn")
 const ZOMBIE_DROP_ROOT_GROUP: StringName = &"zombie_drop_root"
+## Los cadáveres conservan el nodo original, pero dejan el grupo vivo `zombies`
+## y pasan a una raíz persistente de la escena actual.
+const CORPSE_GROUP: StringName = &"corpses"
+const CORPSE_ROOT_GROUP: StringName = &"corpse_root"
+const CORPSE_ROOT_NAME: String = "Corpses"
 ## Separaciones fijas para que dos recompensas del mismo jefe no se apilen
 ## exactamente. No consumen el RNG de botin ni alteran sus probabilidades.
 const DROP_OFFSETS: Array[Vector2] = [
@@ -105,6 +110,8 @@ var _boss_charge_hit: bool = false
 
 @onready var agent: NavigationAgent2D = $NavigationAgent2D
 @onready var separation_area: Area2D = $SeparationArea
+@onready var collision_shape: CollisionShape2D = $Collision
+@onready var corpse_blood: Sprite2D = $CorpseBlood
 @onready var body_visual: Polygon2D = $Body
 @onready var nose: Polygon2D = $Nose
 @onready var alert_label: Label = $Alert
@@ -126,6 +133,10 @@ var _investigate_wait: float = 0.0
 var _flash_timer: float = 0.0
 var _knockback: Vector2 = Vector2.ZERO
 var _dead: bool = false
+## Tiempos absolutos del cadáver. Se capturan al morir y no cambian aunque la
+## duración del ciclo se modifique más tarde durante la misma partida.
+var _death_epoch: float = -INF
+var _expiry_epoch: float = INF
 var _repath_timer: float = 0.0
 var _last_destination: Vector2 = Vector2.INF
 ## Vecinos cercanos detectados por el Area2D local (solo zombis en radio SEPARATION_RADIUS).
@@ -182,6 +193,24 @@ func _ready() -> void:
 	_connect_bus_alert_if_available()
 
 
+## Estado público del cuerpo. `is_corpse` solo es true después de la muerte
+## y el mismo nodo original conserva su identidad durante toda la persistencia.
+func is_alive() -> bool:
+	return not _dead
+
+
+func is_corpse() -> bool:
+	return _dead
+
+
+func death_epoch() -> float:
+	return _death_epoch
+
+
+func expiry_epoch() -> float:
+	return _expiry_epoch
+
+
 ## Única puerta de acceso al jugador dentro del zombi.
 ## `get_first_node_in_group` puede devolver un objeto ya liberado (la escena
 ## se recarga al morir o al reintentar) y castearlo a Node2D lanza
@@ -200,6 +229,8 @@ func _player_node() -> Node2D:
 ## disponible durante la animacion de muerte, cuando la simulacion ya esta
 ## apagada pero el cadaver todavia puede volver a entrar en el radio visible.
 func _process(_delta: float) -> void:
+	if _dead and _expire_corpse_if_due():
+		return
 	var player_node: Node2D = _player_node()
 	if player_node != null:
 		var dist_to_player: float = global_position.distance_to(player_node.global_position)
@@ -207,6 +238,18 @@ func _process(_delta: float) -> void:
 	else:
 		# Sin jugador (cambio de escena/arranque), no dejar un zombi oculto.
 		_set_render_culled(false)
+
+
+## El cadáver expira en el límite absoluto inclusivo. La pausa congela tanto
+## el reloj de GameState como este nodo pausable, por lo que no puede ser
+## liberado durante una pausa normal.
+func _expire_corpse_if_due() -> bool:
+	if not _dead or is_queued_for_deletion():
+		return false
+	if GameState.world_epoch() < _expiry_epoch:
+		return false
+	queue_free()
+	return true
 
 
 func _physics_process(delta: float) -> void:
@@ -1051,8 +1094,8 @@ func _drop_loot() -> void:
 
 
 ## Crea una recompensa física bajo una raíz persistente del mundo. Nunca se
-## usa al zombi como padre: su corpse se libera tras la animación y no puede
-## llevarse el botín con él.
+## usa al zombi como padre: su cadáver persiste y no puede llevarse el botín
+## cuando expira.
 func _spawn_zombie_pickup(item_id: String, amount: int, slot: int) -> Node:
 	if item_id == "" or amount <= 0:
 		return null
@@ -1095,6 +1138,45 @@ func _zombie_drop_root() -> Node:
 	fallback.add_to_group(ZOMBIE_DROP_ROOT_GROUP)
 	scene.add_child(fallback)
 	return fallback
+
+
+## Resuelve la raíz persistente de cadáveres de la escena actual. La ruta
+## directa `Main/Corpses` tiene prioridad; el grupo solo acepta descendientes
+## de esa escena para no recibir cadáveres de una transición anterior.
+func _corpse_root() -> Node:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return null
+	var scene: Node = tree.current_scene
+	if scene == null or not is_instance_valid(scene):
+		return null
+	var named_root: Node = scene.get_node_or_null(CORPSE_ROOT_NAME)
+	if _usable_corpse_root(named_root):
+		return named_root
+	for candidate in tree.get_nodes_in_group(CORPSE_ROOT_GROUP):
+		if _usable_corpse_root(candidate) and scene.is_ancestor_of(candidate):
+			return candidate
+	var fallback := Node2D.new()
+	fallback.name = "CorpsesFallback"
+	fallback.add_to_group(CORPSE_ROOT_GROUP)
+	scene.add_child(fallback)
+	return fallback
+
+
+func _usable_corpse_root(node: Node) -> bool:
+	return node != null \
+			and is_instance_valid(node) \
+			and not node.is_queued_for_deletion() \
+			and node.is_inside_tree()
+
+
+## Conserva el nodo original y lo mueve bajo la raíz persistente sin alterar
+## su transformada global.
+func _attach_to_corpse_root() -> void:
+	var root: Node = _corpse_root()
+	if root == null or root == get_parent():
+		return
+	reparent(root, true)
 
 
 ## Solo una raíz viva, dentro del árbol y no pendiente de eliminación puede
@@ -1189,43 +1271,51 @@ func _diff_factor(data: Dictionary, keys: Array, fallback: float) -> float:
 
 
 func _die() -> void:
+	# La muerte es idempotente: cualquier ruta que intente matar dos veces al
+	# mismo nodo conserva una sola emisión de `zombie_died`.
+	if _dead:
+		return
 	_dead = true
 	state = State.DEAD
+	_death_epoch = GameState.world_epoch()
+	_expiry_epoch = GameState.corpse_expiry_epoch(_death_epoch)
+	set_meta("corpse_death_epoch", _death_epoch)
+	set_meta("corpse_expiry_epoch", _expiry_epoch)
+
 	remove_from_group("zombies")
+	add_to_group(CORPSE_GROUP)
 	# Al quitar la capa 2, los Area2D ajenos reciben body_exited y nos descartan.
 	# Aquí además dejamos de monitorizar y liberamos nuestras propias referencias.
 	_separation_neighbors.clear()
 	if separation_area != null:
 		separation_area.monitoring = false
+		separation_area.monitorable = false
 	collision_layer = 0
 	collision_mask = 0
+	if collision_shape != null:
+		collision_shape.disabled = true
+	velocity = Vector2.ZERO
 	# El tinte rojo del golpe (flash de dano) lo restaura `_update_flash()`,
 	# que se llama desde `_physics_process`: al desactivar el proceso fisico,
-	# el cadaver se quedaba CONGELADO en rojo durante toda la animacion de
-	# muerte (0,86 s con skin). Se restaura ANTES de desactivar el proceso
-	# fisico y antes del desvanecido.
+	# el cadaver se quedaba CONGELADO en rojo. Se restaura antes de apagarlo.
 	modulate = Color.WHITE
 	set_physics_process(false)
 	alert_label.visible = false
-	EventBus.zombie_died.emit(self)
-	_drop_loot()
+	if corpse_blood != null:
+		corpse_blood.visible = true
+	# El registro central de actores contiene vivos. El mismo nodo conserva su
+	# identidad, pero deja de presentarse como actor de gameplay.
+	GameState.unregister_actor(self)
+	# Los managers de bosque y horda son live-only. Mover el nodo original a
+	# la raíz persistente evita que su limpieza pueda borrarlo por accidente.
+	_attach_to_corpse_root()
 
 	if zombie_visual != null:
 		zombie_visual.play_death()
 
-	# R2: con skin, la animacion de muerte dura 6 frames a 7 fps = 0.86 s. El
-	# desvanecido rapido de 0.3 s (el del cubo) la cortaba en el primer frame:
-	# el cadaver nunca llegaba a caerse y 4 de los 6 frames del pack se
-	# desperdiciaban. Con skin el cadaver se queda en pantalla hasta que
-	# termina la animacion y se desvanece en la ultima parte. La escala NO
-	# se toca: encoger un cadaver parece un popping, no una caida.
-	var skin_death: bool = zombie_visual != null and zombie_visual.uses_skin()
-	var tween := create_tween()
-	if skin_death:
-		tween.tween_interval(0.56)
-		tween.tween_property(self, "modulate:a", 0.0, 0.3)
-	else:
-		tween.set_parallel(true)
-		tween.tween_property(self, "modulate:a", 0.0, 0.3)
-		tween.tween_property(self, "scale", Vector2(0.6, 0.6), 0.3)
-	tween.finished.connect(queue_free)
+	# Una única señal: todos los consumidores (combo, kill count, botín,
+	# bosque y horda) observan esta misma baja.
+	EventBus.zombie_died.emit(self)
+	_drop_loot()
+	# No hay tween de desvanecido ni `queue_free()` al terminar la animación:
+	# el cuerpo permanece visible y ensangrentado hasta `_expiry_epoch`.

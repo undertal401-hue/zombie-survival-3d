@@ -260,6 +260,12 @@ func set_wave_manager(manager: Node) -> void:
 	wave_manager = manager
 	if manager != null:
 		GameState.register_actor(manager, &"wave_manager")
+		# El estado central usa la duración real del director para convertir
+		# tiempo de mundo en días de juego (p. ej. cadáveres durante dos días).
+		if manager.has_method("cycle_duration_seconds"):
+			GameState.set_world_cycle_seconds(
+				float(manager.call("cycle_duration_seconds"))
+			)
 
 ## Puente único para iniciar oleadas. Si aún no hay manager, el evento llega
 ## igual al estado central, que se encarga de contarlo y subir la dificultad.
