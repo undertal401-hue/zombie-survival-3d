@@ -315,13 +315,13 @@ func _ready() -> void:
 	else:
 		scrap_amount = 0
 
-	# El cadaver actual desaparece tras su animacion. La pickup debe quedar en
-	# el mundo y conservar la recompensa pendiente.
+	# El cadaver ahora permanece en el mundo durante dos dias de juego. La
+	# pickup debe sobrevivir a su animacion y conservar la recompensa pendiente.
 	for _i in range(100):
 		await get_tree().physics_frame
-	_check(not is_instance_valid(boss), "El cadaver termina su ciclo visual")
+	_check(is_instance_valid(boss), "El cadaver permanece tras su animacion de muerte")
 	_check(scrap_pickups.size() == 1 and is_instance_valid(scrap_pickups[0]),
-		"La recompensa fisica sobrevive a la eliminacion del cadaver")
+		"La recompensa fisica sobrevive al final de la animacion del cadaver")
 	_check(scrap_pickups.size() == 1
 			and int(scrap_pickups[0].get("amount")) == scrap_amount,
 		"La cantidad pendiente no cambia mientras nadie la recoge")
@@ -798,6 +798,10 @@ func _exercise_horde_cleanup() -> void:
 	if horde_actors.is_empty():
 		return
 	var boss: CharacterBody2D = horde_actors[0]
+	var horde_survivors: Array[CharacterBody2D] = []
+	for actor in horde_actors:
+		if actor != boss:
+			horde_survivors.append(actor)
 	boss.set("kind", BOSS_KIND)
 	boss.call("_apply_kind")
 	var inventory_before: Dictionary = Inventory.items()
@@ -814,8 +818,10 @@ func _exercise_horde_cleanup() -> void:
 	director.call("_end_horde")
 	await get_tree().process_frame
 	await get_tree().process_frame
-	_check(_all_invalid(horde_actors),
-		"La dispersion real de horda libera sus zombis")
+	_check(_all_invalid(horde_survivors),
+		"La dispersion real de horda libera sus zombis vivos")
+	_check(is_instance_valid(boss),
+		"El cadaver de la horda sobrevive a la dispersion")
 	_check(int(director.call("horde_size")) == 0
 			and not bool(director.call("is_horde_active")),
 		"La horda real queda cerrada y vacia")
