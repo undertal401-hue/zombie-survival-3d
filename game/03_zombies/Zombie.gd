@@ -25,6 +25,29 @@ const SEPARATION_RADIUS := 26.0
 const SEPARATION_FORCE := 55.0
 const ALERT_TIME := 5.0
 
+## Recompensas fisicas del zombi. La escena se carga una vez y cada objeto se
+## configura ANTES de entrar al arbol para que Pickup._ready() resuelva el
+## icono oficial o marque honestamente el asset pendiente.
+const PICKUP_SCENE: PackedScene = preload("res://04_items/Pickup.tscn")
+const ZOMBIE_DROP_ROOT_GROUP: StringName = &"zombie_drop_root"
+## Separaciones fijas para que dos recompensas del mismo jefe no se apilen
+## exactamente. No consumen el RNG de botin ni alteran sus probabilidades.
+const DROP_OFFSETS: Array[Vector2] = [
+	Vector2(-12.0, 0.0),
+	Vector2(12.0, 0.0),
+	Vector2(0.0, -12.0),
+	Vector2(0.0, 12.0),
+	Vector2(-12.0, 12.0),
+]
+## Politica original del caminante. El 18 % de material se divide 60/40 entre
+## chatarra y tela. Los umbrales de municion son acumulativos: 8 % pistola,
+## 4 % escopeta, 3 % fusil y 85 % sin municion.
+const WALKER_MATERIAL_CHANCE: float = 0.18
+const WALKER_SCRAP_CHANCE: float = 0.60
+const WALKER_PISTOL_CHANCE: float = 0.08
+const WALKER_SHOTGUN_CHANCE: float = 0.12
+const WALKER_RIFLE_CHANCE: float = 0.15
+
 ## La alerta se propaga por EventBus.zombie_alerted y, localmente, con el
 ## bucle de grupo de _propagate_alert() -> receive_group_alert(). Antes había
 ## aquí una señal local zombie_alerted que nadie conectaba (deuda #17).
@@ -988,10 +1011,9 @@ func _apply_kind() -> void:
 
 ## Recompensa por riesgo: el jefe asegura chatarra; el zombi normal tiene una
 ## probabilidad pequeña. Usa el flujo 'loot' para que el botín siga siendo
-## determinista dentro de la misma partida.
+## determinista dentro de la misma partida. La recompensa ya no se concede al
+## inventario: se materializa como Pickup físico que el jugador debe recoger.
 func _drop_loot() -> void:
-	if not is_instance_valid(Inventory):
-		return
 	var rng: RandomNumberGenerator = GameState.rng(&"loot")
 	var item_id: String = ""
 	var amount: int = 1
@@ -1000,33 +1022,89 @@ func _drop_loot() -> void:
 			# El jefe asegura una recompensa proporcional a su riesgo.
 			item_id = "scrap"
 			amount = rng.randi_range(5, 8)
-			Inventory.add_item(item_id, amount, true)
-			# Munición garantizada para el jefe
+			_spawn_zombie_pickup(item_id, amount, 0)
+			# Munición condicional del jefe. Se conserva UN solo roll para que
+			# las probabilidades y el orden del stream no cambien.
 			var ammo_roll: float = rng.randf()
 			if ammo_roll < 0.7:
-				Inventory.add_item("pistol_ammo", rng.randi_range(12, 24), true)
+				_spawn_zombie_pickup("pistol_ammo", rng.randi_range(12, 24), 1)
 			if ammo_roll < 0.5:
-				Inventory.add_item("shotgun_ammo", rng.randi_range(6, 12), true)
+				_spawn_zombie_pickup("shotgun_ammo", rng.randi_range(6, 12), 2)
 			if ammo_roll < 0.3:
-				Inventory.add_item("rifle_ammo", rng.randi_range(12, 24), true)
-			Inventory.add_item("medkit", rng.randi_range(1, 2), true)
+				_spawn_zombie_pickup("rifle_ammo", rng.randi_range(12, 24), 3)
+			_spawn_zombie_pickup("medkit", rng.randi_range(1, 2), 4)
 			return
 		_:
-			if rng.randf() < 0.18:
-				item_id = "scrap" if rng.randf() < 0.6 else "cloth"
+			if rng.randf() < WALKER_MATERIAL_CHANCE:
+				item_id = "scrap" if rng.randf() < WALKER_SCRAP_CHANCE else "cloth"
 			# Munición de zombies comunes (pequeña probabilidad)
 			var ammo_roll: float = rng.randf()
-			if ammo_roll < 0.08:
-				Inventory.add_item("pistol_ammo", rng.randi_range(2, 6), true)
-			elif ammo_roll < 0.12:
-				Inventory.add_item("shotgun_ammo", rng.randi_range(2, 4), true)
-			elif ammo_roll < 0.15:
-				Inventory.add_item("rifle_ammo", rng.randi_range(4, 8), true)
+			if ammo_roll < WALKER_PISTOL_CHANCE:
+				_spawn_zombie_pickup("pistol_ammo", rng.randi_range(2, 6), 1)
+			elif ammo_roll < WALKER_SHOTGUN_CHANCE:
+				_spawn_zombie_pickup("shotgun_ammo", rng.randi_range(2, 4), 1)
+			elif ammo_roll < WALKER_RIFLE_CHANCE:
+				_spawn_zombie_pickup("rifle_ammo", rng.randi_range(4, 8), 1)
 	if item_id == "":
 		return
-	var added: int = Inventory.add_item(item_id, amount, true)
-	if added > 0:
-		EventBus.notification.emit("Botín: %s +%d" % [Inventory.display_name(item_id), added])
+	_spawn_zombie_pickup(item_id, amount, 0)
+
+
+## Crea una recompensa física bajo una raíz persistente del mundo. Nunca se
+## usa al zombi como padre: su corpse se libera tras la animación y no puede
+## llevarse el botín con él.
+func _spawn_zombie_pickup(item_id: String, amount: int, slot: int) -> Node:
+	if item_id == "" or amount <= 0:
+		return null
+	var root: Node = _zombie_drop_root()
+	if root == null:
+		push_error("No se pudo crear la recompensa '%s': no hay una raiz de botin valida" % item_id)
+		return null
+	var pickup: Node2D = PICKUP_SCENE.instantiate() as Node2D
+	if pickup == null:
+		push_error("No se pudo instanciar la recompensa fisica '%s'" % item_id)
+		return null
+	pickup.set("item_id", item_id)
+	pickup.set("amount", amount)
+	root.add_child(pickup)
+	var offset: Vector2 = DROP_OFFSETS[posmod(slot, DROP_OFFSETS.size())]
+	pickup.global_position = global_position + offset
+	return pickup
+
+
+## Resuelve la raíz persistente de botín. `Main/ZombieDrops` es la ruta de
+## producción. La escena actual tiene prioridad: un nodo del mismo grupo que
+## pertenezca a otra escena o a una transición antigua nunca puede recibir el
+## botín. El fallback bajo la escena actual permite que una prueba aislada use
+## el mismo contrato sin inventar otro propietario temporal.
+func _zombie_drop_root() -> Node:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return null
+	var scene: Node = tree.current_scene
+	if not _usable_drop_root(scene):
+		return null
+	var named_root: Node = scene.get_node_or_null("ZombieDrops")
+	if _usable_drop_root(named_root):
+		return named_root
+	for candidate in tree.get_nodes_in_group(ZOMBIE_DROP_ROOT_GROUP):
+		if _usable_drop_root(candidate) and scene.is_ancestor_of(candidate):
+			return candidate
+	var fallback := Node2D.new()
+	fallback.name = "ZombieDropsFallback"
+	fallback.add_to_group(ZOMBIE_DROP_ROOT_GROUP)
+	scene.add_child(fallback)
+	return fallback
+
+
+## Solo una raíz viva, dentro del árbol y no pendiente de eliminación puede
+## recibir recompensas. `is_instance_valid()` por sí solo no descarta un nodo
+## que ya tiene `queue_free()` pendiente.
+func _usable_drop_root(node: Node) -> bool:
+	return node != null \
+			and is_instance_valid(node) \
+			and not node.is_queued_for_deletion() \
+			and node.is_inside_tree()
 
 
 ## Consume GameState.difficulty() de forma defensiva. Acepta numero, texto o

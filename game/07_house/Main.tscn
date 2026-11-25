@@ -99,6 +99,8 @@ item_id = "medkit"
 position = Vector2(240, -30)
 item_id = "medkit"
 
+[node name="ZombieDrops" type="Node2D" parent="." groups=["zombie_drop_root"]]
+
 [node name="HUD" parent="." unique_id=390881930 instance=ExtResource("4_hud")]
 
 [node name="InventoryMenu" parent="." unique_id=524118371 instance=ExtResource("8_inventory")]
