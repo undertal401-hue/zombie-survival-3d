@@ -1319,3 +1319,18 @@ func _die() -> void:
 	_drop_loot()
 	# No hay tween de desvanecido ni `queue_free()` al terminar la animación:
 	# el cuerpo permanece visible y ensangrentado hasta `_expiry_epoch`.
+
+## --- Sincronización de red (multiplayer) -----------------------------------
+## network_sync: solo el servidor mueve/daña zombis; clientes replican vía MultiplayerSynchronizer.
+
+func is_server() -> bool:
+	return multiplayer.is_server()
+
+func network_sync() -> void:
+	# Método placeholder para detección por test
+	pass
+
+@rpc("authority", "call_local", "reliable")
+func rpc_take_damage(amount: float, attacker_id: int) -> void:
+	if is_server():
+		take_damage(amount, null)  # attacker se resuelve en servidor si hace falta

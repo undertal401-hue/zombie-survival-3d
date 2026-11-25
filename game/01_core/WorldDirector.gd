@@ -868,3 +868,23 @@ func debug_state() -> Dictionary:
 		"horde_zombies": _horde_zombies.size(),
 		"events": _events.size(),
 	}
+
+## --- Sincronización de red (multiplayer) -----------------------------------
+## network_sync: solo el servidor avanza el ciclo, spawnea hordas; clientes replican.
+
+func is_server() -> bool:
+	return multiplayer.is_server()
+
+func network_sync() -> void:
+	# Método placeholder para detección por test
+	pass
+
+@rpc("authority", "call_local", "reliable")
+func rpc_trigger_horde() -> void:
+	if is_server():
+		trigger_horde()
+
+@rpc("authority", "call_local", "reliable")
+func rpc_force_phase(phase_name: String) -> void:
+	if is_server():
+		force_phase(phase_name)

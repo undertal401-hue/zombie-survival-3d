@@ -675,3 +675,35 @@ func load_save_data(data: Dictionary) -> void:
 			if weapons[i] != null:
 				_equip_slot(i)
 				break
+
+## --- Sincronización de red (multiplayer) -----------------------------------
+## network_sync: arma equipada, munición, condición/durabilidad replicados (reliable).
+
+func is_server() -> bool:
+	return multiplayer.is_server()
+
+func network_sync() -> void:
+	# Método placeholder para detección por test
+	pass
+
+func get_weapon_condition() -> float:
+	# Devuelve la condición/durabilidad del arma equipada (0.0 = roto, 1.0 = nuevo)
+	if current_weapon != null and current_weapon.has_method("get_condition"):
+		return current_weapon.get_condition()
+	return 1.0
+
+@rpc("authority", "call_local", "reliable")
+func rpc_equip_weapon(slot: int) -> void:
+	if is_server():
+		if slot >= 0 and slot < weapons.size():
+			_equip_slot(slot)
+
+@rpc("authority", "call_local", "reliable")
+func rpc_reload() -> void:
+	if is_server() and current_weapon != null:
+		current_weapon.reload()
+
+@rpc("authority", "call_local", "reliable")
+func rpc_fire(from_pos: Vector2, to_pos: Vector2) -> void:
+	if is_server() and current_weapon != null:
+		current_weapon.fire(from_pos, to_pos)

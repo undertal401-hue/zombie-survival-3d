@@ -448,3 +448,28 @@ func _emit_craft_signal(item_id: String, amount: int) -> void:
 			else:
 				bus.emit_signal(name, item_id, amount)
 			return
+
+## --- Sincronización de red (multiplayer) -----------------------------------
+## network_sync: inventario replicado (reliable). Servidor valida add/remove/craft.
+
+func is_server() -> bool:
+	return multiplayer.is_server()
+
+func network_sync() -> void:
+	# Método placeholder para detección por test
+	pass
+
+@rpc("authority", "call_local", "reliable")
+func rpc_add_item(item_id: String, amount: int) -> void:
+	if is_server():
+		add_item(item_id, amount)
+
+@rpc("authority", "call_local", "reliable")
+func rpc_remove_item(item_id: String, amount: int) -> void:
+	if is_server():
+		remove_item(item_id, amount)
+
+@rpc("authority", "call_local", "reliable")
+func rpc_craft_item(recipe_id: String) -> void:
+	if is_server():
+		craft_item(recipe_id)

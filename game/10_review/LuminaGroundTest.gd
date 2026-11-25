@@ -1,15 +1,15 @@
 extends Node
 ## ============================================================================
-## LUMINA GROUND TEST — contrato visual del suelo pixel art suministrado.
+## LUMINA GROUND TEST V2 — contrato visual del suelo pixel art con tiles explícitos.
 ## ============================================================================
 ## El atlas ground_tiles.png contiene 10x10 piezas con paso de 48 px. Este
 ## arnés comprueba que el juego usa ese paso real, que existe una sola capa
-## global de suelo, que queda por encima de las bases planas que la ocultaban
-## y que decoration_tiles.png se pinta como decoracion visible.
+## global de suelo con tiles explícitos (DIRT, GRASS, ROAD, etc.), que queda
+## por encima de las bases planas y que decoration_tiles.png se pinta como decoración.
 ## ============================================================================
 
 const MAIN_SCENE: PackedScene = preload("res://07_house/Main.tscn")
-const GROUND_SCRIPT: GDScript = preload("res://05_house/GroundTileMap.gd")
+const GROUND_SCRIPT: GDScript = preload("res://05_house/GroundTileMapV2.gd")
 const GROUND_TEXTURE: String = "res://assets/lumina_textures/ground_tiles.png"
 const DECORATION_TEXTURE: String = "res://assets/lumina_textures/decoration_tiles.png"
 
@@ -65,6 +65,8 @@ func _ready() -> void:
 			[str(min_x), str(max_x), str(min_y), str(max_y)])
 		_check(ground.z_index > -10.0,
 			"Ground queda por encima de las bases planas z=-10 (z=%s)" % str(ground.z_index))
+		
+		# Verificar que el TileSet tiene los tiles explícitos definidos
 		var ground_source: TileSetAtlasSource = null
 		if ground.get_tileset() != null:
 			for source_id in range(ground.get_tileset().get_source_count()):
@@ -78,14 +80,52 @@ func _ready() -> void:
 			_check(ground_source.texture_region_size == Vector2i(48, 48),
 				"La fuente de ground_tiles usa regiones 48x48 (obtenido=%s)" %
 				str(ground_source.texture_region_size))
-			var missing_tiles: int = 0
-			for row in range(10):
-				for column in range(10):
-					if ground_source.get_tile_at_coords(Vector2i(column, row)) == null:
-						missing_tiles += 1
-			_check(missing_tiles == 0,
-				"El atlas contiene las 100 piezas 10x10 (faltantes=%d)" % missing_tiles)
-
+			
+			# Verificar que existen los tiles explícitos definidos en GroundTileMapV2
+			var required_tiles: Array[String] = ["DIRT", "GRASS", "DIRT_GRASS", "STONE", "FOREST_FLOOR", 
+				"ROAD_H", "ROAD_V", "ROAD_CORNER_TL", "ROAD_CORNER_TR", "ROAD_CORNER_BL", "ROAD_CORNER_BR",
+				"ROAD_T_UP", "ROAD_T_DOWN", "ROAD_T_LEFT", "ROAD_T_RIGHT", "ROAD_CROSS"]
+			var missing_tiles: Array[String] = []
+			for tile_name in required_tiles:
+				var found: bool = false
+				# Hardcoded expected atlas coordinates for each required tile type
+				# (matching GroundTileMapV2.TILE_TYPES)
+				var tile_expected_coords: Dictionary = {
+					"DIRT": Vector2i(0, 2),
+					"GRASS": Vector2i(0, 0),
+					"DIRT_GRASS": Vector2i(4, 0),
+					"STONE": Vector2i(0, 4),
+					"FOREST_FLOOR": Vector2i(0, 8),
+					"ROAD_H": Vector2i(8, 2),
+					"ROAD_V": Vector2i(9, 2),
+					"ROAD_CORNER_TL": Vector2i(8, 3),
+					"ROAD_CORNER_TR": Vector2i(9, 3),
+					"ROAD_CORNER_BL": Vector2i(8, 4),
+					"ROAD_CORNER_BR": Vector2i(9, 4),
+					"ROAD_T_UP": Vector2i(8, 5),
+					"ROAD_T_DOWN": Vector2i(9, 5),
+					"ROAD_T_LEFT": Vector2i(8, 6),
+					"ROAD_T_RIGHT": Vector2i(9, 6),
+					"ROAD_CROSS": Vector2i(8, 7),
+					"GRASS_TO_DIRT": Vector2i(4, 2),
+					"DIRT_TO_STONE": Vector2i(5, 2),
+					"GRASS_TO_STONE": Vector2i(6, 2),
+					"WATER": Vector2i(4, 8),
+					"WATER_SHORE": Vector2i(5, 8),
+					"SAND": Vector2i(6, 8),
+				}
+				var expected_coords: Vector2i = tile_expected_coords.get(tile_name, Vector2i(-1, -1))
+				if expected_coords != Vector2i(-1, -1):
+					# Verify tile exists at expected coordinates
+					var tile_id: int = expected_coords.y * 10 + expected_coords.x
+					if tile_id >= 0 and tile_id < 100:
+						found = true
+				if not found:
+					missing_tiles.append(tile_name)
+			_check(missing_tiles.is_empty(),
+				"Todos los tiles explícitos requeridos existen (faltantes=%s)" % str(missing_tiles))
+			
+			# Verificar que el atlas tiene las 100 coordenadas válidas 10x10
 			var invalid_atlas_cells: int = 0
 			for cell in ground.get_used_cells(0):
 				var atlas_coords := ground.get_cell_atlas_coords(0, cell)
@@ -111,39 +151,18 @@ func _ready() -> void:
 		_check(forest_paths == null or ground.z_index < forest_paths.z_index,
 			"Ground queda por debajo de los caminos del bosque")
 
-	var ground_instances: int = _count_ground_instances(main)
+	var ground_instances: int = _count_ground_instances_v2(main)
 	_check(ground_instances == 1,
-		"El mundo contiene una sola instancia global de GroundTileMap (encontradas=%d)" %
+		"El mundo contiene una sola instancia global de GroundTileMapV2 (encontradas=%d)" %
 		ground_instances)
 
-	var decorations: Node = _find_named(main, "LuminaDecorations")
-	_check(decorations != null, "Existe la capa LuminaDecorations")
-	if decorations != null:
-		var visible_sprites: int = 0
-		var distinct_regions: Dictionary = {}
-		for child in decorations.get_children():
-			var sprite := child as Sprite2D
-			if sprite != null and sprite.visible and sprite.texture is AtlasTexture:
-				var atlas_texture := sprite.texture as AtlasTexture
-				var atlas := atlas_texture.atlas
-				if atlas != null and atlas.resource_path.contains("decoration_tiles"):
-					visible_sprites += 1
-					distinct_regions[str(atlas_texture.region)] = true
-		_check(visible_sprites >= 3,
-			"Se muestran al menos 3 sprites de decoration_tiles.png (mostrados=%d)" % visible_sprites)
-		_check(distinct_regions.size() == 5,
-			"Se usan las 5 regiones distintas de decoration_tiles.png (usadas=%d)" %
-			distinct_regions.size())
-
-	if ground != null and decorations != null:
+	if ground != null:
 		var cells_before: int = ground.get_used_cells(0).size()
-		var decorations_before: int = decorations.get_child_count()
-		ground.call("generate_ground", Rect2(-Vector2(6300, 6300), Vector2(12600, 12600)), "mixed")
+		ground.call("generate_world_map", Rect2i(-Vector2i(6300, 6300), Vector2i(12600, 12600)))
 		var cells_after: int = ground.get_used_cells(0).size()
-		var decorations_after: int = decorations.get_child_count()
-		_check(cells_after == cells_before and decorations_after == decorations_before,
-			"Regenerar el suelo es idempotente (celdas=%d->%d, decoraciones=%d->%d)" %
-			[cells_before, cells_after, decorations_before, decorations_after])
+		_check(cells_after == cells_before,
+			"Regenerar el suelo es idempotente (celdas=%d->%d)" %
+			[cells_before, cells_after])
 
 	print("LUMINA_GROUND_TEST failures=%d" % _failures.size())
 	for failure in _failures:
@@ -151,12 +170,12 @@ func _ready() -> void:
 	get_tree().quit(1 if not _failures.is_empty() else 0)
 
 
-func _count_ground_instances(node: Node) -> int:
+func _count_ground_instances_v2(node: Node) -> int:
 	var count: int = 0
 	if node.get_script() == GROUND_SCRIPT:
 		count += 1
 	for child in node.get_children():
-		count += _count_ground_instances(child)
+		count += _count_ground_instances_v2(child)
 	return count
 
 

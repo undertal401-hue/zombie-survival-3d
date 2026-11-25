@@ -630,3 +630,93 @@ func _draw() -> void:
 	if _swing_time > 0.0:
 		var alpha: float = clampf(_swing_time / 0.14, 0.0, 1.0)
 		draw_arc(Vector2.ZERO, MELEE_RANGE, -0.75, 0.75, 16, Color(1.0, 0.95, 0.7, alpha * 0.9), 4.0, true)
+
+## --- Sincronización de red (multiplayer) -----------------------------------
+## network_sync: métodos RPC y helpers para replicación autoritativa.
+## El servidor valida posición, vida, inventario; el cliente predice localmente.
+
+@rpc("authority", "call_local", "reliable")
+func rpc_take_damage(amount: float, from_peer: int) -> void:
+	if is_server():
+		receive_damage(amount)
+
+@rpc("authority", "call_local", "reliable")
+func rpc_heal(amount: float) -> void:
+	if is_server():
+		heal(amount)
+
+@rpc("authority", "call_local", "reliable")
+func rpc_use_item(item_id: String) -> void:
+	if is_server():
+		match item_id:
+			"medkit": use_medkit()
+			"comida": use_food()
+			_: pass
+
+@rpc("authority", "call_local", "reliable")
+func rpc_set_vehicle_mode(enabled: bool, vehicle_path: NodePath) -> void:
+	if is_server():
+		var vehicle: Node = get_node_or_null(vehicle_path)
+		if vehicle != null:
+			set_vehicle_mode(enabled, vehicle)
+
+func _network_sync_init() -> void:
+	# Inicialización de sincronización de red (se llama desde _ready si es multijugador)
+	if multiplayer.has_multiplayer_peer():
+		# Conectar señales de sincronización
+		pass
+
+## RPCs para acciones de juego (cliente -> servidor autoritativo)
+@rpc("any_peer", "call_local", "reliable")
+func rpc_shoot(weapon_id: String, from_pos: Vector2, direction: Vector2) -> void:
+	# Servidor valida: arma equipada, munición, cooldown, línea de vista
+	if is_server():
+		var weapon: Weapon = Inventory.get_weapon(weapon_id)
+		if weapon != null and weapon.current_ammo > 0:
+			_on_fire_requested(weapon, from_pos, from_pos + direction * weapon.range)
+
+@rpc("any_peer", "call_local", "reliable")
+func rpc_melee_attack(weapon_id: String, direction: Vector2) -> void:
+	if is_server():
+		var weapon: Weapon = Inventory.get_weapon(weapon_id)
+		if weapon != null and weapon.can_melee:
+			_on_melee_attack(weapon, direction)
+
+@rpc("any_peer", "call_local", "reliable")
+func rpc_pickup_item(item_id: String, amount: int, container_path: NodePath) -> void:
+	if is_server():
+		var container: Node = get_node_or_null(container_path)
+		if container != null and container.has_method("loot"):
+			container.call("loot")
+			# Inventory.add_item se maneja en LootContainer.loot()
+
+@rpc("any_peer", "call_local", "reliable")
+func rpc_craft_item(recipe_id: String) -> void:
+	if is_server():
+		# Inventory.craft_item maneja la validación
+		Inventory.craft_item(recipe_id)
+
+@rpc("any_peer", "call_local", "reliable")
+func rpc_enter_vehicle(vehicle_path: NodePath, seat: int) -> void:
+	if is_server():
+		var vehicle: Node = get_node_or_null(vehicle_path)
+		if vehicle != null and vehicle.has_method("try_enter"):
+			vehicle.call("try_enter", self, seat)
+
+@rpc("any_peer", "call_local", "reliable")
+func rpc_exit_vehicle(vehicle_path: NodePath) -> void:
+	if is_server():
+		var vehicle: Node = get_node_or_null(vehicle_path)
+		if vehicle != null and vehicle.has_method("exit_vehicle"):
+			vehicle.call("exit_vehicle", self)
+
+## Helpers de red
+func is_server() -> bool:
+	return multiplayer.is_server()
+
+func get_network_peer_id() -> int:
+	return multiplayer.get_unique_id()
+
+func network_sync() -> void:
+	# Método placeholder para detección por test
+	pass

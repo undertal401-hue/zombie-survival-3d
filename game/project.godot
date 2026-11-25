@@ -20,6 +20,7 @@ EventBus="*res://01_core/EventBus.gd"
 GameState="*res://01_core/GameState.gd"
 Inventory="*res://02_player/Inventory.gd"
 ParticleManager="*res://01_core/ParticleManager.gd"
+NetworkManager="*res://09_network/NetworkManager.gd"
 
 [input]
 

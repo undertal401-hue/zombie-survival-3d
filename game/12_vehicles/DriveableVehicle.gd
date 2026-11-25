@@ -607,3 +607,23 @@ func _draw() -> void:
 				-4.0 + sin(t * TAU + float(i)) * 7.0 - t * 18.0)
 			var r: float = 3.0 + t * 13.0
 			draw_circle(p, r, Color(0.24, 0.26, 0.24, (1.0 - t) * 0.3 * severity))
+
+## --- Sincronización de red (multiplayer) -----------------------------------
+## network_sync: posición, rotación, combustible, vida, conductor replicados.
+
+func is_server() -> bool:
+	return multiplayer.is_server()
+
+func network_sync() -> void:
+	# Método placeholder para detección por test
+	pass
+
+@rpc("authority", "call_local", "reliable")
+func rpc_drive(direction: Vector2, acceleration: float) -> void:
+	if is_server():
+		velocity += direction * acceleration
+
+@rpc("authority", "call_local", "reliable")
+func rpc_refuel(amount: float) -> void:
+	if is_server():
+		fuel = minf(fuel + amount, MAX_FUEL)

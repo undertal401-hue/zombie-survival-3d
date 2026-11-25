@@ -17,6 +17,12 @@ polygon = PackedVector2Array(-12, -12, 12, -12, 12, 12, -12, 12)
 collision_mask = 3
 script = ExtResource("2")
 
+[node name="NetworkSync" type="MultiplayerSynchronizer" parent="."]
+replicate_mode = 1
+replication_config = { "replicate": { "position": { "sync_mode": 1, "compress": true }, "rotation": { "sync_mode": 1, "compress": true }, "velocity": { "sync_mode": 1, "compress": true }, "hp": { "sync_mode": 2, "compress": true }, "stamina": { "sync_mode": 2, "compress": true }, "hunger": { "sync_mode": 2, "compress": true }, "is_dead": { "sync_mode": 2, "compress": true }, "is_driving": { "sync_mode": 2, "compress": true } } }
+sync_mode = 1
+authority_mode = 1
+
 [node name="InputHandler" type="Node" parent="."]
 script = ExtResource("1")
 

@@ -157,6 +157,10 @@ func _read_condition() -> float:
 	# get_condition devuelve 1.0 para ids desconocidos: arma nueva por defecto.
 	return Inventory.get_condition(key)
 
+## API pública para lectura de condición/durabilidad (usada por WeaponController.network_sync)
+func get_condition() -> float:
+	return condition
+
 ## API delgada exigida por QA: la condición nunca se duplica en el Resource.
 func is_broken() -> bool:
 	return condition <= 0.0

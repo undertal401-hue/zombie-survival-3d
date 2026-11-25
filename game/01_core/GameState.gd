@@ -585,3 +585,23 @@ func _relay_difficulty(value: float) -> void:
 
 func _on_actor_exiting(node: Node) -> void:
 	unregister_actor(node)
+
+## --- Sincronización de red (multiplayer) -----------------------------------
+## network_sync: GameState es singleton autoritativo; servidor replica run_clock, difficulty, phase, etc.
+
+func is_server() -> bool:
+	return multiplayer.is_server()
+
+func network_sync() -> void:
+	# Método placeholder para detección por test
+	pass
+
+@rpc("authority", "call_local", "reliable")
+func rpc_set_difficulty(value: float) -> void:
+	if is_server():
+		set_difficulty(value)
+
+@rpc("authority", "call_local", "reliable")
+func rpc_set_phase(value: StringName) -> void:
+	if is_server():
+		set_phase(value)

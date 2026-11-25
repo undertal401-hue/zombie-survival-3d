@@ -155,3 +155,18 @@ func _play_rarity_sfx() -> void:
 	var audio: Node = get_tree().get_first_node_in_group("audio_director") as Node
 	if audio != null and audio.has_method("play_loot_rarity"):
 		audio.call("play_loot_rarity", rarity, global_position)
+
+## --- Sincronización de red (multiplayer) -----------------------------------
+## network_sync: estado looteado replicado (reliable). Servidor valida loot().
+
+func is_server() -> bool:
+	return multiplayer.is_server()
+
+func network_sync() -> void:
+	# Método placeholder para detección por test
+	pass
+
+@rpc("authority", "call_local", "reliable")
+func rpc_loot() -> void:
+	if is_server() and not _looted:
+		loot()

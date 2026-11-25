@@ -22,6 +22,12 @@ collision_layer = 2
 collision_mask = 1
 script = ExtResource("1")
 
+[node name="NetworkSync" type="MultiplayerSynchronizer" parent="."]
+replicate_mode = 1
+replication_config = { "replicate": { "position": { "sync_mode": 1, "compress": true }, "rotation": { "sync_mode": 1, "compress": true }, "velocity": { "sync_mode": 1, "compress": true }, "hp": { "sync_mode": 2, "compress": true }, "state": { "sync_mode": 2, "compress": true }, "is_boss": { "sync_mode": 2, "compress": true }, "phase": { "sync_mode": 2, "compress": true } } }
+sync_mode = 1
+authority_mode = 1
+
 [node name="Body" type="Polygon2D" parent="."]
 color = Color(0.6, 0.2, 0.2, 1)
 polygon = PackedVector2Array(-12, -12, 12, -12, 12, 12, -12, 12)

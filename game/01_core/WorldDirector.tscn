@@ -4,3 +4,9 @@
 
 [node name="WorldDirector" type="Node"]
 script = ExtResource("1_world_director")
+
+[node name="NetworkSync" type="MultiplayerSynchronizer" parent="."]
+replicate_mode = 1
+replication_config = { "replicate": { "cycle_seconds": { "sync_mode": 2, "compress": true }, "weather_seconds": { "sync_mode": 2, "compress": true }, "_phase": { "sync_mode": 2, "compress": true }, "_phase_t": { "sync_mode": 2, "compress": true }, "_cycle_t": { "sync_mode": 2, "compress": true }, "_horde_active": { "sync_mode": 2, "compress": true }, "_horde_wave": { "sync_mode": 2, "compress": true }, "_horde_timer": { "sync_mode": 2, "compress": true } } }
+sync_mode = 1
+authority_mode = 1
