@@ -288,20 +288,32 @@ func _house_occluder_checks() -> void:
 	add_child(house)
 	await get_tree().process_frame
 
+	# Solo verificar oclusores de Floor0 (planta exterior) para el hueco de puerta.
+	# Las plantas superiores (Floor1, Floor2) son interiores y tienen muros completos.
+	var floor0: Node = house.get_node_or_null("Floor0")
+	_check(floor0 != null, "casa: Floor0 existe")
+	
 	var occluders: Array[LightOccluder2D] = []
-	_collect_occluders(house, occluders)
+	_collect_occluders(floor0, occluders)
 	_check(occluders.size() >= 3,
-		"casa: hay un oclusor por segmento de muro (%d)" % occluders.size())
+		"casa: Floor0 tiene oclusor por segmento de muro (%d)" % occluders.size())
 
 	var size: Vector2 = house.get("size")
 	# Puerta por defecto: BOTTOM -> el hueco está en el borde inferior.
 	var door_point: Vector2 = Vector2(0.0, size.y * 0.5)
 	_check(not _point_in_any_occluder(occluders, door_point),
-		"casa: el hueco de la PUERTA deja pasar la luz")
+		"casa: el hueco de la PUERTA deja pasar la luz (Floor0)")
 	# Un muro sí debe bloquear.
 	var wall_point: Vector2 = Vector2(size.x * 0.5, 0.0)
 	_check(_point_in_any_occluder(occluders, wall_point),
-		"casa: un MURO sí bloquea la luz")
+		"casa: un MURO sí bloquea la luz (Floor0)")
+	
+	# Verificar que Floor1/Floor2 existen pero no se les exige hueco de puerta
+	var floor1: Node = house.get_node_or_null("Floor1")
+	var floor2: Node = house.get_node_or_null("Floor2")
+	_check(floor1 != null, "casa: Floor1 existe")
+	_check(floor2 != null, "casa: Floor2 existe")
+	
 	house.queue_free()
 
 func _collect_occluders(node: Node, out: Array[LightOccluder2D]) -> void:
