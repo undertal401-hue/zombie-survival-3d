@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://ground_tilemap"]
-
-[ext_resource type="Script" path="res://05_house/GroundTileMapV2.gd" id="1"]
-
-[node name="GroundTileMap" type="TileMap"]
-script = ExtResource("1")

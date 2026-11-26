@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3]
-
-[ext_resource type="Script" path="res://14_quests/QuestDirector.gd" id="1_quest_director"]
-
-[node name="QuestDirector" type="Node"]
-script = ExtResource("1_quest_director")
